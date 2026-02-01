@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Claude Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.3.1",
+            "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+            "react-diff-viewer-continued": "https://esm.sh/react-diff-viewer-continued@3.4.0?deps=react@18.3.1"
+        }
+    }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; background: #1a1a1a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        #terminal { height: 100%; width: 100%; padding: 4px; transition: height 0.2s; }
+        #terminal.with-toolbar { height: calc(100% - 44px); }
+        #terminal.with-toolbar-expanded { height: calc(100% - 140px); }
+        #terminal .xterm { height: 100%; }
+
+        .toolbar-toggle {
+            position: fixed; bottom: 8px; right: 8px; z-index: 200;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: #1a5fb4; border: none; color: #fff;
+            font-size: 20px; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.2s;
+        }
+        .toolbar-toggle:active { transform: scale(0.9); }
+        .toolbar-toggle.expanded { background: #444; }
+
+        .diff-toggle {
+            position: fixed; bottom: 8px; right: 56px; z-index: 200;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: #2e7d32; border: none; color: #fff;
+            font-size: 16px; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.2s, background 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .diff-toggle:active { transform: scale(0.9); }
+        .diff-toggle:hover { background: #388e3c; }
+        .diff-toggle.loading { background: #666; pointer-events: none; }
+
+        .toolbar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: #1a1a1a; border-top: 1px solid #333;
+            padding: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom));
+            display: none; flex-wrap: wrap; gap: 6px;
+            justify-content: center;
+        }
+        .toolbar.show { display: flex; }
+
+        .btn {
+            min-width: 50px; height: 38px; padding: 0 12px;
+            background: #2d2d2d; border: 1px solid #404040; border-radius: 6px;
+            color: #e0e0e0; font-size: 13px; font-weight: 500;
+            cursor: pointer; -webkit-tap-highlight-color: transparent;
+            transition: all 0.15s;
+        }
+        .btn:active { background: #404040; transform: scale(0.95); }
+        .btn.primary { background: #1a5fb4; border-color: #1a5fb4; color: #fff; }
+        .btn.primary:active { background: #2a7fd4; }
+        .btn.danger { background: #c01c28; border-color: #c01c28; color: #fff; }
+        .btn.danger:active { background: #e01c28; }
+        .btn.tmux { background: #8b5cf6; border-color: #8b5cf6; color: #fff; }
+        .btn.tmux:active { background: #a78bfa; }
+
+        #status { position: fixed; top: 8px; right: 8px; padding: 4px 8px; background: rgba(0,0,0,0.8); color: #f66; font-size: 11px; border-radius: 4px; z-index: 100; }
+        #status.ok { color: #4a4; }
+
+        .input-modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8); z-index: 300;
+            display: none; align-items: flex-end; justify-content: center;
+        }
+        .input-modal.show { display: flex; }
+        .input-box {
+            width: 100%; max-width: 600px; background: #252525;
+            border-radius: 12px 12px 0 0; padding: 16px;
+            padding-bottom: calc(16px + env(safe-area-inset-bottom));
+        }
+        .input-box textarea {
+            width: 100%; height: 120px; background: #1a1a1a;
+            border: 1px solid #404040; border-radius: 8px;
+            color: #e0e0e0; font-size: 16px; padding: 12px;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            resize: none; outline: none;
+        }
+        .input-box textarea:focus { border-color: #1a5fb4; }
+        .input-box .actions {
+            display: flex; justify-content: flex-end; gap: 12px; margin-top: 12px;
+        }
+        .input-box .actions button {
+            padding: 10px 24px; border: none; border-radius: 8px;
+            font-size: 15px; font-weight: 500; cursor: pointer;
+        }
+        .input-box .actions .cancel { background: #404040; color: #e0e0e0; }
+        .input-box .actions .send { background: #1a5fb4; color: #fff; }
+        .input-box .actions button:active { opacity: 0.8; }
+
+        .tmux-modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8); z-index: 300;
+            display: none; align-items: center; justify-content: center;
+        }
+        .tmux-modal.show { display: flex; }
+        .tmux-box {
+            width: 90%; max-width: 400px; background: #252525;
+            border-radius: 12px; padding: 20px;
+        }
+        .tmux-title {
+            font-size: 18px; font-weight: 600; color: #fff;
+            margin-bottom: 16px; text-align: center;
+        }
+        .tmux-box input {
+            width: 100%; height: 44px; background: #1a1a1a;
+            border: 1px solid #404040; border-radius: 8px;
+            color: #e0e0e0; font-size: 16px; padding: 0 12px;
+            outline: none; box-sizing: border-box;
+        }
+        .tmux-box input:focus { border-color: #8b5cf6; }
+        .tmux-box .actions {
+            display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;
+        }
+        .tmux-box .actions button {
+            padding: 10px 20px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 500; cursor: pointer;
+        }
+        .tmux-box .actions .cancel { background: #404040; color: #e0e0e0; }
+        .tmux-box .actions .confirm { background: #8b5cf6; color: #fff; }
+        .tmux-box .actions button:active { opacity: 0.8; }
+        
+        .tmux-list-box { max-height: 80vh; display: flex; flex-direction: column; }
+        .session-list {
+            flex: 1; overflow-y: auto; margin: 0 -20px; padding: 0 20px;
+            max-height: 50vh;
+        }
+        .session-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px; background: #1a1a1a; border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .session-info { flex: 1; }
+        .session-name { font-size: 15px; color: #fff; font-weight: 500; }
+        .session-meta { font-size: 12px; color: #888; margin-top: 2px; }
+        .session-meta .attached { color: #4ade80; }
+        .session-actions { display: flex; gap: 8px; }
+        .session-actions button {
+            padding: 6px 12px; border: none; border-radius: 6px;
+            font-size: 13px; cursor: pointer;
+        }
+        .session-actions .attach-btn { background: #8b5cf6; color: #fff; }
+        .session-actions .kill-btn { background: #dc2626; color: #fff; }
+        .session-actions button:active { opacity: 0.8; }
+        .session-empty, .session-loading {
+            text-align: center; color: #888; padding: 30px 0;
+        }
+
+        .btn.settings { background: #525252; border-color: #525252; }
+        .btn.settings:active { background: #6b6b6b; }
+
+        .cmd-section { margin-bottom: 20px; }
+        .cmd-section-title {
+            font-size: 13px; color: #888; margin-bottom: 10px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .cmd-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 12px; background: #1a1a1a; border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .cmd-item-info { flex: 1; overflow: hidden; }
+        .cmd-item-name { font-size: 14px; color: #fff; font-weight: 500; }
+        .cmd-item-cmd { font-size: 12px; color: #888; margin-top: 2px; font-family: monospace; }
+        .cmd-item-actions { display: flex; align-items: center; gap: 8px; }
+        .cmd-toggle {
+            width: 44px; height: 24px; border-radius: 12px;
+            background: #404040; border: none; cursor: pointer;
+            position: relative; transition: background 0.2s;
+        }
+        .cmd-toggle.active { background: #22c55e; }
+        .cmd-toggle::after {
+            content: ''; position: absolute; top: 2px; left: 2px;
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #fff; transition: transform 0.2s;
+        }
+        .cmd-toggle.active::after { transform: translateX(20px); }
+        .cmd-delete {
+            width: 32px; height: 32px; border-radius: 6px;
+            background: #dc2626; border: none; color: #fff;
+            font-size: 16px; cursor: pointer;
+        }
+        .cmd-delete:active { opacity: 0.8; }
+        .cmd-empty { text-align: center; color: #666; padding: 20px 0; font-size: 14px; }
+        .add-cmd-form { display: flex; gap: 8px; margin-top: 12px; }
+        .add-cmd-form input {
+            flex: 1; height: 40px; background: #1a1a1a;
+            border: 1px solid #404040; border-radius: 8px;
+            color: #e0e0e0; font-size: 14px; padding: 0 12px;
+            outline: none; min-width: 0;
+        }
+        .add-cmd-form input:focus { border-color: #22c55e; }
+        .add-cmd-form button {
+            height: 40px; padding: 0 16px; background: #22c55e;
+            border: none; border-radius: 8px; color: #fff;
+            font-size: 14px; font-weight: 500; cursor: pointer;
+            white-space: nowrap;
+        }
+        .add-cmd-form button:active { opacity: 0.8; }
+
+        .diff-modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95); z-index: 400;
+            display: none; flex-direction: column;
+        }
+        .diff-modal.show { display: flex; }
+
+        .diff-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px; background: #252525; border-bottom: 1px solid #333;
+            flex-shrink: 0;
+        }
+        .diff-header-left {
+            display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+        }
+        .diff-title {
+            font-size: 16px; font-weight: 600; color: #fff;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .diff-title .branch {
+            background: #1a5fb4; padding: 2px 8px; border-radius: 4px;
+            font-size: 12px; font-weight: 500;
+        }
+        .diff-path {
+            font-size: 12px; color: #888; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis;
+        }
+        .diff-stats {
+            display: flex; gap: 12px; font-size: 13px;
+        }
+        .diff-stats .added { color: #4caf50; }
+        .diff-stats .removed { color: #f44336; }
+
+        .diff-header-right {
+            display: flex; align-items: center; gap: 6px;
+        }
+        .diff-nav-btn {
+            width: 40px; height: 40px; border-radius: 8px;
+            background: #333; border: 1px solid #444; color: #e0e0e0;
+            font-size: 20px; cursor: pointer; display: flex;
+            align-items: center; justify-content: center;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .diff-nav-btn:active { background: #444; transform: scale(0.95); }
+        .diff-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .diff-nav-counter {
+            font-size: 12px; color: #888; min-width: 36px; text-align: center;
+        }
+        .diff-close-btn {
+            width: 36px; height: 36px; border-radius: 6px;
+            background: #c01c28; border: none; color: #fff;
+            font-size: 20px; cursor: pointer; display: flex;
+            align-items: center; justify-content: center;
+        }
+        .diff-close-btn:active { transform: scale(0.95); }
+
+        .diff-content {
+            flex: 1; overflow-y: auto; padding: 0;
+            background: #1e1e1e;
+        }
+
+        .diff-empty {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; height: 100%; color: #666;
+            font-size: 16px; gap: 12px;
+        }
+        .diff-empty-icon { font-size: 48px; opacity: 0.5; }
+
+        .diff-error {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; height: 100%; color: #f44336;
+            font-size: 16px; gap: 12px; padding: 20px; text-align: center;
+        }
+        .diff-error-icon { font-size: 48px; }
+
+        .file-diff-container { margin-bottom: 2px; }
+
+        .file-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 16px; background: #2d2d2d; border-bottom: 1px solid #333;
+            cursor: pointer; user-select: none;
+            position: sticky; top: 0; z-index: 10;
+        }
+        .file-header:hover { background: #363636; }
+        .file-header-left {
+            display: flex; align-items: center; gap: 10px;
+            overflow: hidden; flex: 1;
+        }
+        .file-collapse-icon {
+            width: 16px; height: 16px; color: #888;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+        .file-header.collapsed .file-collapse-icon { transform: rotate(-90deg); }
+        .file-name {
+            font-family: 'SF Mono', Menlo, Monaco, monospace;
+            font-size: 13px; color: #e0e0e0;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .file-status {
+            font-size: 11px; padding: 2px 6px; border-radius: 3px;
+            font-weight: 500; flex-shrink: 0;
+        }
+        .file-status.added { background: #2e7d32; color: #fff; }
+        .file-status.modified { background: #1565c0; color: #fff; }
+        .file-status.deleted { background: #c62828; color: #fff; }
+        .file-stats {
+            display: flex; gap: 8px; font-size: 12px; flex-shrink: 0;
+        }
+        .file-stats .add { color: #4caf50; }
+        .file-stats .del { color: #f44336; }
+
+        .file-diff-content {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            transition: max-height 0.3s ease;
+        }
+        .file-diff-content.collapsed { max-height: 0 !important; overflow: hidden; }
+        .file-diff-content table {
+            min-width: max-content;
+        }
+        .file-diff-content pre {
+            white-space: pre;
+            word-break: keep-all;
+            overflow-x: visible;
+        }
+        .file-diff-content [class*="diff-viewer"] {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .file-diff-content tr td:last-child pre {
+            min-width: max-content;
+        }
+        
+        .current-hunk-marker {
+            position: relative;
+            scroll-margin-top: 100px;
+        }
+        .current-hunk-marker::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: #ffcc00;
+            z-index: 5;
+        }
+        .current-hunk-marker td:first-child {
+            background: rgba(255, 204, 0, 0.2) !important;
+        }
+
+        @media (max-width: 600px) {
+            .diff-header { padding: 10px 12px; }
+            .diff-title { font-size: 14px; }
+            .diff-path { font-size: 11px; }
+            .diff-stats { font-size: 12px; gap: 8px; }
+            .diff-nav-btn { width: 36px; height: 36px; font-size: 18px; }
+            .diff-close-btn { width: 36px; height: 36px; font-size: 18px; }
+            .diff-nav-counter { font-size: 11px; min-width: 32px; }
+            .file-header { padding: 8px 12px; }
+            .file-name { font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="status">...</div>
+    <div id="terminal"></div>
+    
+    <button class="diff-toggle" id="diffToggle" title="View Git Diff">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 3v18M3 12h18"/>
+        </svg>
+    </button>
+    <button class="toolbar-toggle" id="toggle">⌨</button>
+    
+    <div class="toolbar" id="toolbar">
+        <button class="btn" data-key="esc">ESC</button>
+        <button class="btn" data-key="tab">Tab</button>
+        <button class="btn" data-key="enter">Enter</button>
+        <button class="btn danger" data-key="ctrlc">^C</button>
+        <button class="btn" data-key="up">↑</button>
+        <button class="btn" data-key="down">↓</button>
+        <button class="btn" data-key="left">←</button>
+        <button class="btn" data-key="right">→</button>
+        <button class="btn" data-key="pgup">PgUp</button>
+        <button class="btn" data-key="pgdn">PgDn</button>
+        <button class="btn" data-key="ctrll">Ctrl+L</button>
+        <span id="cmdButtons"></span>
+        <button class="btn primary" id="inputBtn">输入</button>
+        <button class="btn tmux" id="newSessionBtn">+Tmux</button>
+        <button class="btn tmux" id="listSessionBtn">Sessions</button>
+        <button class="btn settings" id="settingsBtn">⚙️</button>
+    </div>
+
+    <div class="input-modal" id="inputModal">
+        <div class="input-box">
+            <textarea id="inputText" placeholder="在这里编辑消息，可以随意点击定位..."></textarea>
+            <div class="actions">
+                <button class="cancel" id="cancelBtn">取消</button>
+                <button class="send" id="sendBtn">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="tmux-modal" id="newSessionModal">
+        <div class="tmux-box">
+            <div class="tmux-title">New Tmux Session</div>
+            <input type="text" id="sessionNameInput" placeholder="Session name (e.g. work, claude)" autocomplete="off">
+            <div class="actions">
+                <button class="cancel" id="newSessionCancel">Cancel</button>
+                <button class="confirm" id="newSessionConfirm">Create & Attach</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="tmux-modal" id="listSessionModal">
+        <div class="tmux-box tmux-list-box">
+            <div class="tmux-title">Tmux Sessions</div>
+            <div class="session-list" id="sessionList">
+                <div class="session-loading">Loading...</div>
+            </div>
+            <div class="actions">
+                <button class="cancel" id="listSessionClose">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="tmux-modal" id="settingsModal">
+        <div class="tmux-box" style="max-width: 500px; max-height: 80vh; display: flex; flex-direction: column;">
+            <div class="tmux-title">命令设置</div>
+            <div style="flex: 1; overflow-y: auto; margin: 0 -20px; padding: 0 20px;">
+                <div class="cmd-section">
+                    <div class="cmd-section-title">默认命令</div>
+                    <div id="defaultCmdList"></div>
+                </div>
+                <div class="cmd-section">
+                    <div class="cmd-section-title">自定义命令</div>
+                    <div id="customCmdList"></div>
+                    <div class="add-cmd-form">
+                        <input type="text" id="newCmdName" placeholder="按钮名称">
+                        <input type="text" id="newCmdValue" placeholder="命令内容">
+                        <button id="addCmdBtn">添加</button>
+                    </div>
+                </div>
+            </div>
+            <div class="actions" style="margin-top: 16px;">
+                <button class="cancel" id="settingsClose">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="diff-modal" id="diffModal">
+        <div class="diff-header">
+            <div class="diff-header-left">
+                <div class="diff-title">
+                    <span>Git Diff</span>
+                    <span class="branch" id="diffBranch">main</span>
+                </div>
+                <div class="diff-path" id="diffPath">~/project</div>
+                <div class="diff-stats">
+                    <span class="added" id="diffAdded">+0</span>
+                    <span class="removed" id="diffRemoved">-0</span>
+                </div>
+            </div>
+            <div class="diff-header-right">
+                <span class="diff-nav-counter" id="diffCounter">0/0</span>
+                <button class="diff-nav-btn" id="diffPrev" title="Previous File">↑</button>
+                <button class="diff-nav-btn" id="diffNext" title="Next File">↓</button>
+                <button class="diff-close-btn" id="diffClose" title="Close (ESC)">×</button>
+            </div>
+        </div>
+        <div class="diff-content" id="diffContent">
+            <div class="diff-empty">
+                <div class="diff-empty-icon">✓</div>
+                <div>No changes</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+    
+    <script>
+        const DIFF_SERVER_PORT = 7683;
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: isMobile ? 12 : 13,
+            fontFamily: 'Menlo, Monaco, Consolas, monospace',
+            theme: { foreground: '#d4d4d4', background: '#1a1a1a', cursor: '#adadad' },
+            scrollback: 5000
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(new WebLinksAddon.WebLinksAddon());
+        term.open(document.getElementById('terminal'));
+
+        const status = document.getElementById('status');
+        const toolbar = document.getElementById('toolbar');
+        const toggle = document.getElementById('toggle');
+        const termEl = document.getElementById('terminal');
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+        let ws, token = '', expanded = false;
+
+        toggle.onclick = () => {
+            expanded = !expanded;
+            toolbar.classList.toggle('show', expanded);
+            toggle.classList.toggle('expanded', expanded);
+            toggle.textContent = expanded ? '✕' : '⌨';
+            termEl.className = expanded ? 'with-toolbar-expanded' : '';
+            setTimeout(resize, 50);
+        };
+
+        async function getToken() {
+            try {
+                const res = await fetch(location.pathname.replace(/\/+$/, '') + '/token');
+                const data = await res.json();
+                token = data.token || '';
+            } catch (e) {}
+        }
+
+        function connect() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const path = location.pathname.replace(/\/+$/, '');
+            ws = new WebSocket(`${proto}//${location.host}${path}/ws`, ['tty']);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                status.textContent = 'Connected';
+                status.className = 'ok';
+                const auth = JSON.stringify({ AuthToken: token, columns: term.cols, rows: term.rows });
+                ws.send(encoder.encode(auth));
+            };
+
+            ws.onmessage = (e) => {
+                const data = new Uint8Array(e.data);
+                const cmd = String.fromCharCode(data[0]);
+                const payload = data.slice(1);
+                if (cmd === '0') {
+                    term.write(payload);
+                } else if (cmd === '1') {
+                    document.title = decoder.decode(payload);
+                }
+            };
+
+            ws.onclose = () => {
+                status.textContent = 'Reconnecting...';
+                status.className = '';
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = () => ws.close();
+        }
+
+        function send(data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const payload = encoder.encode(data);
+                const buf = new Uint8Array(payload.length + 1);
+                buf[0] = '0'.charCodeAt(0);
+                buf.set(payload, 1);
+                ws.send(buf);
+            }
+        }
+
+        function resize() {
+            fitAddon.fit();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const msg = JSON.stringify({ columns: term.cols, rows: term.rows });
+                const payload = encoder.encode(msg);
+                const buf = new Uint8Array(payload.length + 1);
+                buf[0] = '1'.charCodeAt(0);
+                buf.set(payload, 1);
+                ws.send(buf);
+            }
+        }
+
+        term.onData(data => send(data));
+        window.addEventListener('resize', resize);
+        window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+
+        getToken().then(connect);
+        setTimeout(resize, 100);
+
+        const keys = {
+            esc: '\x1b', tab: '\t', enter: '\r', ctrlc: '\x03', ctrll: '\x0c',
+            up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C',
+            pgup: '\x1b[5~', pgdn: '\x1b[6~'
+        };
+
+        // 键盘按钮事件
+        document.querySelectorAll('.btn[data-key]').forEach(btn => {
+            const handler = (e) => {
+                e.preventDefault();
+                send(keys[btn.dataset.key]);
+            };
+            btn.addEventListener('touchstart', handler, { passive: false });
+            btn.addEventListener('click', handler);
+        });
+
+        // 命令管理
+        const DEFAULT_COMMANDS = [
+            { name: 'claude', cmd: 'claude --dangerously-skip-permissions' },
+            { name: 'g-claude', cmd: 'g-claude' },
+            { name: 'g-opencode', cmd: 'g-opencode' }
+        ];
+        const STORAGE_KEY = 'ttyd_commands';
+
+        function loadCommandConfig() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) return JSON.parse(saved);
+            } catch (e) {}
+            return { defaultVisible: {}, customCommands: [] };
+        }
+
+        function saveCommandConfig(config) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+        }
+
+        let commandConfig = loadCommandConfig();
+
+        function renderCommandButtons() {
+            const container = document.getElementById('cmdButtons');
+            container.innerHTML = '';
+            
+            // 默认命令
+            DEFAULT_COMMANDS.forEach(c => {
+                if (commandConfig.defaultVisible[c.name] === false) return;
+                const btn = document.createElement('button');
+                btn.className = 'btn primary';
+                btn.textContent = c.name;
+                btn.onclick = () => send(c.cmd + '\r');
+                container.appendChild(btn);
+            });
+            
+            // 自定义命令
+            (commandConfig.customCommands || []).forEach(c => {
+                const btn = document.createElement('button');
+                btn.className = 'btn primary';
+                btn.textContent = c.name;
+                btn.onclick = () => send(c.cmd + '\r');
+                container.appendChild(btn);
+            });
+        }
+
+        renderCommandButtons();
+
+        const inputModal = document.getElementById('inputModal');
+        const inputText = document.getElementById('inputText');
+        const inputBtn = document.getElementById('inputBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const sendBtn = document.getElementById('sendBtn');
+
+        inputBtn.onclick = () => {
+            inputModal.classList.add('show');
+            // 保留上次输入的内容（不清空）
+            inputText.focus();
+            // 光标移到末尾
+            inputText.selectionStart = inputText.selectionEnd = inputText.value.length;
+        };
+
+        cancelBtn.onclick = () => inputModal.classList.remove('show');
+
+        sendBtn.onclick = () => {
+            const text = inputText.value;
+            if (text) send(text);
+            inputModal.classList.remove('show');
+            inputText.value = '';  // 发送后清空缓存
+        };
+
+        inputModal.onclick = (e) => {
+            if (e.target === inputModal) inputModal.classList.remove('show');
+        };
+
+        const newSessionModal = document.getElementById('newSessionModal');
+        const listSessionModal = document.getElementById('listSessionModal');
+        const sessionNameInput = document.getElementById('sessionNameInput');
+        const sessionList = document.getElementById('sessionList');
+        const newSessionBtn = document.getElementById('newSessionBtn');
+        const listSessionBtn = document.getElementById('listSessionBtn');
+        const newSessionCancel = document.getElementById('newSessionCancel');
+        const newSessionConfirm = document.getElementById('newSessionConfirm');
+        const listSessionClose = document.getElementById('listSessionClose');
+
+        newSessionBtn.onclick = () => {
+            newSessionModal.classList.add('show');
+            sessionNameInput.value = '';
+            sessionNameInput.focus();
+        };
+
+        newSessionCancel.onclick = () => newSessionModal.classList.remove('show');
+
+        newSessionConfirm.onclick = () => {
+            const name = sessionNameInput.value.trim();
+            if (name) {
+                send(`tmux new -A -s ${name}\r`);
+                newSessionModal.classList.remove('show');
+            }
+        };
+
+        sessionNameInput.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                newSessionConfirm.click();
+            }
+        };
+
+        newSessionModal.onclick = (e) => {
+            if (e.target === newSessionModal) newSessionModal.classList.remove('show');
+        };
+
+        async function fetchSessions() {
+            try {
+                const host = location.hostname;
+                const res = await fetch(`http://${host}:${DIFF_SERVER_PORT}/api/tmux/list`);
+                const data = await res.json();
+                return data.sessions || [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        async function killSession(name) {
+            try {
+                const host = location.hostname;
+                await fetch(`http://${host}:${DIFF_SERVER_PORT}/api/tmux/kill?name=${encodeURIComponent(name)}`);
+            } catch (e) {}
+        }
+
+        function renderSessionList(sessions) {
+            if (sessions.length === 0) {
+                sessionList.innerHTML = '<div class="session-empty">No tmux sessions</div>';
+                return;
+            }
+            sessionList.innerHTML = sessions.map(s => `
+                <div class="session-item" data-name="${s.name}">
+                    <div class="session-info">
+                        <div class="session-name">${s.name}</div>
+                        <div class="session-meta">
+                            ${s.windows} window${s.windows > 1 ? 's' : ''}
+                            ${s.attached ? '<span class="attached">(attached)</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="session-actions">
+                        <button class="attach-btn">Attach</button>
+                        <button class="kill-btn">Kill</button>
+                    </div>
+                </div>
+            `).join('');
+
+            sessionList.querySelectorAll('.session-item').forEach(item => {
+                const name = item.dataset.name;
+                item.querySelector('.attach-btn').onclick = () => {
+                    send(`tmux attach -t ${name}\r`);
+                    listSessionModal.classList.remove('show');
+                };
+                item.querySelector('.kill-btn').onclick = async () => {
+                    await killSession(name);
+                    const sessions = await fetchSessions();
+                    renderSessionList(sessions);
+                };
+            });
+        }
+
+        listSessionBtn.onclick = async () => {
+            listSessionModal.classList.add('show');
+            sessionList.innerHTML = '<div class="session-loading">Loading...</div>';
+            const sessions = await fetchSessions();
+            renderSessionList(sessions);
+        };
+
+        listSessionClose.onclick = () => listSessionModal.classList.remove('show');
+
+        listSessionModal.onclick = (e) => {
+            if (e.target === listSessionModal) listSessionModal.classList.remove('show');
+        };
+
+        // 设置 Modal
+        const settingsModal = document.getElementById('settingsModal');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsClose = document.getElementById('settingsClose');
+        const defaultCmdList = document.getElementById('defaultCmdList');
+        const customCmdList = document.getElementById('customCmdList');
+        const newCmdName = document.getElementById('newCmdName');
+        const newCmdValue = document.getElementById('newCmdValue');
+        const addCmdBtn = document.getElementById('addCmdBtn');
+
+        function renderSettingsModal() {
+            // 默认命令列表
+            defaultCmdList.innerHTML = DEFAULT_COMMANDS.map(c => {
+                const visible = commandConfig.defaultVisible[c.name] !== false;
+                return `
+                    <div class="cmd-item" data-name="${c.name}">
+                        <div class="cmd-item-info">
+                            <div class="cmd-item-name">${c.name}</div>
+                            <div class="cmd-item-cmd">${c.cmd}</div>
+                        </div>
+                        <div class="cmd-item-actions">
+                            <button class="cmd-toggle ${visible ? 'active' : ''}" data-default="${c.name}"></button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // 绑定默认命令开关事件
+            defaultCmdList.querySelectorAll('.cmd-toggle').forEach(btn => {
+                btn.onclick = () => {
+                    const name = btn.dataset.default;
+                    const currentVisible = commandConfig.defaultVisible[name] !== false;
+                    commandConfig.defaultVisible[name] = !currentVisible;
+                    saveCommandConfig(commandConfig);
+                    renderSettingsModal();
+                    renderCommandButtons();
+                };
+            });
+
+            // 自定义命令列表
+            if (!commandConfig.customCommands || commandConfig.customCommands.length === 0) {
+                customCmdList.innerHTML = '<div class="cmd-empty">暂无自定义命令</div>';
+            } else {
+                customCmdList.innerHTML = commandConfig.customCommands.map((c, i) => `
+                    <div class="cmd-item">
+                        <div class="cmd-item-info">
+                            <div class="cmd-item-name">${c.name}</div>
+                            <div class="cmd-item-cmd">${c.cmd}</div>
+                        </div>
+                        <div class="cmd-item-actions">
+                            <button class="cmd-delete" data-index="${i}">×</button>
+                        </div>
+                    </div>
+                `).join('');
+
+                // 绑定删除事件
+                customCmdList.querySelectorAll('.cmd-delete').forEach(btn => {
+                    btn.onclick = () => {
+                        const index = parseInt(btn.dataset.index);
+                        commandConfig.customCommands.splice(index, 1);
+                        saveCommandConfig(commandConfig);
+                        renderSettingsModal();
+                        renderCommandButtons();
+                    };
+                });
+            }
+        }
+
+        settingsBtn.onclick = () => {
+            settingsModal.classList.add('show');
+            renderSettingsModal();
+        };
+
+        settingsClose.onclick = () => settingsModal.classList.remove('show');
+
+        settingsModal.onclick = (e) => {
+            if (e.target === settingsModal) settingsModal.classList.remove('show');
+        };
+
+        addCmdBtn.onclick = () => {
+            const name = newCmdName.value.trim();
+            const cmd = newCmdValue.value.trim();
+            if (!name || !cmd) return;
+            
+            if (!commandConfig.customCommands) commandConfig.customCommands = [];
+            commandConfig.customCommands.push({ name, cmd });
+            saveCommandConfig(commandConfig);
+            
+            newCmdName.value = '';
+            newCmdValue.value = '';
+            renderSettingsModal();
+            renderCommandButtons();
+        };
+
+        newCmdValue.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addCmdBtn.click();
+            }
+        };
+    </script>
+
+    <script type="module">
+        import React from 'react';
+        import { createRoot } from 'react-dom/client';
+        import ReactDiffViewer from 'react-diff-viewer-continued';
+
+        const DIFF_SERVER_PORT = 7683;
+        const diffModal = document.getElementById('diffModal');
+        const diffToggle = document.getElementById('diffToggle');
+        const diffClose = document.getElementById('diffClose');
+        const diffContent = document.getElementById('diffContent');
+        const diffBranch = document.getElementById('diffBranch');
+        const diffPath = document.getElementById('diffPath');
+        const diffAdded = document.getElementById('diffAdded');
+        const diffRemoved = document.getElementById('diffRemoved');
+        const diffPrev = document.getElementById('diffPrev');
+        const diffNext = document.getElementById('diffNext');
+        const diffCounter = document.getElementById('diffCounter');
+
+        let reactRoot = null;
+        let fileContainers = [];
+        let currentFileIndex = -1;
+
+        const darkTheme = {
+            variables: {
+                dark: {
+                    diffViewerBackground: '#1e1e1e',
+                    diffViewerColor: '#d4d4d4',
+                    addedBackground: 'rgba(46, 160, 67, 0.15)',
+                    addedColor: '#d4d4d4',
+                    removedBackground: 'rgba(248, 81, 73, 0.15)',
+                    removedColor: '#d4d4d4',
+                    wordAddedBackground: 'rgba(46, 160, 67, 0.4)',
+                    wordRemovedBackground: 'rgba(248, 81, 73, 0.4)',
+                    addedGutterBackground: '#2d4a3e',
+                    removedGutterBackground: '#4a2d2d',
+                    gutterBackground: '#252525',
+                    gutterBackgroundDark: '#1e1e1e',
+                    highlightBackground: '#3a3a3a',
+                    highlightGutterBackground: '#3a3a3a',
+                    codeFoldGutterBackground: '#252525',
+                    codeFoldBackground: '#2d2d2d',
+                    emptyLineBackground: '#252525',
+                    gutterColor: '#666',
+                    addedGutterColor: '#4caf50',
+                    removedGutterColor: '#f44336',
+                    codeFoldContentColor: '#888',
+                    diffViewerTitleBackground: '#252525',
+                    diffViewerTitleColor: '#e0e0e0',
+                    diffViewerTitleBorderColor: '#333',
+                }
+            }
+        };
+
+        function FileHeader({ filename, status, additions, deletions, collapsed, onToggle }) {
+            const statusLabel = { A: 'Added', M: 'Modified', D: 'Deleted' }[status] || status;
+            const statusClass = { A: 'added', M: 'modified', D: 'deleted' }[status] || '';
+            
+            return React.createElement('div', {
+                className: `file-header ${collapsed ? 'collapsed' : ''}`,
+                onClick: onToggle
+            }, [
+                React.createElement('div', { className: 'file-header-left', key: 'left' }, [
+                    React.createElement('svg', { 
+                        className: 'file-collapse-icon', 
+                        viewBox: '0 0 24 24', 
+                        fill: 'none', 
+                        stroke: 'currentColor', 
+                        strokeWidth: 2,
+                        key: 'icon'
+                    }, React.createElement('path', { d: 'M6 9l6 6 6-6' })),
+                    React.createElement('span', { className: 'file-name', key: 'name' }, filename),
+                    React.createElement('span', { className: `file-status ${statusClass}`, key: 'status' }, statusLabel)
+                ]),
+                React.createElement('div', { className: 'file-stats', key: 'stats' }, [
+                    additions > 0 && React.createElement('span', { className: 'add', key: 'add' }, `+${additions}`),
+                    deletions > 0 && React.createElement('span', { className: 'del', key: 'del' }, `-${deletions}`)
+                ])
+            ]);
+        }
+
+        function FileDiff({ file, defaultCollapsed }) {
+            const [collapsed, setCollapsed] = React.useState(defaultCollapsed);
+
+            return React.createElement('div', { className: 'file-diff-container' }, [
+                React.createElement(FileHeader, {
+                    key: 'header',
+                    filename: file.filename,
+                    status: file.status,
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    collapsed: collapsed,
+                    onToggle: () => setCollapsed(!collapsed)
+                }),
+                React.createElement('div', { 
+                    className: `file-diff-content ${collapsed ? 'collapsed' : ''}`,
+                    key: 'content',
+                    style: { maxHeight: collapsed ? 0 : 'none' }
+                }, 
+                    !collapsed && !file.binary && React.createElement(ReactDiffViewer, {
+                        oldValue: file.oldValue || '',
+                        newValue: file.newValue || '',
+                        splitView: false,
+                        useDarkTheme: true,
+                        styles: darkTheme,
+                        showDiffOnly: true,
+                        extraLinesSurroundingDiff: 3,
+                        codeFoldMessageRenderer: (total) => `${total} hidden lines`
+                    }),
+                    !collapsed && file.binary && React.createElement('div', {
+                        style: { padding: '20px', color: '#888', textAlign: 'center' }
+                    }, 'Binary file')
+                )
+            ]);
+        }
+
+        function DiffViewer({ files }) {
+            if (!files || files.length === 0) {
+                return React.createElement('div', { className: 'diff-empty' }, [
+                    React.createElement('div', { className: 'diff-empty-icon', key: 'icon' }, '✓'),
+                    React.createElement('div', { key: 'text' }, 'No changes')
+                ]);
+            }
+
+            return React.createElement('div', null, 
+                files.map((file, index) => 
+                    React.createElement(FileDiff, { 
+                        key: file.filename, 
+                        file: file,
+                        defaultCollapsed: index > 0
+                    })
+                )
+            );
+        }
+
+        async function fetchDiff() {
+            diffToggle.classList.add('loading');
+            try {
+                const host = location.hostname;
+                const res = await fetch(`http://${host}:${DIFF_SERVER_PORT}/api/diff`);
+                const data = await res.json();
+                return data;
+            } catch (e) {
+                return { error: 'connection_failed', message: 'Cannot connect to diff server' };
+            } finally {
+                diffToggle.classList.remove('loading');
+            }
+        }
+
+        function renderDiff(data) {
+            if (data.error) {
+                diffContent.innerHTML = `
+                    <div class="diff-error">
+                        <div class="diff-error-icon">⚠</div>
+                        <div>${data.message || 'Error loading diff'}</div>
+                    </div>
+                `;
+                diffBranch.textContent = '-';
+                diffPath.textContent = data.cwd || '-';
+                diffAdded.textContent = '+0';
+                diffRemoved.textContent = '-0';
+                return;
+            }
+
+            diffBranch.textContent = data.branch || 'main';
+            diffPath.textContent = data.git_root || data.cwd || '~';
+            diffAdded.textContent = `+${data.summary?.totalAdditions || 0}`;
+            diffRemoved.textContent = `-${data.summary?.totalDeletions || 0}`;
+
+            diffContent.innerHTML = '';
+            
+            if (!reactRoot) {
+                reactRoot = createRoot(diffContent);
+            }
+            
+            reactRoot.render(React.createElement(DiffViewer, { files: data.files || [] }));
+            
+            setTimeout(() => {
+                collectDiffHunks();
+                updateNavButtons();
+            }, 200);
+        }
+
+        let diffHunks = [];
+        let currentHunkIndex = -1;
+
+        function isChangeRow(row) {
+            // A change row has a marker cell with + or -
+            const cells = row.querySelectorAll('td');
+            for (const cell of cells) {
+                const pre = cell.querySelector('pre');
+                if (pre) {
+                    const text = pre.textContent.trim();
+                    if (text === '+' || text === '-') {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function isFoldRow(row) {
+            return row.textContent.includes('hidden lines');
+        }
+
+        function collectDiffHunks() {
+            diffHunks = [];
+            const expandedContents = diffContent.querySelectorAll('.file-diff-content:not(.collapsed)');
+            
+            expandedContents.forEach(container => {
+                const rows = Array.from(container.querySelectorAll('tr'));
+                let prevWasChange = false;
+                
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    
+                    // Skip fold rows - they act as hunk separators
+                    if (isFoldRow(row)) {
+                        prevWasChange = false;
+                        continue;
+                    }
+                    
+                    const isChange = isChangeRow(row);
+                    
+                    // A new hunk starts when:
+                    // 1. Current row is a change AND
+                    // 2. Previous row was NOT a change (or was a fold/first row)
+                    if (isChange && !prevWasChange) {
+                        diffHunks.push(row);
+                    }
+                    
+                    prevWasChange = isChange;
+                }
+            });
+            
+            if (diffHunks.length === 0) {
+                currentHunkIndex = -1;
+            } else if (currentHunkIndex >= diffHunks.length) {
+                currentHunkIndex = diffHunks.length - 1;
+            }
+        }
+
+        const observer = new MutationObserver((mutations) => {
+            const dominated = mutations.every(m => {
+                if (m.type === 'attributes' && m.attributeName === 'class') {
+                    return m.target?.classList?.contains('current-hunk-marker') || 
+                           m.oldValue?.includes('current-hunk-marker');
+                }
+                return false;
+            });
+            if (dominated) return;
+            
+            setTimeout(() => {
+                collectDiffHunks();
+                updateNavButtons();
+            }, 100);
+        });
+        observer.observe(diffContent, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+
+        function updateNavButtons() {
+            const total = diffHunks.length;
+            diffCounter.textContent = total > 0 ? `${currentHunkIndex + 1}/${total}` : '0/0';
+            diffPrev.disabled = total === 0 || currentHunkIndex <= 0;
+            diffNext.disabled = total === 0 || currentHunkIndex >= total - 1;
+        }
+
+        function navigateToHunk(index) {
+            if (index < 0 || index >= diffHunks.length) return;
+            
+            const el = diffHunks[index];
+            if (!el.isConnected) {
+                collectDiffHunks();
+                if (index < diffHunks.length) {
+                    return navigateToHunk(index);
+                }
+                return;
+            }
+            
+            diffHunks.forEach(h => h.classList.remove('current-hunk-marker'));
+            
+            currentHunkIndex = index;
+            el.classList.add('current-hunk-marker');
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            updateNavButtons();
+        }
+
+        diffToggle.onclick = async () => {
+            const data = await fetchDiff();
+            renderDiff(data);
+            diffModal.classList.add('show');
+        };
+
+        diffClose.onclick = () => {
+            diffModal.classList.remove('show');
+        };
+
+        diffPrev.onclick = () => {
+            if (currentHunkIndex > 0) {
+                navigateToHunk(currentHunkIndex - 1);
+            } else if (currentHunkIndex === -1 && diffHunks.length > 0) {
+                navigateToHunk(0);
+            }
+        };
+
+        diffNext.onclick = () => {
+            if (currentHunkIndex < diffHunks.length - 1) {
+                navigateToHunk(currentHunkIndex + 1);
+            } else if (currentHunkIndex === -1 && diffHunks.length > 0) {
+                navigateToHunk(0);
+            }
+        };
+
+        document.addEventListener('keydown', (e) => {
+            if (!diffModal.classList.contains('show')) return;
+            if (e.key === 'Escape') {
+                diffModal.classList.remove('show');
+                e.preventDefault();
+            } else if (e.key === 'ArrowUp' || e.key === 'k') {
+                diffPrev.click();
+                e.preventDefault();
+            } else if (e.key === 'ArrowDown' || e.key === 'j') {
+                diffNext.click();
+                e.preventDefault();
+            }
+        });
+
+        diffModal.onclick = (e) => {
+            if (e.target === diffModal) diffModal.classList.remove('show');
+        };
+    </script>
+</body>
+</html>
