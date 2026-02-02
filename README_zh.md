@@ -9,10 +9,12 @@
 ## 功能特性
 
 - 移动端优化的虚拟键盘（ESC、Tab、Ctrl+C、方向键等）
+- 可展开工具栏（▲/▼ 切换，适配窄屏）
 - 可自定义的快捷命令按钮
 - 长文本输入弹窗（解决手机输入不便的问题）
+- 状态栏（连接状态、Git 分支、Token 计数）
 - Tmux 会话管理（断线重连不丢失上下文）
-- Git Diff 查看器（语法高亮 + 变更导航）
+- Git Diff 查看器（卡片式、按文件导航 hunk）
 
 ## 选择适合你的方案
 
@@ -274,8 +276,21 @@ cp .env.example .env
 ├── cloudflare_tunnel_mobile.sh  # 方案三：Cloudflare Tunnel
 ├── .env.example                 # 配置模板
 ├── ttyd-mobile/
-│   ├── index.html               # 移动端优化的终端 UI
-│   └── diff-server.py           # Git Diff API 服务
+│   ├── dist/index.html          # 构建产物（单文件）
+│   ├── src/                     # React + TypeScript 源码
+│   ├── diff-server.py           # Git Diff API 服务
+│   └── package.json             # 构建依赖
+```
+
+---
+
+## 旧版 UI
+
+原始单文件 UI 已备份至 `ttyd-mobile/index.legacy.html`，用于回滚。
+
+回滚到旧版 UI：
+```bash
+cp ttyd-mobile/index.legacy.html ttyd-mobile/dist/index.html
 ```
 
 ---

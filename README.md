@@ -9,10 +9,12 @@ Access your local development terminal from your phone. A mobile-optimized Web T
 ## Features
 
 - Mobile-optimized virtual keyboard (ESC, Tab, Ctrl+C, arrow keys, etc.)
+- Expandable toolbar (▲/▼ toggle for narrow screens)
 - Customizable quick command buttons
 - Text input modal (for easier long text input on mobile)
+- Status bar (connection state, git branch, token count)
 - Tmux session management (reconnect without losing context)
-- Git Diff viewer (syntax highlighting + change navigation)
+- Git Diff viewer (card-based, per-file hunk navigation)
 
 ## Choose Your Approach
 
@@ -275,8 +277,21 @@ cp .env.example .env
 ├── cloudflare_tunnel_mobile.sh  # Option 3: Cloudflare Tunnel
 ├── .env.example                 # Config template
 ├── ttyd-mobile/
-│   ├── index.html               # Mobile-optimized terminal UI
-│   └── diff-server.py           # Git Diff API service
+│   ├── dist/index.html          # Built terminal UI (single-file)
+│   ├── src/                     # React + TypeScript source
+│   ├── diff-server.py           # Git Diff API service
+│   └── package.json             # Build dependencies
+```
+
+---
+
+## Legacy UI
+
+The original single-file UI is preserved at `ttyd-mobile/index.legacy.html` for rollback purposes.
+
+To rollback to the legacy UI:
+```bash
+cp ttyd-mobile/index.legacy.html ttyd-mobile/dist/index.html
 ```
 
 ---

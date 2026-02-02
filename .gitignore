@@ -5,3 +5,13 @@ __pycache__/
 .DS_Store
 .env
 *.log
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Vite config build output
+vite.config.js
+vite.config.d.ts
+
+# Agent working files
+.sisyphus/

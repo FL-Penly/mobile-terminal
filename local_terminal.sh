@@ -12,7 +12,7 @@ fi
 PORT="${PORT:-7681}"
 DIFF_PORT="${DIFF_PORT:-7683}"
 CMD="${1:-zsh}"
-INDEX_FILE="$SCRIPT_DIR/ttyd-mobile/index.html"
+INDEX_FILE="$SCRIPT_DIR/ttyd-mobile/dist/index.html"
 DIFF_SERVER="$SCRIPT_DIR/ttyd-mobile/diff-server.py"
 CWD_FILE="/tmp/ttyd_cwd"
 
@@ -22,11 +22,9 @@ if ! command -v ttyd &>/dev/null; then
 fi
 
 if [ ! -f "$INDEX_FILE" ]; then
-    INDEX_FILE="$SCRIPT_DIR/ttyd-mobile.html"
-    if [ ! -f "$INDEX_FILE" ]; then
-        echo "Error: index.html not found"
-        exit 1
-    fi
+    echo "Error: dist/index.html not found. Run 'cd ttyd-mobile && npm run build' first."
+    echo "Or use legacy UI: INDEX_FILE=ttyd-mobile/index.legacy.html ./local_terminal.sh"
+    exit 1
 fi
 
 pkill -f "ttyd.*$PORT" 2>/dev/null || true
