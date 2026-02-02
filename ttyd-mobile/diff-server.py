@@ -6,11 +6,12 @@ import os
 import re
 import subprocess
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 CWD_FILE = "/tmp/ttyd_cwd"
 DEFAULT_PORT = 7683
+SUBPROCESS_TIMEOUT = 10
 
 
 class DiffHandler(BaseHTTPRequestHandler):
@@ -30,42 +31,61 @@ class DiffHandler(BaseHTTPRequestHandler):
         return os.path.expanduser("~")
 
     def _is_git_repo(self, path: str) -> bool:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            return False
 
     def _get_git_root(self, path: str) -> str:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip() if result.returncode == 0 else path
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            return result.stdout.strip() if result.returncode == 0 else path
+        except subprocess.TimeoutExpired:
+            return path
 
     def _get_branch(self, path: str) -> str:
-        result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip() if result.returncode == 0 else "unknown"
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            return result.stdout.strip() if result.returncode == 0 else "unknown"
+        except subprocess.TimeoutExpired:
+            return "unknown"
 
     def _get_changed_files(self, path: str) -> list:
-        # git add -N: stage untracked files as "intent to add" so they appear in diff
-        subprocess.run(["git", "add", "-N", "."], cwd=path, capture_output=True)
-
-        result = subprocess.run(
-            ["git", "diff", "--name-status"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            subprocess.run(
+                ["git", "add", "-N", "."],
+                cwd=path,
+                capture_output=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            result = subprocess.run(
+                ["git", "diff", "--name-status"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return []
 
         files = []
         for line in result.stdout.strip().split("\n"):
@@ -78,13 +98,17 @@ class DiffHandler(BaseHTTPRequestHandler):
         return files
 
     def _get_file_content_head(self, path: str, filename: str) -> str:
-        result = subprocess.run(
-            ["git", "show", f"HEAD:{filename}"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout if result.returncode == 0 else ""
+        try:
+            result = subprocess.run(
+                ["git", "show", f"HEAD:{filename}"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            return result.stdout if result.returncode == 0 else ""
+        except subprocess.TimeoutExpired:
+            return ""
 
     def _get_file_content_workdir(self, path: str, filename: str) -> str:
         filepath = os.path.join(path, filename)
@@ -97,12 +121,16 @@ class DiffHandler(BaseHTTPRequestHandler):
         return ""
 
     def _get_file_diff_stats(self, path: str, filename: str) -> tuple:
-        result = subprocess.run(
-            ["git", "diff", "--numstat", "--", filename],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--numstat", "--", filename],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return 0, 0
         if result.returncode == 0 and result.stdout.strip():
             parts = result.stdout.strip().split("\t")
             if len(parts) >= 2:
@@ -172,27 +200,35 @@ class DiffHandler(BaseHTTPRequestHandler):
         }
 
     def _is_binary_file(self, path: str, filename: str) -> bool:
-        result = subprocess.run(
-            ["git", "diff", "--numstat", "--", filename],
-            cwd=path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--numstat", "--", filename],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return False
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.startswith("-\t-")
         return False
 
     def _get_tmux_sessions(self) -> list:
-        result = subprocess.run(
-            [
-                "tmux",
-                "ls",
-                "-F",
-                "#{session_name}:#{session_windows}:#{session_attached}",
-            ],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "tmux",
+                    "ls",
+                    "-F",
+                    "#{session_name}:#{session_windows}:#{session_attached}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return []
         if result.returncode != 0:
             return []
 
@@ -212,12 +248,16 @@ class DiffHandler(BaseHTTPRequestHandler):
         return sessions
 
     def _kill_tmux_session(self, name: str) -> bool:
-        result = subprocess.run(
-            ["tmux", "kill-session", "-t", name],
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0
+        try:
+            result = subprocess.run(
+                ["tmux", "kill-session", "-t", name],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            return False
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -295,8 +335,9 @@ class DiffHandler(BaseHTTPRequestHandler):
         pass
 
 
-class ReuseAddrHTTPServer(HTTPServer):
+class ReuseAddrHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
 
 def main():
