@@ -54,14 +54,19 @@ export const SessionTabBar: React.FC = () => {
   const longPressTriggered = useRef(false)
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false)
       }
     }
     if (isOpen) {
+      // Use both mousedown and touchstart for cross-platform support
       document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
+      document.addEventListener('touchstart', handleClickOutside, { passive: true })
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+        document.removeEventListener('touchstart', handleClickOutside)
+      }
     }
   }, [isOpen])
 
@@ -101,14 +106,26 @@ export const SessionTabBar: React.FC = () => {
     }
   }
 
+  const handleNewSession = () => {
+    setIsOpen(false)
+    setIsNewSessionOpen(true)
+  }
+
   if (sessions.length === 0) {
     return (
-      <button
-        onClick={() => setIsNewSessionOpen(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1 text-accent-purple text-xs font-medium"
-      >
-        + New Session
-      </button>
+      <>
+        <button
+          onTouchEnd={(e) => { e.preventDefault(); handleNewSession() }}
+          onClick={handleNewSession}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-accent-purple text-xs font-medium active:opacity-70"
+        >
+          + New Session
+        </button>
+        <NewSessionModal
+          isOpen={isNewSessionOpen}
+          onClose={() => setIsNewSessionOpen(false)}
+        />
+      </>
     )
   }
 
@@ -156,11 +173,9 @@ export const SessionTabBar: React.FC = () => {
             
             <div className="border-t border-border-subtle">
               <button
-                onClick={() => {
-                  setIsOpen(false)
-                  setIsNewSessionOpen(true)
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm text-accent-purple hover:bg-bg-tertiary"
+                onTouchEnd={(e) => { e.preventDefault(); handleNewSession() }}
+                onClick={handleNewSession}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm text-accent-purple hover:bg-bg-tertiary active:bg-bg-tertiary"
               >
                 <span className="w-2 h-2 flex items-center justify-center text-xs">+</span>
                 <span>New Session</span>

@@ -2,6 +2,7 @@ import React from 'react'
 import { Toolbar } from './Toolbar'
 import { StatusBar } from './StatusBar'
 import { ActivityStream } from './ActivityStream'
+import { ConnectionOverlay } from './ConnectionOverlay'
 import { useTerminal } from '../contexts/TerminalContext'
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -13,8 +14,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
       <ActivityStream />
 
-      {/* Terminal Area */}
-      {/* Flex-1 to fill available space. Relative for absolute positioning of terminal inside. */}
       <div 
         ref={terminalRef} 
         className="flex-1 min-h-0 relative bg-bg-primary overflow-hidden"
@@ -22,8 +21,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         {children}
       </div>
 
-      {/* Toolbar (Task 6) */}
       <Toolbar />
+
+      <ConnectionOverlay />
     </div>
   )
 }

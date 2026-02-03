@@ -1,17 +1,27 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { CanvasAddon } from '@xterm/addon-canvas'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminal } from '../contexts/TerminalContext'
+
+const MIN_FONT_SIZE = 8
+const MAX_FONT_SIZE = 24
+const DEFAULT_FONT_SIZE = 12
 
 export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const { subscribeOutput, sendInput, resize } = useTerminal()
+  
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem('terminal_font_size')
+    return saved ? parseInt(saved, 10) : DEFAULT_FONT_SIZE
+  })
+  const pinchRef = useRef({ initialDistance: 0, initialFontSize: DEFAULT_FONT_SIZE })
 
-  // Handle resize with debounce
   const handleResize = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
       fitAddonRef.current.fit()
@@ -20,12 +30,50 @@ export const Terminal = () => {
     }
   }, [resize])
 
+  const updateFontSize = useCallback((newSize: number) => {
+    const clampedSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(newSize)))
+    if (termRef.current && clampedSize !== termRef.current.options.fontSize) {
+      termRef.current.options.fontSize = clampedSize
+      setFontSize(clampedSize)
+      localStorage.setItem('terminal_font_size', String(clampedSize))
+      handleResize()
+    }
+  }, [handleResize])
+
+  const getTouchDistance = (touches: TouchList) => {
+    if (touches.length < 2) return 0
+    const dx = touches[0].clientX - touches[1].clientX
+    const dy = touches[0].clientY - touches[1].clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    if (e.touches.length === 2) {
+      pinchRef.current = {
+        initialDistance: getTouchDistance(e.touches),
+        initialFontSize: fontSize
+      }
+    }
+  }, [fontSize])
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (e.touches.length === 2) {
+      const currentDistance = getTouchDistance(e.touches)
+      const { initialDistance, initialFontSize } = pinchRef.current
+      
+      if (initialDistance > 0) {
+        const scale = currentDistance / initialDistance
+        const newSize = initialFontSize * scale
+        updateFontSize(newSize)
+      }
+    }
+  }, [updateFontSize])
+
   useEffect(() => {
     if (!containerRef.current) return
 
-    // Create terminal instance
     const term = new XTerm({
-      fontSize: 12,
+      fontSize: fontSize,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme: {
         background: '#0d1117',
@@ -61,17 +109,27 @@ export const Terminal = () => {
     fitAddonRef.current = fitAddon
     term.loadAddon(fitAddon)
 
-    // Try WebGL addon, fallback to canvas renderer
+    let renderer: 'webgl' | 'canvas' | 'dom' = 'dom'
     try {
       const webglAddon = new WebglAddon()
       webglAddon.onContextLoss(() => {
+        console.warn('[Terminal] WebGL context lost, falling back to canvas')
         webglAddon.dispose()
+        try {
+          term.loadAddon(new CanvasAddon())
+        } catch {}
       })
       term.loadAddon(webglAddon)
-      console.log('[Terminal] Using WebGL renderer')
+      renderer = 'webgl'
     } catch (e) {
-      console.warn('[Terminal] WebGL addon failed, using canvas renderer:', e)
+      try {
+        term.loadAddon(new CanvasAddon())
+        renderer = 'canvas'
+      } catch (e2) {
+        renderer = 'dom'
+      }
     }
+    console.log(`[Terminal] Using ${renderer} renderer`)
 
     // Open terminal in container
     term.open(containerRef.current)
@@ -97,17 +155,21 @@ export const Terminal = () => {
       }
     })
 
-    // Handle window resize
     window.addEventListener('resize', handleResize)
+    
+    const container = containerRef.current
+    container.addEventListener('touchstart', handleTouchStart, { passive: true })
+    container.addEventListener('touchmove', handleTouchMove, { passive: true })
 
-    // Cleanup
     return () => {
       unsubscribe()
       dataDisposable.dispose()
       window.removeEventListener('resize', handleResize)
+      container.removeEventListener('touchstart', handleTouchStart)
+      container.removeEventListener('touchmove', handleTouchMove)
       term.dispose()
     }
-  }, [subscribeOutput, sendInput, resize, handleResize])
+  }, [subscribeOutput, sendInput, resize, handleResize, handleTouchStart, handleTouchMove])
 
   return (
     <div 

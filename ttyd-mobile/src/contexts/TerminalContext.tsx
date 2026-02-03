@@ -1,23 +1,21 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 
 export interface TerminalContextValue {
-  // Connection status (for StatusBar)
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
   
-  // Send input to terminal (for Toolbar / TmuxManager)
   sendInput: (text: string) => void
   
-  // Send special keys (for Toolbar)
   sendKey: (key: 'ESC' | 'TAB' | 'ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
   
-  // Subscribe to terminal output (for ActivityDetector)
   subscribeOutput: (callback: (data: string | Uint8Array) => void) => () => void
   
-  // Terminal ref (for Layout focus)
   terminalRef: React.RefObject<HTMLDivElement>
 
-  // Resize terminal
   resize: (cols: number, rows: number) => void
+
+  reconnect: () => void
+  
+  reconnectAttempt: number
 }
 
 const TerminalContext = createContext<TerminalContextValue | null>(null)
@@ -44,24 +42,27 @@ const KEY_SEQUENCES: Record<string, string> = {
   'CTRL_L': '\x0c',
 }
 
+const MAX_RECONNECT_ATTEMPTS = 10
+const RECONNECT_DELAYS = [1000, 2000, 3000, 5000, 5000, 10000, 10000, 15000, 15000, 30000]
+
 export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const listenersRef = useRef<Set<(data: string | Uint8Array) => void>>(new Set())
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting')
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const manualDisconnectRef = useRef(false)
   
-  // Dimensions for initial connection
   const dimensionsRef = useRef({ cols: 80, rows: 24 })
 
   const connect = useCallback(() => {
-    setConnectionState('connecting')
+    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    
+    setConnectionState(reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    // Handle cases where we might be under a subpath, though usually ttyd is at root or specified path
-    // We'll assume relative to root for now as per prompt's snippet: `${proto}//${host}${path}/ws`
-    // Assuming path is root or handled by window.location.pathname logic if needed.
-    // Let's stick to a safe default for ttyd usually mounted at /
     const path = window.location.pathname.replace(/\/$/, '')
     const wsUrl = `${protocol}//${host}${path}/ws`
 
@@ -72,8 +73,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ws.onopen = () => {
       console.log('[Terminal] WebSocket connected')
       setConnectionState('connected')
+      setReconnectAttempt(0)
       
-      // Send auth/init message
       const { cols, rows } = dimensionsRef.current
       const auth = JSON.stringify({ AuthToken: '', columns: cols, rows: rows })
       ws.send(new TextEncoder().encode(auth))
@@ -85,37 +86,58 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const cmd = String.fromCharCode(data[0])
       
-      // '0' = Output
       if (cmd === '0') {
         const payload = data.slice(1)
         listenersRef.current.forEach(listener => listener(payload))
-      } 
-      // '1' = Set Window Title
-      else if (cmd === '1') {
+      } else if (cmd === '1') {
         const title = new TextDecoder().decode(data.slice(1))
         document.title = title
       }
-      // '2' = Preferences (not implemented in prompt requirement but exists in ttyd)
     }
 
     ws.onclose = () => {
       console.log('[Terminal] WebSocket closed')
-      setConnectionState('disconnected')
       wsRef.current = null
       
-      // Simple reconnect logic could go here
-      // For now, we'll leave it as disconnected to avoid infinite loops during dev if backend is down
+      if (manualDisconnectRef.current) {
+        manualDisconnectRef.current = false
+        setConnectionState('disconnected')
+        return
+      }
+      
+      setConnectionState('disconnected')
+      
+      if (reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+        const delay = RECONNECT_DELAYS[reconnectAttempt] || 30000
+        console.log(`[Terminal] Reconnecting in ${delay}ms (attempt ${reconnectAttempt + 1})`)
+        setReconnectAttempt(prev => prev + 1)
+        reconnectTimerRef.current = window.setTimeout(() => {
+          connect()
+        }, delay)
+      }
     }
 
     ws.onerror = (error) => {
       console.error('[Terminal] WebSocket error', error)
-      // onError usually followed by onClose
     }
-  }, [])
+  }, [reconnectAttempt])
+
+  const reconnect = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    setReconnectAttempt(0)
+    connect()
+  }, [connect])
 
   useEffect(() => {
     connect()
     return () => {
+      manualDisconnectRef.current = true
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+      }
       if (wsRef.current) {
         wsRef.current.close()
       }
@@ -176,7 +198,9 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       sendKey,
       subscribeOutput,
       terminalRef,
-      resize
+      resize,
+      reconnect,
+      reconnectAttempt
     }}>
       {children}
     </TerminalContext.Provider>
