@@ -29,7 +29,7 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
   const handleCreate = () => {
     const name = sessionName.trim()
     if (name) {
-      sendInput(`tmux new -A -s ${name}\r`)
+      sendInput(`[ -n "$TMUX" ] && { tmux new-session -d -s ${name} 2>/dev/null; tmux switch-client -t ${name}; } || tmux new -A -s ${name}\r`)
       onClose()
     }
   }

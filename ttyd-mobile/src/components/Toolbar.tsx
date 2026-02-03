@@ -3,7 +3,6 @@ import { useTerminal } from '../contexts/TerminalContext'
 import { SettingsModal, CommandConfig } from './SettingsModal'
 import { TextInputModal } from './TextInputModal'
 import { DiffViewer } from './DiffViewer'
-import { NewSessionModal, SessionListModal } from './TmuxManager'
 
 export const Toolbar: React.FC = () => {
   const { sendKey, sendInput } = useTerminal()
@@ -11,8 +10,6 @@ export const Toolbar: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isInputOpen, setIsInputOpen] = useState(false)
   const [isDiffOpen, setIsDiffOpen] = useState(false)
-  const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
-  const [isSessionListOpen, setIsSessionListOpen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
 
   const loadConfig = () => {
@@ -92,8 +89,6 @@ export const Toolbar: React.FC = () => {
           {/* System Buttons Group */}
           <div className={`flex items-center gap-2 ${isExpanded ? 'flex-wrap' : 'shrink-0'}`}>
             <SystemBtn label="⌨️" onClick={() => setIsInputOpen(true)} />
-            <SystemBtn label="+Tmux" onClick={() => setIsNewSessionOpen(true)} />
-            <SystemBtn label="Sessions" onClick={() => setIsSessionListOpen(true)} />
             <SystemBtn label="Diff" onClick={() => setIsDiffOpen(true)} className="text-accent-green" />
             <SystemBtn label="⚙️" onClick={() => setIsSettingsOpen(true)} />
           </div>
@@ -115,16 +110,6 @@ export const Toolbar: React.FC = () => {
       <DiffViewer
         isOpen={isDiffOpen}
         onClose={() => setIsDiffOpen(false)}
-      />
-
-      <NewSessionModal
-        isOpen={isNewSessionOpen}
-        onClose={() => setIsNewSessionOpen(false)}
-      />
-
-      <SessionListModal
-        isOpen={isSessionListOpen}
-        onClose={() => setIsSessionListOpen(false)}
       />
     </>
   )

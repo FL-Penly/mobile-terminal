@@ -1,0 +1,57 @@
+import { useState, useEffect, useCallback } from 'react'
+
+const DIFF_SERVER_PORT = 7683
+const POLL_INTERVAL = 5000
+
+export interface TmuxSession {
+  name: string
+  windows: number
+  attached: boolean
+}
+
+export function useTmuxSessions() {
+  const [sessions, setSessions] = useState<TmuxSession[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      const url = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/list`
+      const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
+      const data = await response.json()
+      setSessions(data.sessions || [])
+      setError(null)
+    } catch (err) {
+      setError('Failed to fetch sessions')
+      setSessions([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchSessions()
+    const interval = setInterval(fetchSessions, POLL_INTERVAL)
+    return () => clearInterval(interval)
+  }, [fetchSessions])
+
+  const refresh = useCallback(() => {
+    setIsLoading(true)
+    fetchSessions()
+  }, [fetchSessions])
+
+  const currentSession = sessions.find(s => s.attached)?.name || null
+
+  return {
+    sessions,
+    currentSession,
+    isLoading,
+    error,
+    refresh
+  }
+}
