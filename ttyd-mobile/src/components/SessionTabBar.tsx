@@ -70,9 +70,16 @@ export const SessionTabBar: React.FC = () => {
     }
   }, [isOpen])
 
-  const handleSwitchSession = (sessionName: string) => {
-    sendInput(`[ -n "$TMUX" ] && tmux switch-client -t ${sessionName} || tmux attach -t ${sessionName}\r`)
+  const handleSwitchSession = async (sessionName: string) => {
     setIsOpen(false)
+    try {
+      const url = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/switch?session=${encodeURIComponent(sessionName)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) throw new Error('API failed')
+      refresh()
+    } catch {
+      sendInput(`[ -n "$TMUX" ] && tmux switch-client -t ${sessionName} || tmux attach -t ${sessionName}\r`)
+    }
   }
 
   const handleKillSession = async (sessionName: string) => {

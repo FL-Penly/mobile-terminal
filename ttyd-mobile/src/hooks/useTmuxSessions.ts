@@ -11,6 +11,7 @@ export interface TmuxSession {
 
 export function useTmuxSessions() {
   const [sessions, setSessions] = useState<TmuxSession[]>([])
+  const [currentSession, setCurrentSession] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -25,10 +26,12 @@ export function useTmuxSessions() {
       
       const data = await response.json()
       setSessions(data.sessions || [])
+      setCurrentSession(data.currentSession || null)
       setError(null)
     } catch (err) {
       setError('Failed to fetch sessions')
       setSessions([])
+      setCurrentSession(null)
     } finally {
       setIsLoading(false)
     }
@@ -44,8 +47,6 @@ export function useTmuxSessions() {
     setIsLoading(true)
     fetchSessions()
   }, [fetchSessions])
-
-  const currentSession = sessions.find(s => s.attached)?.name || null
 
   return {
     sessions,

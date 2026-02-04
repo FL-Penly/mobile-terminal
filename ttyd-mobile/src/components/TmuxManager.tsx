@@ -26,11 +26,16 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
     }
   }, [isOpen])
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const name = sessionName.trim()
-    if (name) {
+    if (!name) return
+    onClose()
+    try {
+      const url = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/create?name=${encodeURIComponent(name)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) throw new Error('API failed')
+    } catch {
       sendInput(`[ -n "$TMUX" ] && { tmux new-session -d -s ${name} 2>/dev/null; tmux switch-client -t ${name}; } || tmux new -A -s ${name}\r`)
-      onClose()
     }
   }
 
@@ -121,9 +126,15 @@ export const SessionListModal: React.FC<SessionListModalProps> = ({ isOpen, onCl
     }
   }, [isOpen, fetchSessions])
 
-  const handleAttach = (name: string) => {
-    sendInput(`tmux attach -t ${name}\r`)
+  const handleAttach = async (name: string) => {
     onClose()
+    try {
+      const url = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/switch?session=${encodeURIComponent(name)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) throw new Error('API failed')
+    } catch {
+      sendInput(`tmux attach -t ${name}\r`)
+    }
   }
 
   const handleKill = async (name: string) => {

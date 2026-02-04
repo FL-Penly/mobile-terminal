@@ -10,6 +10,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 CWD_FILE = "/tmp/ttyd_cwd"
+TTY_FILE = "/tmp/ttyd_client_tty"
 DEFAULT_PORT = 7683
 SUBPROCESS_TIMEOUT = 10
 
@@ -25,10 +26,73 @@ class DiffHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
     def _get_cwd(self) -> str:
+        cwd = self._get_tmux_pane_path()
+        if cwd:
+            return cwd
         if os.path.exists(CWD_FILE):
             with open(CWD_FILE, "r") as f:
                 return f.read().strip()
         return os.path.expanduser("~")
+
+    def _get_tmux_pane_path(self) -> str | None:
+        client_tty = self._get_client_tty()
+        if not client_tty:
+            return None
+        try:
+            session_result = subprocess.run(
+                [
+                    "tmux",
+                    "display-message",
+                    "-c",
+                    client_tty,
+                    "-p",
+                    "#{client_session}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if session_result.returncode != 0 or not session_result.stdout.strip():
+                return None
+            session_name = session_result.stdout.strip()
+
+            path_result = subprocess.run(
+                [
+                    "tmux",
+                    "display-message",
+                    "-t",
+                    session_name,
+                    "-p",
+                    "#{pane_current_path}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if path_result.returncode == 0 and path_result.stdout.strip():
+                return path_result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            pass
+        return None
+        try:
+            result = subprocess.run(
+                [
+                    "tmux",
+                    "display-message",
+                    "-c",
+                    client_tty,
+                    "-p",
+                    "#{pane_current_path}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            pass
+        return None
 
     def _is_git_repo(self, path: str) -> bool:
         try:
@@ -214,6 +278,30 @@ class DiffHandler(BaseHTTPRequestHandler):
             return result.stdout.startswith("-\t-")
         return False
 
+    def _get_current_tmux_session(self) -> str | None:
+        client_tty = self._get_client_tty()
+        if not client_tty:
+            return None
+        try:
+            result = subprocess.run(
+                [
+                    "tmux",
+                    "display-message",
+                    "-c",
+                    client_tty,
+                    "-p",
+                    "#{client_session}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            pass
+        return None
+
     def _get_tmux_sessions(self) -> list:
         try:
             result = subprocess.run(
@@ -258,6 +346,66 @@ class DiffHandler(BaseHTTPRequestHandler):
             return result.returncode == 0
         except subprocess.TimeoutExpired:
             return False
+
+    def _get_client_tty(self) -> str | None:
+        if not os.path.exists(TTY_FILE):
+            return None
+        try:
+            with open(TTY_FILE, "r") as f:
+                return f.read().strip()
+        except Exception:
+            return None
+
+    def _switch_tmux_session(self, session_name: str) -> tuple[bool, str]:
+        client_tty = self._get_client_tty()
+        if not client_tty:
+            return False, "No client tty found"
+
+        try:
+            clients = subprocess.run(
+                ["tmux", "list-clients", "-F", "#{client_tty}"],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if client_tty not in clients.stdout:
+                return False, f"Client {client_tty} not attached to tmux"
+
+            result = subprocess.run(
+                ["tmux", "switch-client", "-c", client_tty, "-t", session_name],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return True, ""
+            return False, result.stderr.strip()
+        except subprocess.TimeoutExpired:
+            return False, "Timeout"
+
+    def _create_tmux_session(self, name: str) -> tuple[bool, str]:
+        client_tty = self._get_client_tty()
+        if not client_tty:
+            return False, "No client tty found"
+
+        try:
+            subprocess.run(
+                ["tmux", "new-session", "-d", "-s", name],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            result = subprocess.run(
+                ["tmux", "switch-client", "-c", client_tty, "-t", name],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return True, ""
+            return False, result.stderr.strip()
+        except subprocess.TimeoutExpired:
+            return False, "Timeout"
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -305,7 +453,8 @@ class DiffHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/tmux/list":
             sessions = self._get_tmux_sessions()
-            self._send_json({"sessions": sessions})
+            current = self._get_current_tmux_session()
+            self._send_json({"sessions": sessions, "currentSession": current})
 
         elif path == "/api/tmux/kill":
             query = parse_qs(parsed.query)
@@ -327,6 +476,37 @@ class DiffHandler(BaseHTTPRequestHandler):
                     },
                     500,
                 )
+
+        elif path == "/api/tmux/switch":
+            query = parse_qs(parsed.query)
+            session = query.get("session", [None])[0]
+            if not session:
+                self._send_json(
+                    {"error": "missing_session", "message": "Session name required"},
+                    400,
+                )
+                return
+            success, msg = self._switch_tmux_session(session)
+            if success:
+                self._send_json({"success": True})
+            else:
+                self._send_json({"error": "switch_failed", "message": msg}, 500)
+
+        elif path == "/api/tmux/create":
+            query = parse_qs(parsed.query)
+            name = query.get("name", [None])[0]
+            if not name:
+                self._send_json(
+                    {"error": "missing_name", "message": "Session name required"}, 400
+                )
+                return
+            success, msg = self._create_tmux_session(name)
+            if success:
+                self._send_json(
+                    {"success": True, "message": f"Session '{name}' created"}
+                )
+            else:
+                self._send_json({"error": "create_failed", "message": msg}, 500)
 
         else:
             self._send_json({"error": "not_found"}, 404)

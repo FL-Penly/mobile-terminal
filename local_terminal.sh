@@ -15,6 +15,7 @@ CMD="${1:-zsh}"
 INDEX_FILE="$SCRIPT_DIR/ttyd-mobile/dist/index.html"
 DIFF_SERVER="$SCRIPT_DIR/ttyd-mobile/diff-server.py"
 CWD_FILE="/tmp/ttyd_cwd"
+TTY_FILE="/tmp/ttyd_client_tty"
 
 if ! command -v ttyd &>/dev/null; then
     echo "Error: ttyd not found. Install it first."
@@ -38,9 +39,9 @@ fi
 
 SHELL_INIT=""
 if [[ "$CMD" == "zsh" ]] || [[ "$CMD" == *"zsh"* ]]; then
-    SHELL_INIT="precmd() { echo \$PWD > $CWD_FILE; }; "
+    SHELL_INIT="tty > $TTY_FILE 2>/dev/null; precmd() { echo \$PWD > $CWD_FILE; }; "
 elif [[ "$CMD" == "bash" ]] || [[ "$CMD" == *"bash"* ]]; then
-    SHELL_INIT="PROMPT_COMMAND='echo \$PWD > $CWD_FILE'; "
+    SHELL_INIT="tty > $TTY_FILE 2>/dev/null; PROMPT_COMMAND='echo \$PWD > $CWD_FILE'; "
 fi
 
 if [ -n "$SHELL_INIT" ]; then
@@ -49,7 +50,7 @@ else
     WRAPPED_CMD="$CMD"
 fi
 
-nohup ttyd -W -p $PORT --index "$INDEX_FILE" $CMD >/dev/null 2>&1 &
+nohup ttyd -W -p $PORT --index "$INDEX_FILE" zsh -c "tty > $TTY_FILE; exec $CMD" >/dev/null 2>&1 &
 sleep 2
 
 if ! pgrep -f "ttyd.*$PORT" >/dev/null 2>&1; then
