@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 
+const DIFF_SERVER_PORT = 7683
+
 export interface TerminalContextValue {
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
   
@@ -43,7 +45,9 @@ const KEY_SEQUENCES: Record<string, string> = {
 }
 
 const MAX_RECONNECT_ATTEMPTS = 10
-const RECONNECT_DELAYS = [1000, 2000, 3000, 5000, 5000, 10000, 10000, 15000, 15000, 30000]
+const RECONNECT_DELAYS = [500, 1000, 2000, 3000, 5000, 5000, 10000, 10000, 15000, 30000]
+
+const TMUX_SESSION_KEY = 'ttyd_last_tmux_session'
 
 export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const terminalRef = useRef<HTMLDivElement>(null)
@@ -53,13 +57,77 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const reconnectTimerRef = useRef<number | null>(null)
   const manualDisconnectRef = useRef(false)
+  const isReconnectRef = useRef(false)
+  const lastConnectedTimeRef = useRef<number>(0)
   
   const dimensionsRef = useRef({ cols: 80, rows: 24 })
+
+  const tmuxTrackIntervalRef = useRef<number | null>(null)
+
+  const saveCurrentTmuxSession = useCallback(async () => {
+    try {
+      const url = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/list`
+      const res = await fetch(url, { signal: AbortSignal.timeout(2000) })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.currentSession) {
+        localStorage.setItem(TMUX_SESSION_KEY, data.currentSession)
+      }
+    } catch {
+    }
+  }, [])
+
+  const restoreTmuxSession = useCallback(async (ws: WebSocket) => {
+    const savedSession = localStorage.getItem(TMUX_SESSION_KEY)
+    if (!savedSession) return
+
+    console.log(`[Terminal] Attempting to restore tmux session: ${savedSession}`)
+    
+    // ttyd spawns a new shell on reconnect; wait for it to be ready before sending commands
+    await new Promise(r => setTimeout(r, 500))
+
+    try {
+      const listUrl = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/list`
+      const listRes = await fetch(listUrl, { signal: AbortSignal.timeout(3000) })
+      if (listRes.ok) {
+        const data = await listRes.json()
+        const sessions: { name: string }[] = data.sessions || []
+        const sessionExists = sessions.some(s => s.name === savedSession)
+        
+        if (sessionExists) {
+          if (ws.readyState === WebSocket.OPEN) {
+            const cmd = `tmux attach -t ${savedSession}\r`
+            const payload = new TextEncoder().encode(cmd)
+            const buf = new Uint8Array(payload.length + 1)
+            buf[0] = 0x30
+            buf.set(payload, 1)
+            ws.send(buf)
+            console.log(`[Terminal] Restored tmux session: ${savedSession}`)
+            return
+          }
+        } else {
+          console.log(`[Terminal] Saved session "${savedSession}" no longer exists`)
+          localStorage.removeItem(TMUX_SESSION_KEY)
+        }
+      }
+    } catch {
+      if (ws.readyState === WebSocket.OPEN) {
+        const cmd = `tmux attach -t ${savedSession} 2>/dev/null || true\r`
+        const payload = new TextEncoder().encode(cmd)
+        const buf = new Uint8Array(payload.length + 1)
+        buf[0] = 0x30
+        buf.set(payload, 1)
+        ws.send(buf)
+        console.log(`[Terminal] Sent tmux attach command (fallback)`)
+      }
+    }
+  }, [])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
     
-    setConnectionState(reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
+    const wasReconnect = isReconnectRef.current
+    setConnectionState(wasReconnect ? 'reconnecting' : 'connecting')
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
@@ -74,10 +142,20 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       console.log('[Terminal] WebSocket connected')
       setConnectionState('connected')
       setReconnectAttempt(0)
+      lastConnectedTimeRef.current = Date.now()
       
       const { cols, rows } = dimensionsRef.current
       const auth = JSON.stringify({ AuthToken: '', columns: cols, rows: rows })
       ws.send(new TextEncoder().encode(auth))
+
+      if (wasReconnect) {
+        isReconnectRef.current = false
+        restoreTmuxSession(ws)
+      }
+
+      if (tmuxTrackIntervalRef.current) clearInterval(tmuxTrackIntervalRef.current)
+      tmuxTrackIntervalRef.current = window.setInterval(saveCurrentTmuxSession, 10000)
+      setTimeout(saveCurrentTmuxSession, 2000)
     }
 
     ws.onmessage = (event) => {
@@ -99,6 +177,13 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       console.log('[Terminal] WebSocket closed')
       wsRef.current = null
       
+      if (tmuxTrackIntervalRef.current) {
+        clearInterval(tmuxTrackIntervalRef.current)
+        tmuxTrackIntervalRef.current = null
+      }
+
+      saveCurrentTmuxSession()
+      
       if (manualDisconnectRef.current) {
         manualDisconnectRef.current = false
         setConnectionState('disconnected')
@@ -106,30 +191,77 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       
       setConnectionState('disconnected')
+      isReconnectRef.current = true
       
-      if (reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
-        const delay = RECONNECT_DELAYS[reconnectAttempt] || 30000
-        console.log(`[Terminal] Reconnecting in ${delay}ms (attempt ${reconnectAttempt + 1})`)
-        setReconnectAttempt(prev => prev + 1)
-        reconnectTimerRef.current = window.setTimeout(() => {
-          connect()
-        }, delay)
-      }
+      setReconnectAttempt(prev => {
+        const attempt = prev + 1
+        if (attempt <= MAX_RECONNECT_ATTEMPTS) {
+          const delay = RECONNECT_DELAYS[prev] || 30000
+          console.log(`[Terminal] Reconnecting in ${delay}ms (attempt ${attempt})`)
+          reconnectTimerRef.current = window.setTimeout(() => {
+            connect()
+          }, delay)
+        }
+        return attempt
+      })
     }
 
     ws.onerror = (error) => {
       console.error('[Terminal] WebSocket error', error)
     }
-  }, [reconnectAttempt])
+  }, [restoreTmuxSession, saveCurrentTmuxSession])
 
   const reconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
+    isReconnectRef.current = true
     setReconnectAttempt(0)
     connect()
   }, [connect])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const ws = wsRef.current
+        const isDisconnected = !ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING
+
+        if (isDisconnected) {
+          console.log('[Terminal] Page became visible, connection lost — reconnecting immediately')
+          if (reconnectTimerRef.current) {
+            clearTimeout(reconnectTimerRef.current)
+            reconnectTimerRef.current = null
+          }
+          isReconnectRef.current = true
+          setReconnectAttempt(0)
+          connect()
+        } else if (ws && ws.readyState === WebSocket.OPEN) {
+          // Mobile browsers may freeze WebSocket without firing onclose; probe with a resize msg
+          const timeSinceConnect = Date.now() - lastConnectedTimeRef.current
+          if (timeSinceConnect > 30000) {
+            const { cols, rows } = dimensionsRef.current
+            const resizeMsg = JSON.stringify({ AuthToken: '', columns: cols, rows: rows })
+            const payload = new TextEncoder().encode(resizeMsg)
+            const buf = new Uint8Array(payload.length + 1)
+            buf[0] = 0x31
+            buf.set(payload, 1)
+            try {
+              ws.send(buf)
+            } catch {
+              console.log('[Terminal] Connection stale on visibility change — forcing reconnect')
+              ws.close()
+            }
+          }
+        }
+      } else if (document.visibilityState === 'hidden') {
+        saveCurrentTmuxSession()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [connect, saveCurrentTmuxSession])
 
   useEffect(() => {
     connect()
@@ -137,6 +269,9 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       manualDisconnectRef.current = true
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
+      }
+      if (tmuxTrackIntervalRef.current) {
+        clearInterval(tmuxTrackIntervalRef.current)
       }
       if (wsRef.current) {
         wsRef.current.close()
@@ -148,7 +283,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       const payload = new TextEncoder().encode(text)
       const buf = new Uint8Array(payload.length + 1)
-      buf[0] = 0x30 // '0'
+      buf[0] = 0x30
       buf.set(payload, 1)
       wsRef.current.send(buf)
     }
@@ -171,21 +306,10 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const resize = useCallback((cols: number, rows: number) => {
     dimensionsRef.current = { cols, rows }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      // ttyd expects the same Auth/Init structure for resize
       const resizeMsg = JSON.stringify({ AuthToken: '', columns: cols, rows: rows })
       const payload = new TextEncoder().encode(resizeMsg)
       const buf = new Uint8Array(payload.length + 1)
-      buf[0] = 0x31 // '1' - Wait, checking protocol. 
-      // Standard ttyd: 
-      // Input: '0' + data
-      // Resize: '1' + JSON (columns, rows)
-      // Let me verify this. 
-      // The prompt says: "Send input (prefix '0')". It doesn't explicitly say how to resize.
-      // But standard ttyd (tsl0922/ttyd) src/server.c:
-      // case '1': // resize
-      // So yes, prefix '1' for resize/json.
-      
-      buf[0] = 0x31 // '1'
+      buf[0] = 0x31
       buf.set(payload, 1)
       wsRef.current.send(buf)
     }

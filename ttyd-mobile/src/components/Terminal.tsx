@@ -156,6 +156,12 @@ export const Terminal = () => {
     })
 
     window.addEventListener('resize', handleResize)
+
+    const vv = window.visualViewport
+    const handleViewportResize = () => {
+      requestAnimationFrame(handleResize)
+    }
+    vv?.addEventListener('resize', handleViewportResize)
     
     const container = containerRef.current
     container.addEventListener('touchstart', handleTouchStart, { passive: true })
@@ -165,6 +171,7 @@ export const Terminal = () => {
       unsubscribe()
       dataDisposable.dispose()
       window.removeEventListener('resize', handleResize)
+      vv?.removeEventListener('resize', handleViewportResize)
       container.removeEventListener('touchstart', handleTouchStart)
       container.removeEventListener('touchmove', handleTouchMove)
       term.dispose()

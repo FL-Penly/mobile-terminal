@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 const DIFF_SERVER_PORT = 7683
 const POLL_INTERVAL = 5000
 
-interface StatusData {
+interface StatusState {
   branch: string
   path: string
   changedFiles: number
@@ -14,8 +14,12 @@ interface StatusData {
   isOffline: boolean
 }
 
+interface StatusData extends StatusState {
+  refresh: () => void
+}
+
 export function useStatusData(): StatusData {
-  const [data, setData] = useState<StatusData>({
+  const [data, setData] = useState<StatusState>({
     branch: '',
     path: '',
     changedFiles: 0,
@@ -63,5 +67,5 @@ export function useStatusData(): StatusData {
     return () => clearInterval(interval)
   }, [fetchData])
 
-  return data
+  return { ...data, refresh: fetchData }
 }

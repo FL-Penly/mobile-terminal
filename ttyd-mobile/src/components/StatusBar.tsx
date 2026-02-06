@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { useStatusData } from '../hooks/useStatusData'
 import { SessionTabBar } from './SessionTabBar'
+import { BranchSelector } from './BranchSelector'
 
 // Truncate path to max length
 function truncatePath(path: string, maxLen: number = 20): string {
@@ -13,7 +14,11 @@ function truncatePath(path: string, maxLen: number = 20): string {
 
 export const StatusBar: React.FC = () => {
   const { connectionState } = useTerminal()
-  const { branch, path, isOffline, isLoading } = useStatusData()
+  const { branch, path, isOffline, isLoading, refresh } = useStatusData()
+
+  const handleBranchChange = useCallback(() => {
+    setTimeout(() => refresh(), 500)
+  }, [refresh])
 
   const isConnected = connectionState === 'connected'
 
@@ -35,7 +40,7 @@ export const StatusBar: React.FC = () => {
           <span className="text-text-muted">(offline)</span>
         ) : (
           <>
-            <span className="text-accent-purple shrink-0">{branch || '-'}</span>
+            <BranchSelector currentBranch={branch || '-'} onBranchChange={handleBranchChange} />
             <span className="text-border-subtle shrink-0">│</span>
             <span className="truncate" title={path}>{truncatePath(path)}</span>
           </>

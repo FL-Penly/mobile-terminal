@@ -133,6 +133,61 @@ class DiffHandler(BaseHTTPRequestHandler):
         except subprocess.TimeoutExpired:
             return "unknown"
 
+    def _get_all_branches(self, path: str) -> dict:
+        branches = {"local": [], "remote": [], "current": ""}
+        try:
+            current = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if current.returncode == 0:
+                branches["current"] = current.stdout.strip()
+
+            local = subprocess.run(
+                ["git", "branch", "--format=%(refname:short)"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if local.returncode == 0:
+                branches["local"] = [b for b in local.stdout.strip().split("\n") if b]
+
+            remote = subprocess.run(
+                ["git", "branch", "-r", "--format=%(refname:short)"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if remote.returncode == 0:
+                branches["remote"] = [
+                    b
+                    for b in remote.stdout.strip().split("\n")
+                    if b and not b.endswith("/HEAD")
+                ]
+        except subprocess.TimeoutExpired:
+            pass
+        return branches
+
+    def _checkout_branch(self, path: str, branch: str) -> tuple[bool, str]:
+        try:
+            result = subprocess.run(
+                ["git", "checkout", branch],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return True, ""
+            return False, result.stderr.strip()
+        except subprocess.TimeoutExpired:
+            return False, "Timeout"
+
     def _get_changed_files(self, path: str) -> list:
         try:
             subprocess.run(
@@ -507,6 +562,34 @@ class DiffHandler(BaseHTTPRequestHandler):
                 )
             else:
                 self._send_json({"error": "create_failed", "message": msg}, 500)
+
+        elif path == "/api/git/branches":
+            cwd = self._get_cwd()
+            if not self._is_git_repo(cwd):
+                self._send_json({"error": "not_git_repo"}, 400)
+                return
+            git_root = self._get_git_root(cwd)
+            branches = self._get_all_branches(git_root)
+            self._send_json(branches)
+
+        elif path == "/api/git/checkout":
+            query = parse_qs(parsed.query)
+            branch = query.get("branch", [None])[0]
+            if not branch:
+                self._send_json(
+                    {"error": "missing_branch", "message": "Branch name required"}, 400
+                )
+                return
+            cwd = self._get_cwd()
+            if not self._is_git_repo(cwd):
+                self._send_json({"error": "not_git_repo"}, 400)
+                return
+            git_root = self._get_git_root(cwd)
+            success, msg = self._checkout_branch(git_root, branch)
+            if success:
+                self._send_json({"success": True, "branch": branch})
+            else:
+                self._send_json({"error": "checkout_failed", "message": msg}, 500)
 
         else:
             self._send_json({"error": "not_found"}, 404)
