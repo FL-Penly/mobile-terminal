@@ -30,6 +30,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const [config, setConfig] = useState<CommandConfig>(DEFAULT_CONFIG)
   const [newCmdName, setNewCmdName] = useState('')
   const [newCmdContent, setNewCmdContent] = useState('')
+  const [predictiveEcho, setPredictiveEcho] = useState(() => localStorage.getItem('terminal_predictive_echo') === 'on')
 
   useEffect(() => {
     if (isOpen) {
@@ -141,7 +142,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
             )}
           </section>
 
-          {/* Add New Command Form */}
+          <section>
+            <h3 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">Performance</h3>
+            <div className="flex items-center justify-between bg-bg-tertiary p-3 rounded-lg">
+              <div className="flex flex-col">
+                <span className="text-sm text-text-primary">Predictive Echo</span>
+                <span className="text-xs text-text-muted">Show keystrokes before server confirms</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={predictiveEcho}
+                  onChange={() => {
+                    const next = !predictiveEcho
+                    setPredictiveEcho(next)
+                    localStorage.setItem('terminal_predictive_echo', next ? 'on' : 'off')
+                    window.dispatchEvent(new CustomEvent('predictive-echo-changed', { detail: next }))
+                  }}
+                />
+                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-green"></div>
+              </label>
+            </div>
+          </section>
+
           <section>
             <h3 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">Add New Command</h3>
             <form onSubmit={addCustom} className="space-y-3">

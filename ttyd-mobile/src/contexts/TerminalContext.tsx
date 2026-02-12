@@ -11,6 +11,8 @@ export interface TerminalContextValue {
   
   subscribeOutput: (callback: (data: string | Uint8Array) => void) => () => void
   
+  sendControl: (byte: number) => void
+  
   terminalRef: React.RefObject<HTMLDivElement>
 
   resize: (cols: number, rows: number) => void
@@ -62,19 +64,33 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   
   const dimensionsRef = useRef({ cols: 80, rows: 24 })
 
-  const tmuxTrackIntervalRef = useRef<number | null>(null)
+  // RAF write coalescing buffers
+  const writeBufferRef = useRef<Uint8Array[]>([])
+  const writeTotalRef = useRef(0)
+  const rafIdRef = useRef<number | null>(null)
 
-  const saveCurrentTmuxSession = useCallback(async () => {
-    try {
-      const url = `http://${location.hostname}:${DIFF_SERVER_PORT}/api/tmux/list`
-      const res = await fetch(url, { signal: AbortSignal.timeout(2000) })
-      if (!res.ok) return
-      const data = await res.json()
-      if (data.currentSession) {
-        localStorage.setItem(TMUX_SESSION_KEY, data.currentSession)
+  const flushBuffer = useCallback(() => {
+    const chunks = writeBufferRef.current
+    if (chunks.length === 0) return
+    
+    rafIdRef.current = null
+    
+    let combined: Uint8Array
+    if (chunks.length === 1) {
+      combined = chunks[0]
+    } else {
+      combined = new Uint8Array(writeTotalRef.current)
+      let offset = 0
+      for (const chunk of chunks) {
+        combined.set(chunk, offset)
+        offset += chunk.length
       }
-    } catch {
     }
+    
+    writeBufferRef.current = []
+    writeTotalRef.current = 0
+    
+    listenersRef.current.forEach(listener => listener(combined))
   }, [])
 
   const restoreTmuxSession = useCallback(async (ws: WebSocket) => {
@@ -152,10 +168,6 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         isReconnectRef.current = false
         restoreTmuxSession(ws)
       }
-
-      if (tmuxTrackIntervalRef.current) clearInterval(tmuxTrackIntervalRef.current)
-      tmuxTrackIntervalRef.current = window.setInterval(saveCurrentTmuxSession, 10000)
-      setTimeout(saveCurrentTmuxSession, 2000)
     }
 
     ws.onmessage = (event) => {
@@ -165,10 +177,18 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const cmd = String.fromCharCode(data[0])
       
       if (cmd === '0') {
-        const payload = data.slice(1)
-        listenersRef.current.forEach(listener => listener(payload))
+        const payload = data.subarray(1)
+        writeBufferRef.current.push(payload)
+        writeTotalRef.current += payload.length
+        
+        const SAFETY_VALVE = 512 * 1024
+        if (writeTotalRef.current > SAFETY_VALVE) {
+          flushBuffer()
+        } else if (rafIdRef.current === null) {
+          rafIdRef.current = requestAnimationFrame(flushBuffer)
+        }
       } else if (cmd === '1') {
-        const title = new TextDecoder().decode(data.slice(1))
+        const title = new TextDecoder().decode(data.subarray(1))
         document.title = title
       }
     }
@@ -177,12 +197,11 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       console.log('[Terminal] WebSocket closed')
       wsRef.current = null
       
-      if (tmuxTrackIntervalRef.current) {
-        clearInterval(tmuxTrackIntervalRef.current)
-        tmuxTrackIntervalRef.current = null
+      flushBuffer()
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
       }
-
-      saveCurrentTmuxSession()
       
       if (manualDisconnectRef.current) {
         manualDisconnectRef.current = false
@@ -209,7 +228,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ws.onerror = (error) => {
       console.error('[Terminal] WebSocket error', error)
     }
-  }, [restoreTmuxSession, saveCurrentTmuxSession])
+  }, [restoreTmuxSession, flushBuffer])
 
   const reconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -254,14 +273,12 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
           }
         }
-      } else if (document.visibilityState === 'hidden') {
-        saveCurrentTmuxSession()
       }
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [connect, saveCurrentTmuxSession])
+  }, [connect])
 
   useEffect(() => {
     connect()
@@ -270,8 +287,9 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
       }
-      if (tmuxTrackIntervalRef.current) {
-        clearInterval(tmuxTrackIntervalRef.current)
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
       }
       if (wsRef.current) {
         wsRef.current.close()
@@ -303,6 +321,12 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [])
 
+  const sendControl = useCallback((byte: number) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(new Uint8Array([byte]))
+    }
+  }, [])
+
   const resize = useCallback((cols: number, rows: number) => {
     dimensionsRef.current = { cols, rows }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -321,6 +345,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       sendInput,
       sendKey,
       subscribeOutput,
+      sendControl,
       terminalRef,
       resize,
       reconnect,

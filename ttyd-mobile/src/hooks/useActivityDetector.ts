@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
-import stripAnsi from 'strip-ansi'
+import ActivityWorker from '../workers/activity-worker.ts?worker&inline'
 
 export type ActivityType = 'reading' | 'writing' | 'thinking' | 'executing' | 'complete' | 'error'
 
@@ -12,41 +12,13 @@ export interface Activity {
   timestamp: Date
 }
 
-interface PatternDef {
-  pattern: RegExp
-  type: ActivityType
-  fileGroup?: number
-}
-
-const PATTERNS: PatternDef[] = [
-  { pattern: /^Reading\s+(.+)$/i, type: 'reading', fileGroup: 1 },
-  { pattern: /^Wrote\s+(.+?)(?:\s+\(.*\))?$/i, type: 'writing', fileGroup: 1 },
-  { pattern: /^Created\s+(.+)$/i, type: 'writing', fileGroup: 1 },
-  { pattern: /^Edited\s+(.+)$/i, type: 'writing', fileGroup: 1 },
-  { pattern: /^Running\s+(.+)$/i, type: 'executing', fileGroup: 1 },
-  { pattern: /^Executing\s+(.+)$/i, type: 'executing', fileGroup: 1 },
-  { pattern: /^Thinking\.{3}$/i, type: 'thinking' },
-  { pattern: /^Analyzing\s+(.+)/i, type: 'thinking', fileGroup: 1 },
-  { pattern: /^\[read\]\s+(.+)$/i, type: 'reading', fileGroup: 1 },
-  { pattern: /^\[write\]\s+(.+)$/i, type: 'writing', fileGroup: 1 },
-  { pattern: /^\[exec\]\s+(.+)$/i, type: 'executing', fileGroup: 1 },
-  { pattern: /^✓\s+(.+)$/i, type: 'complete', fileGroup: 1 },
-  { pattern: /^✗\s+(.+)$/i, type: 'error', fileGroup: 1 },
-  { pattern: /^Error:\s+(.+)/i, type: 'error', fileGroup: 1 },
-]
-
 const MAX_ACTIVITIES = 10
-const BUFFER_LIMIT = 1000
-
-const scheduleIdle = typeof window !== 'undefined' && window.requestIdleCallback 
-  ? window.requestIdleCallback 
-  : (cb: () => void) => setTimeout(cb, 16)
 
 export function useActivityDetector() {
   const [activities, setActivities] = useState<Activity[]>([])
   const { subscribeOutput } = useTerminal()
-  const bufferRef = useRef('')
   const idCounterRef = useRef(0)
+  const workerRef = useRef<Worker | null>(null)
 
   const addActivity = useCallback((type: ActivityType, message: string, file?: string) => {
     const newActivity: Activity = {
@@ -63,53 +35,32 @@ export function useActivityDetector() {
     })
   }, [])
 
-  const processLine = useCallback((line: string) => {
-    const trimmed = line.trim()
-    if (!trimmed) return
-
-    for (const { pattern, type, fileGroup } of PATTERNS) {
-      const match = trimmed.match(pattern)
-      if (match) {
-        const file = fileGroup ? match[fileGroup] : undefined
-        const message = file || trimmed
-        addActivity(type, message, file)
-        return
-      }
-    }
-  }, [addActivity])
-
-  const processBuffer = useCallback(() => {
-    if (!bufferRef.current) return
-
-    const lines = bufferRef.current.split(/\r?\n/)
-    bufferRef.current = lines.pop() || ''
-    
-    if (bufferRef.current.length > BUFFER_LIMIT) {
-      bufferRef.current = bufferRef.current.slice(-BUFFER_LIMIT)
-    }
-
-    const linesToProcess = lines.slice(0, 50)
-    linesToProcess.forEach(processLine)
-  }, [processLine])
-
   useEffect(() => {
-    const unsubscribe = subscribeOutput((data) => {
-      const text = typeof data === 'string' 
-        ? data 
-        : new TextDecoder().decode(data)
-      
-      const cleaned = stripAnsi(text)
-      bufferRef.current += cleaned
+    const worker = new ActivityWorker()
+    workerRef.current = worker
 
-      if (bufferRef.current.length > BUFFER_LIMIT) {
-        bufferRef.current = bufferRef.current.slice(-BUFFER_LIMIT)
+    worker.onmessage = (e: MessageEvent<{ type: string; activities: Array<{ type: ActivityType; message: string; file?: string }> }>) => {
+      if (e.data.type === 'activity') {
+        for (const act of e.data.activities) {
+          addActivity(act.type, act.message, act.file)
+        }
       }
+    }
 
-      scheduleIdle(() => processBuffer())
+    const unsubscribe = subscribeOutput((data) => {
+      const text = typeof data === 'string'
+        ? data
+        : new TextDecoder().decode(data)
+
+      worker.postMessage({ type: 'data', payload: text })
     })
 
-    return unsubscribe
-  }, [subscribeOutput, processBuffer])
+    return () => {
+      unsubscribe()
+      worker.terminate()
+      workerRef.current = null
+    }
+  }, [subscribeOutput, addActivity])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

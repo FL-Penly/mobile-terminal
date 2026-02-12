@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
-import { useTmuxSessions } from '../hooks/useTmuxSessions'
+import { useServerEvents } from '../contexts/ServerEventsContext'
 import { NewSessionModal } from './TmuxManager'
 
 const DIFF_SERVER_PORT = 7683
@@ -45,7 +45,7 @@ const KillConfirmModal: React.FC<KillConfirmModalProps> = ({ sessionName, onConf
 
 export const SessionTabBar: React.FC = () => {
   const { sendInput } = useTerminal()
-  const { sessions, currentSession, refresh } = useTmuxSessions()
+  const { tmuxSessions: sessions, currentTmuxSession: currentSession, refresh } = useServerEvents()
   const [isOpen, setIsOpen] = useState(false)
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
   const [killTargetSession, setKillTargetSession] = useState<string | null>(null)

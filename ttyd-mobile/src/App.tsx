@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { TerminalProvider } from './contexts/TerminalContext'
+import { ServerEventsProvider } from './contexts/ServerEventsContext'
 import { Layout } from './components/Layout'
 import { Terminal } from './components/Terminal'
 
@@ -16,9 +17,11 @@ function App() {
 
   return (
     <TerminalProvider>
-      <Layout>
-        <Terminal />
-      </Layout>
+      <ServerEventsProvider>
+        <Layout>
+          <Terminal />
+        </Layout>
+      </ServerEventsProvider>
     </TerminalProvider>
   )
 }

@@ -5,6 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminal } from '../contexts/TerminalContext'
+import { PredictiveEcho } from '../utils/predictive-echo'
 
 const MIN_FONT_SIZE = 8
 const MAX_FONT_SIZE = 24
@@ -14,13 +15,15 @@ export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const { subscribeOutput, sendInput, resize } = useTerminal()
+  const { subscribeOutput, sendInput, sendControl, resize } = useTerminal()
   
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('terminal_font_size')
     return saved ? parseInt(saved, 10) : DEFAULT_FONT_SIZE
   })
   const pinchRef = useRef({ initialDistance: 0, initialFontSize: DEFAULT_FONT_SIZE })
+  const resizeTimerRef = useRef<number | null>(null)
+  const predictiveEchoRef = useRef<PredictiveEcho | null>(null)
 
   const handleResize = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
@@ -29,6 +32,11 @@ export const Terminal = () => {
       resize(cols, rows)
     }
   }, [resize])
+
+  const debouncedResize = useCallback(() => {
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
+    resizeTimerRef.current = window.setTimeout(handleResize, 150)
+  }, [handleResize])
 
   const updateFontSize = useCallback((newSize: number) => {
     const clampedSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(newSize)))
@@ -104,6 +112,10 @@ export const Terminal = () => {
     })
     termRef.current = term
 
+    const predictiveEcho = new PredictiveEcho(term)
+    predictiveEcho.enabled = localStorage.getItem('terminal_predictive_echo') === 'on'
+    predictiveEchoRef.current = predictiveEcho
+
     // Load FitAddon
     const fitAddon = new FitAddon()
     fitAddonRef.current = fitAddon
@@ -143,25 +155,41 @@ export const Terminal = () => {
 
     // Handle user input -> send to WebSocket
     const dataDisposable = term.onData((data) => {
+      predictiveEcho.handleInput(data)
       sendInput(data)
     })
 
-    // Subscribe to output from WebSocket -> write to terminal
+    const HIGH_WATER = 5
+    let pendingWrites = 0
+    let paused = false
+
     const unsubscribe = subscribeOutput((data) => {
       if (data instanceof Uint8Array) {
-        term.write(data)
-      } else {
-        term.write(data)
+        predictiveEcho.handleOutput(data)
       }
+      pendingWrites++
+      if (pendingWrites >= HIGH_WATER && !paused) {
+        paused = true
+        sendControl(0x32)
+      }
+      term.write(data instanceof Uint8Array ? data : data, () => {
+        pendingWrites--
+        if (pendingWrites === 0 && paused) {
+          paused = false
+          sendControl(0x33)
+        }
+      })
     })
 
-    window.addEventListener('resize', handleResize)
+    const handlePredictiveEchoChanged = (e: Event) => {
+      predictiveEcho.enabled = (e as CustomEvent).detail as boolean
+    }
+    window.addEventListener('predictive-echo-changed', handlePredictiveEchoChanged)
+
+    window.addEventListener('resize', debouncedResize)
 
     const vv = window.visualViewport
-    const handleViewportResize = () => {
-      requestAnimationFrame(handleResize)
-    }
-    vv?.addEventListener('resize', handleViewportResize)
+    vv?.addEventListener('resize', debouncedResize)
     
     const container = containerRef.current
     container.addEventListener('touchstart', handleTouchStart, { passive: true })
@@ -170,13 +198,15 @@ export const Terminal = () => {
     return () => {
       unsubscribe()
       dataDisposable.dispose()
-      window.removeEventListener('resize', handleResize)
-      vv?.removeEventListener('resize', handleViewportResize)
+      window.removeEventListener('predictive-echo-changed', handlePredictiveEchoChanged)
+      window.removeEventListener('resize', debouncedResize)
+      vv?.removeEventListener('resize', debouncedResize)
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
       container.removeEventListener('touchstart', handleTouchStart)
       container.removeEventListener('touchmove', handleTouchMove)
       term.dispose()
     }
-  }, [subscribeOutput, sendInput, resize, handleResize, handleTouchStart, handleTouchMove])
+  }, [subscribeOutput, sendInput, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove])
 
   return (
     <div 

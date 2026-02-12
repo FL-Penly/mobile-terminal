@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -462,6 +463,44 @@ class DiffHandler(BaseHTTPRequestHandler):
         except subprocess.TimeoutExpired:
             return False, "Timeout"
 
+    def _handle_sse(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        try:
+            while True:
+                cwd = self._get_cwd()
+                branch = ""
+                path = cwd
+
+                if self._is_git_repo(cwd):
+                    git_root = self._get_git_root(cwd)
+                    branch = self._get_branch(git_root)
+                    path = git_root
+
+                sessions = self._get_tmux_sessions()
+                current_session = self._get_current_tmux_session()
+
+                payload = {
+                    "branch": branch,
+                    "path": path,
+                    "tmux": {
+                        "sessions": sessions,
+                        "currentSession": current_session,
+                    },
+                }
+
+                data = json.dumps(payload, ensure_ascii=False)
+                self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+                time.sleep(3)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -571,6 +610,10 @@ class DiffHandler(BaseHTTPRequestHandler):
             git_root = self._get_git_root(cwd)
             branches = self._get_all_branches(git_root)
             self._send_json(branches)
+
+        elif path == "/api/events":
+            self._handle_sse()
+            return
 
         elif path == "/api/git/checkout":
             query = parse_qs(parsed.query)
