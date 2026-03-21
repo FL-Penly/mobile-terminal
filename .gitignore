@@ -19,3 +19,4 @@ qa-*.png
 
 # Agent working files
 .sisyphus/
+.playwright-cli/
