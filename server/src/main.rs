@@ -149,6 +149,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/tmux/kill", get(api_tmux_kill))
         .route("/api/tmux/detach", get(api_tmux_detach))
         .route("/api/tmux/pane-mode", get(api_tmux_pane_mode))
+        .route("/api/tmux/capture-pane", get(api_tmux_capture_pane))
+        .route("/api/tmux/page-up", get(api_tmux_page_up))
         .route("/api/events", get(api_events))
         .route("/api/upload", post(api_upload_file))
         .route("/api/upload-image", post(api_upload_file))
@@ -610,6 +612,7 @@ tty > {} 2>/dev/null
 printf '\033]7337;%s\033\\' "$(tty)" 2>/dev/null
 if tmux has-session 2>/dev/null; then
     tmux set -g window-size latest 2>/dev/null
+    tmux set -g history-limit 50000 2>/dev/null
     tmux set -g extended-keys always 2>/dev/null
     tmux set -g set-clipboard on 2>/dev/null
     tmux set -g allow-passthrough on 2>/dev/null
@@ -639,6 +642,7 @@ tty > {} 2>/dev/null
 printf '\033]7337;%s\033\\' "$(tty)" 2>/dev/null
 if tmux has-session 2>/dev/null; then
     tmux set -g window-size latest 2>/dev/null
+    tmux set -g history-limit 50000 2>/dev/null
     tmux set -g extended-keys always 2>/dev/null
     tmux set -g set-clipboard on 2>/dev/null
     tmux set -g allow-passthrough on 2>/dev/null
@@ -659,6 +663,7 @@ tty > {} 2>/dev/null
 printf '\033]7337;%s\033\\' "$(tty)" 2>/dev/null
 if tmux has-session 2>/dev/null; then
     tmux set -g window-size latest 2>/dev/null
+    tmux set -g history-limit 50000 2>/dev/null
     tmux set -g extended-keys always 2>/dev/null
     tmux set -g set-clipboard on 2>/dev/null
     tmux set -g allow-passthrough on 2>/dev/null
@@ -1483,6 +1488,103 @@ async fn api_tmux_pane_mode(
     };
 
     Json(serde_json::json!({ "tuiActive": tui_active }))
+}
+
+// ─── GET /api/tmux/capture-pane ────────────────────────────────────────────
+
+async fn api_tmux_capture_pane(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<TmuxQuery>,
+) -> Response {
+    let client_tty = match get_effective_client_tty(&state, query.client_tty) {
+        Some(t) => t,
+        None => return json_error("no_tty", "No client TTY available", StatusCode::BAD_REQUEST),
+    };
+
+    let session = match get_current_tmux_session(Some(&client_tty)) {
+        Some(s) => s,
+        None => return json_error("no_session", "No tmux session found", StatusCode::BAD_REQUEST),
+    };
+
+    let target = format!("{}:", session);
+    let result = tokio::task::spawn_blocking(move || {
+        run_cmd("tmux", &["capture-pane", "-t", &target, "-pS", "-"])
+    })
+    .await;
+
+    match result {
+        Ok(Ok(content)) => {
+            let lines: Vec<&str> = content.lines().collect();
+            Json(serde_json::json!({ "lines": lines })).into_response()
+        }
+        Ok(Err(e)) => json_error("capture_failed", &e, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => json_error("task_failed", &format!("{}", e), StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── GET /api/tmux/page-up ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct PageUpQuery {
+    client_tty: Option<String>,
+    page: Option<i32>,
+}
+
+async fn api_tmux_page_up(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<PageUpQuery>,
+) -> Response {
+    let client_tty = match get_effective_client_tty(&state, query.client_tty) {
+        Some(t) => t,
+        None => return json_error("no_tty", "No client TTY available", StatusCode::BAD_REQUEST),
+    };
+
+    let session = match get_current_tmux_session(Some(&client_tty)) {
+        Some(s) => s,
+        None => return json_error("no_session", "No tmux session found", StatusCode::BAD_REQUEST),
+    };
+
+    let page = query.page.unwrap_or(1).max(1);
+    let target = format!("{}:", session);
+    let result = tokio::task::spawn_blocking(move || -> Result<(Vec<String>, i32, i32), String> {
+        let info = run_cmd("tmux", &["display-message", "-t", &target, "-p", "#{pane_height} #{history_size}"])?;
+        let parts: Vec<&str> = info.trim().split(' ').collect();
+        let rows: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(40);
+        let history: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+        if history == 0 {
+            return Ok((Vec::new(), 0, 0));
+        }
+
+        let end_line = -((page - 1) * rows + 1);
+        let start_line = -(page * rows);
+        let clamped_start = start_line.max(-history);
+
+        if clamped_start > end_line {
+            return Ok((Vec::new(), history, rows));
+        }
+
+        let content = run_cmd(
+            "tmux",
+            &[
+                "capture-pane", "-t", &target, "-p",
+                "-S", &clamped_start.to_string(),
+                "-E", &end_line.to_string(),
+            ],
+        )?;
+
+        let lines: Vec<String> = content.lines().map(String::from).collect();
+        Ok((lines, history, rows))
+    })
+    .await;
+
+    match result {
+        Ok(Ok((lines, history, rows))) => {
+            Json(serde_json::json!({ "lines": lines, "history": history, "rows": rows })).into_response()
+        }
+        Ok(Err(e)) => json_error("capture_failed", &e, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => json_error("task_failed", &format!("{}", e), StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 // ─── GET /api/events (SSE) ─────────────────────────────────────────────────

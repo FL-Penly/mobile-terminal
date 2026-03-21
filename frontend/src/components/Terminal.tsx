@@ -8,6 +8,8 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminal } from '../contexts/TerminalContext'
 import { ZerolagInputAddon } from 'xterm-zerolag-input'
+import { CopyModeOverlay } from './CopyModeOverlay'
+import { AltScreenTranscript } from '../utils/alt-screen-transcript'
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -49,8 +51,7 @@ export const Terminal = () => {
   const mouseStateRef = useRef({ mouseTracking: false, sgrMode: false })
   const selectionPolicyRef = useRef<'local' | 'pty'>('local')
   const clientTtyValueRef = useRef<string | null>(null)
-  const [showCopied, setShowCopied] = useState(false)
-  const copiedTimerRef = useRef<number | null>(null)
+  const [copyModeData, setCopyModeData] = useState<{ lines: string[]; viewportLine: number } | null>(null)
   const xtermScreenRef = useRef<HTMLElement | null>(null)
   const pinchWriteTimerRef = useRef<number | null>(null)
   const pinchResizeTimerRef = useRef<number | null>(null)
@@ -491,8 +492,22 @@ export const Terminal = () => {
         sendInput(data)
       }
     })
+    const altTranscript = new AltScreenTranscript()
+    const readLine = (row: number): string => {
+      const line = term.buffer.active.getLine(row)
+      return line ? line.translateToString(true) : ''
+    }
+
+    if (term.buffer.active.type === 'alternate') altTranscript.onEnterAltBuffer()
+
+    const bufferChangeDisposable = term.buffer.onBufferChange((buf) => {
+      if (buf.type === 'alternate') altTranscript.onEnterAltBuffer()
+      else altTranscript.onLeaveAltBuffer()
+    })
+
     const writeParsedDisposable = term.onWriteParsed(() => {
       if (zerolag.hasPending) zerolag.rerender()
+      altTranscript.scheduleCaptureFrame(term.rows, readLine)
     })
 
     term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
@@ -601,68 +616,32 @@ export const Terminal = () => {
     container.addEventListener('paste', handlePaste, true)
 
     const handleCopyViewport = () => {
-      if (document.getElementById('copy-mode-overlay')) return
+      try {
+        const isAlt = term.buffer.active.type === 'alternate'
 
-      const lines: string[] = []
-      const buf = term.buffer.active
-      for (let i = 0; i < buf.length; i++) {
-        const line = buf.getLine(i)
-        if (line) lines.push(line.translateToString(true))
-      }
-      const text = lines.join('\n').replace(/\n+$/, '')
-      if (!text) return
+        let lines: string[]
+        let viewportLine: number
 
-      const overlay = document.createElement('div')
-      overlay.id = 'copy-mode-overlay'
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;background:#0d1117;'
+        if (isAlt && altTranscript.isActive() && altTranscript.getLines().length > term.rows) {
+          const tLines = altTranscript.getLines()
+          lines = [...tLines]
+          viewportLine = Math.max(0, lines.length - term.rows)
+        } else {
+          const buf = isAlt ? term.buffer.active : term.buffer.normal
+          lines = []
+          for (let i = 0; i < buf.length; i++) {
+            const line = buf.getLine(i)
+            if (line) lines.push(line.translateToString(true))
+          }
+          viewportLine = isAlt ? 0 : buf.viewportY
+        }
 
-      const header = document.createElement('div')
-      header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #30363d;flex-shrink:0;'
+        while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+        if (lines.length === 0) return
 
-      const hint = document.createElement('span')
-      hint.textContent = 'Select text to copy'
-      hint.style.cssText = 'color:#8b949e;font-size:12px;'
-
-      const btnGroup = document.createElement('div')
-      btnGroup.style.cssText = 'display:flex;gap:8px;'
-
-      const btnStyle = 'padding:4px 10px;border-radius:6px;border:1px solid #30363d;font-size:12px;background:#21262d;color:#e6edf3;-webkit-appearance:none;'
-
-      const selectAllBtn = document.createElement('button')
-      selectAllBtn.textContent = 'Select All'
-      selectAllBtn.style.cssText = btnStyle
-
-      const copyAllBtn = document.createElement('button')
-      copyAllBtn.textContent = 'Copy All'
-      copyAllBtn.style.cssText = btnStyle + 'background:#58a6ff;color:#fff;border-color:#58a6ff;'
-
-      const closeBtn = document.createElement('button')
-      closeBtn.textContent = '✕'
-      closeBtn.style.cssText = btnStyle + 'min-width:32px;'
-
-      btnGroup.append(selectAllBtn, copyAllBtn, closeBtn)
-      header.append(hint, btnGroup)
-
-      const ta = document.createElement('textarea')
-      ta.readOnly = true
-      ta.value = text
-      ta.style.cssText = 'flex:1;margin:0;padding:12px;border:none;resize:none;outline:none;background:#0d1117;color:#e6edf3;font-family:Menlo,Monaco,"Courier New",monospace;font-size:12px;line-height:1.5;-webkit-user-select:text;user-select:text;-webkit-touch-callout:default;'
-
-      overlay.append(header, ta)
-      document.body.appendChild(overlay)
-
-      ta.scrollTop = ta.scrollHeight
-
-      const close = () => { overlay.remove() }
-      closeBtn.onclick = close
-      selectAllBtn.onclick = () => { ta.focus(); ta.select() }
-      copyAllBtn.onclick = () => {
-        ta.focus()
-        ta.select()
-        fallbackCopy(text)
-        setShowCopied(true)
-        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
-        copiedTimerRef.current = window.setTimeout(() => setShowCopied(false), 1500)
+        setCopyModeData(prev => prev ?? { lines, viewportLine })
+      } catch (err) {
+        console.error('[Sel] failed:', err)
       }
     }
     window.addEventListener('terminal-copy-viewport', handleCopyViewport)
@@ -679,6 +658,8 @@ export const Terminal = () => {
       kittyPushDisposable.dispose()
       kittyPopDisposable.dispose()
       osc52Disposable.dispose()
+      bufferChangeDisposable.dispose()
+      altTranscript.dispose()
 
       window.removeEventListener('predictive-echo-changed', handlePredictiveEchoChanged)
       window.removeEventListener('resize', debouncedResize)
@@ -690,7 +671,6 @@ export const Terminal = () => {
         xtermScreen.removeEventListener('mouseup', onMouseUpCapture, { capture: true })
       }
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
       if (pinchWriteTimerRef.current) clearTimeout(pinchWriteTimerRef.current)
       if (pinchResizeTimerRef.current) clearTimeout(pinchResizeTimerRef.current)
       container.removeEventListener('touchstart', handleTouchStart)
@@ -715,10 +695,20 @@ export const Terminal = () => {
           {zoomPercent}% · {fontSize}px
         </div>
       )}
-      {showCopied && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-accent-green/80 backdrop-blur-sm border border-accent-green/50 text-white text-sm font-mono pointer-events-none select-none z-10">
-          Copied!
-        </div>
+      {copyModeData && (
+        <CopyModeOverlay
+          lines={copyModeData.lines}
+          initialScrollLine={copyModeData.viewportLine}
+          onClose={() => setCopyModeData(null)}
+          onFetchMore={async (page: number) => {
+            try {
+              const res = await fetch(`/api/tmux/page-up?page=${page}`, { signal: AbortSignal.timeout(3000) })
+              if (!res.ok) return null
+              const data = await res.json() as { lines: string[] }
+              return data.lines.length > 0 ? data.lines : null
+            } catch { return null }
+          }}
+        />
       )}
     </div>
   )
