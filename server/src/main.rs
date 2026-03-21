@@ -150,7 +150,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/tmux/detach", get(api_tmux_detach))
         .route("/api/tmux/pane-mode", get(api_tmux_pane_mode))
         .route("/api/events", get(api_events))
-        .route("/api/upload-image", post(api_upload_image))
+        .route("/api/upload", post(api_upload_file))
+        .route("/api/upload-image", post(api_upload_file))
         // Static file serving — catch-all for frontend
         .fallback(move |req: Request| serve_static(req, static_dir.clone()))
         .layer(cors)
@@ -1547,25 +1548,24 @@ async fn api_events(
     )
 }
 
-// ─── POST /api/upload-image ────────────────────────────────────────────────
+// ─── POST /api/upload ──────────────────────────────────────────────────────
 
-async fn api_upload_image(req: Request) -> Response {
+async fn api_upload_file(req: Request) -> Response {
     let content_type = req
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
+        .unwrap_or("application/octet-stream")
         .to_string();
 
-    if !content_type.starts_with("image/") {
-        return json_error(
-            "invalid_content_type",
-            "Expected image/*",
-            StatusCode::BAD_REQUEST,
-        );
-    }
+    // Extract original filename from X-Filename header (if provided)
+    let original_name = req
+        .headers()
+        .get("X-Filename")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
-    // Read body
+    // Read body (50MB limit)
     let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
         Ok(b) => b,
         Err(_) => {
@@ -1574,30 +1574,57 @@ async fn api_upload_image(req: Request) -> Response {
     };
 
     if body_bytes.is_empty() {
-        return json_error("empty_body", "No image data", StatusCode::BAD_REQUEST);
+        return json_error("empty_body", "No file data", StatusCode::BAD_REQUEST);
     }
 
-    // Determine extension
-    let ext = if content_type.contains("jpeg") || content_type.contains("jpg") {
-        "jpg"
-    } else if content_type.contains("gif") {
-        "gif"
-    } else if content_type.contains("webp") {
-        "webp"
-    } else {
-        "png"
-    };
+    // Determine extension: prefer original filename ext, fallback to content-type
+    let ext = original_name
+        .as_deref()
+        .and_then(|n| n.rsplit('.').next())
+        .filter(|e| !e.is_empty() && e.len() <= 10)
+        .unwrap_or_else(|| match content_type.as_str() {
+            "image/jpeg" | "image/jpg" => "jpg",
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/svg+xml" => "svg",
+            "text/plain" => "txt",
+            "text/csv" => "csv",
+            "application/json" => "json",
+            "application/pdf" => "pdf",
+            "application/zip" => "zip",
+            "application/gzip" => "gz",
+            "application/x-tar" => "tar",
+            "text/javascript" | "application/javascript" => "js",
+            "text/html" => "html",
+            "text/css" => "css",
+            "text/xml" | "application/xml" => "xml",
+            "application/x-yaml" | "text/yaml" => "yaml",
+            "text/markdown" => "md",
+            _ => "bin",
+        });
 
     // Create upload directory
-    let upload_dir = "/tmp/ttyd_images";
+    let upload_dir = "/tmp/ttyd_uploads";
     let _ = std::fs::create_dir_all(upload_dir);
 
-    // Generate filename
+    // Generate filename: preserve original name stem if available
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let filename = format!("screenshot_{}.{}", timestamp, ext);
+    let filename = if let Some(ref name) = original_name {
+        let stem = name.rsplit('/').next().unwrap_or(name);
+        let stem = stem.split('.').next().unwrap_or(stem);
+        // Sanitize: keep only alphanumeric, dash, underscore
+        let clean: String = stem
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+        format!("{}_{}.{}", clean, timestamp, ext)
+    } else {
+        format!("upload_{}.{}", timestamp, ext)
+    };
     let filepath = format!("{}/{}", upload_dir, filename);
 
     // Write file

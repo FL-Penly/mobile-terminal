@@ -63,18 +63,21 @@ export const Toolbar: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-   const handleImageUpload = async (file: File) => {
+   const handleFileUpload = async (file: File) => {
      try {
-       const response = await fetch(`/api/upload-image`, {
+       const response = await fetch(`/api/upload`, {
         method: 'POST',
-        headers: { 'Content-Type': file.type },
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-Filename': encodeURIComponent(file.name),
+        },
         body: file,
       })
       if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
       const { path } = await response.json()
       sendInput(path)
     } catch (err) {
-      console.error('[Toolbar] Image upload failed:', err)
+      console.error('[Toolbar] File upload failed:', err)
     }
   }
 
@@ -100,7 +103,7 @@ export const Toolbar: React.FC = () => {
                   <Sep />
                   <CmdGroup config={config} onCmd={c} />
                   <Sys label="⌨️" onClick={() => setIsInputOpen(true)} aria-label="Text input" />
-                  <Sys label="📷" onClick={() => fileInputRef.current?.click()} aria-label="Upload image" />
+                  <Sys label="📎" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" />
                   <Sys label="Sel" onClick={() => { hapticTap(); window.dispatchEvent(new Event('terminal-copy-viewport')) }} className="text-accent-purple" aria-label="Copy viewport" />
                   <Sys label="Diff" onClick={() => setIsDiffOpen(true)} className="text-accent-green" />
                   <Sys label="⚙️" onClick={() => setIsSettingsOpen(true)} aria-label="Settings" />
@@ -132,7 +135,7 @@ export const Toolbar: React.FC = () => {
                 <Sep />
                 <CmdGroup config={config} onCmd={c} />
                 <Sys label="⌨️" onClick={() => setIsInputOpen(true)} aria-label="Text input" />
-                <Sys label="📷" onClick={() => fileInputRef.current?.click()} aria-label="Upload image" />
+                <Sys label="📎" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" />
                 <Sys label="Sel" onClick={() => { hapticTap(); window.dispatchEvent(new Event('terminal-copy-viewport')) }} className="text-accent-purple" aria-label="Copy viewport" />
                 <Sys label="Diff" onClick={() => setIsDiffOpen(true)} className="text-accent-green" />
                 <Sys label="⚙️" onClick={() => setIsSettingsOpen(true)} aria-label="Settings" />
@@ -152,11 +155,10 @@ export const Toolbar: React.FC = () => {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) handleImageUpload(file)
+          if (file) handleFileUpload(file)
           e.target.value = ''
         }}
       />

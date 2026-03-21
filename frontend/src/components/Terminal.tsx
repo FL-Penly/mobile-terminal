@@ -569,28 +569,30 @@ export const Terminal = () => {
     container.addEventListener('touchmove', handleTouchMove, { passive: false })
     container.addEventListener('touchend', handleTouchEnd, { passive: true })
 
-    // Handle image paste from clipboard
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items
       if (!items) return
 
       for (const item of Array.from(items)) {
-        if (item.type.startsWith('image/')) {
+        if (item.kind === 'file') {
           e.preventDefault()
           const blob = item.getAsFile()
           if (!blob) return
 
-           try {
-             const response = await fetch(`/api/upload-image`, {
+          try {
+            const response = await fetch(`/api/upload`, {
               method: 'POST',
-              headers: { 'Content-Type': blob.type },
+              headers: {
+                'Content-Type': blob.type || 'application/octet-stream',
+                'X-Filename': encodeURIComponent(blob.name),
+              },
               body: blob,
             })
             if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
             const { path } = await response.json()
             sendInput(path)
           } catch (err) {
-            console.error('[Terminal] Image upload failed:', err)
+            console.error('[Terminal] File upload failed:', err)
           }
           return
         }
