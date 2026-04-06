@@ -47,6 +47,7 @@ export const SessionTabBar: React.FC = () => {
   const { tmuxSessions: sessions, currentTmuxSession: currentSession, clientTty, sessionsLoaded, refresh } = useServerEvents()
   const [isOpen, setIsOpen] = useState(false)
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
+  const [isQuickShellLoading, setIsQuickShellLoading] = useState(false)
   const [killTargetSession, setKillTargetSession] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const longPressTimer = useRef<number | null>(null)
@@ -134,6 +135,30 @@ export const SessionTabBar: React.FC = () => {
     setTimeout(refresh, 500)
   }
 
+  const handleQuickShell = async () => {
+    if (!clientTty) {
+      alert('Quick Shell needs an active tmux connection')
+      return
+    }
+
+    setIsOpen(false)
+    setIsQuickShellLoading(true)
+
+    try {
+      const url = `/api/tmux/quick-shell?client_tty=${encodeURIComponent(clientTty)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      if (!res.ok) {
+        throw new Error(await res.text())
+      }
+      setTimeout(refresh, 300)
+    } catch (err) {
+      console.error('[SessionTabBar] Quick Shell failed:', err)
+      alert('Failed to open Quick Shell')
+    } finally {
+      setIsQuickShellLoading(false)
+    }
+  }
+
   const handleNewSession = () => {
     setIsOpen(false)
     setIsNewSessionOpen(true)
@@ -210,12 +235,25 @@ export const SessionTabBar: React.FC = () => {
                 <span>New Session</span>
               </button>
               <button
+                onTouchEnd={(e) => { e.preventDefault(); handleQuickShell() }}
+                onClick={handleQuickShell}
+                disabled={!clientTty || isQuickShellLoading}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm active:bg-bg-tertiary ${
+                  !clientTty || isQuickShellLoading
+                    ? 'text-text-muted opacity-50 cursor-not-allowed'
+                    : 'text-text-secondary hover:bg-bg-tertiary'
+                }`}
+              >
+                <span className="w-2 h-2 flex items-center justify-center text-xs">↗</span>
+                <span>{isQuickShellLoading ? 'Quick Shell…' : 'Quick Shell'}</span>
+              </button>
+              <button
                 onTouchEnd={(e) => { e.preventDefault(); handleDetachToShell() }}
                 onClick={handleDetachToShell}
                 className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm text-text-secondary hover:bg-bg-tertiary active:bg-bg-tertiary"
               >
                 <span className="w-2 h-2 flex items-center justify-center text-xs">⏏</span>
-                <span>Shell</span>
+                <span>Detach to Shell</span>
               </button>
             </div>
           </div>

@@ -23,7 +23,7 @@ use std::{
     io::{Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::Command as StdCommand,
+    process::{Command as StdCommand, Stdio},
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
@@ -148,6 +148,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/tmux/create", get(api_tmux_create))
         .route("/api/tmux/kill", get(api_tmux_kill))
         .route("/api/tmux/detach", get(api_tmux_detach))
+        .route("/api/tmux/quick-shell", get(api_tmux_quick_shell))
         .route("/api/tmux/pane-mode", get(api_tmux_pane_mode))
         .route("/api/tmux/capture-pane", get(api_tmux_capture_pane))
         .route("/api/tmux/page-up", get(api_tmux_page_up))
@@ -813,21 +814,9 @@ fn get_cwd(client_tty: Option<String>) -> String {
 }
 
 fn get_tmux_pane_path(client_tty: &str) -> Option<String> {
-    // Get session name for this client
-    let session = run_cmd(
-        "tmux",
-        &["display-message", "-c", client_tty, "-p", "#{client_session}"],
-    )
-    .ok()?;
-    let session = session.trim();
-    if session.is_empty() {
-        return None;
-    }
-
-    // Get pane path for session
     let path = run_cmd(
         "tmux",
-        &["display-message", "-t", session, "-p", "#{pane_current_path}"],
+        &["display-message", "-c", client_tty, "-p", "#{pane_current_path}"],
     )
     .ok()?;
     let path = path.trim().to_string();
@@ -1466,6 +1455,105 @@ async fn api_tmux_detach(
     }
 }
 
+// ─── GET /api/tmux/quick-shell ─────────────────────────────────────────────
+
+async fn api_tmux_quick_shell(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<TmuxDetachQuery>,
+) -> Response {
+    let client_tty = match query.client_tty {
+        Some(tty) if !tty.is_empty() => tty,
+        _ => {
+            return json_error(
+                "missing_client_tty",
+                "client_tty required",
+                StatusCode::BAD_REQUEST,
+            )
+        }
+    };
+
+    if let Ok(clients) = run_cmd("tmux", &["list-clients", "-F", "#{client_tty}"]) {
+        if !clients.contains(&client_tty) {
+            return json_error(
+                "quick_shell_failed",
+                &format!("Client {} not attached to tmux", client_tty),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    let cwd = get_tmux_pane_path(&client_tty)
+        .or_else(|| Some(get_cwd(Some(client_tty.clone()))))
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
+
+    let shell_command = format!("exec {}", state.shell);
+
+    if tmux_supports_display_popup() {
+        let popup_args = [
+            "display-popup",
+            "-E",
+            "-w",
+            "90%",
+            "-h",
+            "80%",
+            "-c",
+            client_tty.as_str(),
+            "-d",
+            cwd.as_str(),
+            "-T",
+            " Quick Shell — exit to return ",
+            shell_command.as_str(),
+        ];
+
+        match spawn_detached_cmd("tmux", &popup_args) {
+            Ok(_) => {
+                return Json(serde_json::json!({
+                    "success": true,
+                    "mode": "popup",
+                    "cwd": cwd,
+                }))
+                .into_response();
+            }
+            Err(msg) => {
+                tracing::warn!("Quick Shell popup failed, falling back to window: {}", msg);
+            }
+        }
+    }
+
+    let session = match get_current_tmux_session(Some(&client_tty)) {
+        Some(session) => session,
+        None => {
+            return json_error(
+                "quick_shell_failed",
+                "No active tmux session found for this client",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        }
+    };
+
+    match run_cmd(
+        "tmux",
+        &[
+            "new-window",
+            "-t",
+            &session,
+            "-c",
+            &cwd,
+            "-n",
+            "Quick Shell",
+            &shell_command,
+        ],
+    ) {
+        Ok(_) => Json(serde_json::json!({
+            "success": true,
+            "mode": "window",
+            "cwd": cwd,
+        }))
+        .into_response(),
+        Err(msg) => json_error("quick_shell_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
 // ─── GET /api/tmux/pane-mode ───────────────────────────────────────────────
 
 async fn api_tmux_pane_mode(
@@ -1829,6 +1917,30 @@ fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
         }
         Err(e) => Err(e.to_string()),
     }
+}
+
+fn spawn_detached_cmd(cmd: &str, args: &[&str]) -> Result<(), String> {
+    let mut child = StdCommand::new(cmd)
+        .args(args)
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok(())
+}
+
+fn tmux_supports_display_popup() -> bool {
+    run_cmd("tmux", &["list-commands", "display-popup"])
+        .map(|output| output.lines().any(|line| line.starts_with("display-popup ")))
+        .unwrap_or(false)
 }
 
 fn run_cmd_in(cmd: &str, args: &[&str], cwd: &str) -> Result<String, String> {
