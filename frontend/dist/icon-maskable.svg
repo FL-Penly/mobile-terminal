@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable icon: safe zone is inner 80% (51.2px padding each side) -->
+  <rect width="512" height="512" fill="#0d1117"/>
+  <path d="M148 196 L244 256 L148 316" stroke="#a371f7" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <line x1="272" y1="316" x2="364" y2="316" stroke="#58a6ff" stroke-width="32" stroke-linecap="round"/>
+</svg>
