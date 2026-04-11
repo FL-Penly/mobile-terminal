@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
 interface StatusFile {
   file: string
@@ -89,6 +89,66 @@ async function gitPost(url: string, body: object): Promise<{ success?: boolean }
   })
 }
 
+function buildHunkPatch(filename: string, hunk: DiffHunk, status?: string): string {
+  const oldHeader = status === 'A' ? '--- /dev/null' : `--- a/${filename}`
+  const newHeader = status === 'D' ? '+++ /dev/null' : `+++ b/${filename}`
+  const lines = [
+    oldHeader,
+    newHeader,
+    hunk.header,
+    ...hunk.lines.map(line => {
+      const prefix = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '
+      return prefix + line.content
+    }),
+  ]
+  return lines.join('\n') + '\n'
+}
+
+interface TreeNode {
+  name: string
+  path: string
+  isDir: boolean
+  status?: string
+  children: TreeNode[]
+}
+
+function buildFileTree(files: StatusFile[]): TreeNode[] {
+  const root: TreeNode = { name: '', path: '', isDir: true, children: [] }
+
+  for (const f of files) {
+    const parts = f.file.split('/')
+    let current = root
+    for (let i = 0; i < parts.length; i++) {
+      const isLast = i === parts.length - 1
+      const name = parts[i]
+      const path = parts.slice(0, i + 1).join('/')
+      let child = current.children.find(c => c.name === name && c.isDir === !isLast)
+      if (!child) {
+        child = { name, path, isDir: !isLast, status: isLast ? f.status : undefined, children: [] }
+        current.children.push(child)
+      }
+      current = child
+    }
+  }
+
+  const compact = (node: TreeNode): TreeNode => {
+    node.children = node.children.map(compact)
+    if (node.isDir && node.children.length === 1 && node.children[0].isDir) {
+      const child = node.children[0]
+      return { ...child, name: `${node.name}/${child.name}` }
+    }
+    return node
+  }
+
+  const sort = (nodes: TreeNode[]): TreeNode[] =>
+    nodes.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    }).map(n => ({ ...n, children: sort(n.children) }))
+
+  return sort(root.children.map(compact))
+}
+
 export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [log, setLog] = useState<GitLogEntry[]>([])
@@ -101,6 +161,11 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
   const [changesCollapsed, setChangesCollapsed] = useState(false)
   const [commitsCollapsed, setCommitsCollapsed] = useState(true)
   const [discardConfirm, setDiscardConfirm] = useState<StatusFile | null>(null)
+  const [reviewMode, setReviewMode] = useState(false)
+  const [reviewDiffs, setReviewDiffs] = useState<Map<string, FileDiff>>(new Map())
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [activeReviewFile, setActiveReviewFile] = useState<string | null>(null)
+  const [hunkDiscardConfirm, setHunkDiscardConfirm] = useState<{ filename: string; hunk: DiffHunk } | null>(null)
 
   const fetchStatus = useCallback(async () => {
     const data = await gitFetch<GitStatus>('/api/git/status')
@@ -124,6 +189,9 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
       setExpandedFile(null)
       setFileDiff(null)
       setDiscardConfirm(null)
+      setReviewMode(false)
+      setReviewDiffs(new Map())
+      setHunkDiscardConfirm(null)
     }
   }, [isOpen])
 
@@ -131,8 +199,12 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return
       if (e.key === 'Escape') {
-        if (discardConfirm) {
+        if (hunkDiscardConfirm) {
+          setHunkDiscardConfirm(null)
+        } else if (discardConfirm) {
           setDiscardConfirm(null)
+        } else if (reviewMode) {
+          setReviewMode(false)
         } else if (expandedFile) {
           setExpandedFile(null)
           setFileDiff(null)
@@ -144,7 +216,7 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose, expandedFile, discardConfirm])
+  }, [isOpen, onClose, expandedFile, discardConfirm, reviewMode, hunkDiscardConfirm])
 
   const toggleFileDiff = async (file: string, staged: boolean) => {
     const key = `${staged ? 's' : 'u'}:${file}`
@@ -183,6 +255,36 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
     withAction(() => gitPost('/api/git/discard', { files: [file] }).then(() => {}))
   }
 
+  const handleHunkAction = async (filename: string, hunk: DiffHunk, action: 'stage' | 'unstage' | 'discard', fileStatus?: string) => {
+    if (actionInProgress) return
+    const url = action === 'stage' ? '/api/git/stage-hunk'
+      : action === 'unstage' ? '/api/git/stage-hunk'
+      : '/api/git/discard-hunk'
+
+    const body = action === 'unstage'
+      ? { patch: buildHunkPatch(filename, invertHunk(hunk), fileStatus) }
+      : { patch: buildHunkPatch(filename, hunk, fileStatus) }
+
+    setActionInProgress(true)
+    await gitPost(url, body)
+    await fetchStatus()
+
+    if (expandedFile) {
+      const [prefix, file] = [expandedFile[0], expandedFile.substring(2)]
+      const staged = prefix === 's'
+      const updated = await gitFetch<FileDiff>(
+        `/api/git/file-diff?file=${encodeURIComponent(file)}&staged=${staged}`
+      )
+      setFileDiff(updated)
+    }
+
+    if (reviewMode) {
+      await loadReviewDiffs()
+    }
+
+    setActionInProgress(false)
+  }
+
   const handleCommit = async () => {
     if (actionInProgress || !commitMsg.trim()) return
     const hasStaged = (status?.staged.length ?? 0) > 0
@@ -202,6 +304,43 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
     setActionInProgress(false)
   }
 
+  const loadReviewDiffs = useCallback(async () => {
+    if (!status) return
+    setReviewLoading(true)
+    const allFiles = [...status.unstaged, ...status.staged]
+    const uniqueFiles = [...new Map(allFiles.map(f => [f.file, f])).values()]
+    const diffs = new Map<string, FileDiff>()
+
+    await Promise.all(uniqueFiles.map(async (f) => {
+      const staged = status.staged.some(s => s.file === f.file)
+      const data = await gitFetch<FileDiff>(
+        `/api/git/file-diff?file=${encodeURIComponent(f.file)}&staged=${staged}`
+      )
+      if (data) diffs.set(f.file, data)
+    }))
+
+    setReviewDiffs(diffs)
+    setReviewLoading(false)
+  }, [status])
+
+  const enterReviewMode = async () => {
+    setReviewMode(true)
+    await loadReviewDiffs()
+  }
+
+  const allFiles = useMemo(() => {
+    if (!status) return []
+    return [...new Map([...status.unstaged, ...status.staged].map(f => [f.file, f])).values()]
+  }, [status])
+
+  const fileTree = useMemo(() => buildFileTree(allFiles), [allFiles])
+
+  const scrollToFile = (filePath: string) => {
+    setActiveReviewFile(filePath)
+    const el = document.getElementById(`review-file-${filePath.replace(/[^a-zA-Z0-9]/g, '-')}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   if (!isOpen) return null
 
   const staged = status?.staged ?? []
@@ -209,12 +348,88 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
   const hasStaged = staged.length > 0
   const hasUnstaged = unstaged.length > 0
   const canCommit = !actionInProgress && !!commitMsg.trim() && (hasStaged || hasUnstaged)
+  const totalChanged = allFiles.length
 
   const commitLabel = hasStaged
     ? `Commit ${staged.length} file${staged.length > 1 ? 's' : ''}`
     : hasUnstaged
       ? `Commit All ${unstaged.length} file${unstaged.length > 1 ? 's' : ''}`
       : 'Commit'
+
+  if (reviewMode) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/70 flex items-end justify-center">
+        <div className="w-full h-[95vh] bg-bg-primary rounded-t-2xl flex flex-col overflow-hidden shadow-2xl">
+          <div className="shrink-0 px-4 py-2.5 border-b border-border-subtle flex items-center justify-between bg-bg-secondary">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] font-semibold text-text-secondary tracking-widest uppercase">Review Changes</span>
+              <span className="text-[10px] bg-accent-blue/20 text-accent-blue px-1.5 py-0.5 rounded-full font-medium">{totalChanged}</span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              <IconBtn onClick={() => { setReviewMode(false); setHunkDiscardConfirm(null) }} title="Back">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.708.708L7.293 8l-3.647 3.646.708.708L8 8.707z"/></svg>
+              </IconBtn>
+            </div>
+          </div>
+
+          <div className="shrink-0 max-h-[30vh] overflow-y-auto border-b border-border-subtle bg-[#161b22]">
+            <FileTree nodes={fileTree} activeFile={activeReviewFile} onFileClick={scrollToFile} depth={0} />
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {reviewLoading ? (
+              <div className="px-4 py-8 text-center text-text-muted text-sm">Loading diffs...</div>
+            ) : (
+              allFiles.map(f => {
+                const diff = reviewDiffs.get(f.file)
+                const isStaged = staged.some(s => s.file === f.file)
+                return (
+                  <div key={f.file} id={`review-file-${f.file.replace(/[^a-zA-Z0-9]/g, '-')}`}>
+                    <div className="sticky top-0 z-10 px-3 py-1.5 bg-[#161b22] border-b border-[#21262d] flex items-center gap-2">
+                      <span className={`text-[12px] font-medium ${STATUS_BADGE[f.status]?.text ?? 'text-text-secondary'}`}>
+                        {f.file.split('/').pop()}
+                      </span>
+                      <span className="text-[11px] text-text-muted truncate flex-1">{f.file}</span>
+                      {diff && (
+                        <span className="text-[10px] text-text-muted">
+                          <span className="text-accent-green">+{diff.additions}</span>{' '}
+                          <span className="text-accent-red">-{diff.deletions}</span>
+                        </span>
+                      )}
+                    </div>
+                    <InlineDiff
+                      diff={diff ?? null}
+                      loading={false}
+                      filename={f.file}
+                      staged={isStaged}
+                      fileStatus={f.status}
+                      onHunkAction={handleHunkAction}
+                      onHunkDiscardConfirm={(filename, hunk) => setHunkDiscardConfirm({ filename, hunk })}
+                      actionInProgress={actionInProgress}
+                    />
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        {hunkDiscardConfirm && (
+          <ConfirmDialog
+            message="Are you sure you want to discard this hunk?"
+            detail="This action is irreversible."
+            confirmLabel="Discard"
+            onConfirm={() => {
+              const { filename, hunk } = hunkDiscardConfirm
+              setHunkDiscardConfirm(null)
+              handleHunkAction(filename, hunk, 'discard')
+            }}
+            onCancel={() => setHunkDiscardConfirm(null)}
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -232,6 +447,14 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
             )}
           </div>
           <div className="flex items-center gap-0.5">
+            {totalChanged > 0 && (
+              <button
+                onClick={enterReviewMode}
+                className="px-2 py-1 text-[10px] font-medium text-accent-blue bg-accent-blue/10 border border-accent-blue/30 rounded-md hover:bg-accent-blue/20 transition-colors mr-1"
+              >
+                Review All
+              </button>
+            )}
             <IconBtn onClick={() => { fetchStatus(); fetchLog() }} title="Refresh">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.45 2.55a8 8 0 0 0-11.8.7l-.9-.9A1 1 0 0 0 0 3v3.5a.5.5 0 0 0 .5.5H4a1 1 0 0 0 .7-1.7l-1-.95a5.5 5.5 0 0 1 8.28-.83 5.5 5.5 0 0 1 0 7.78 5.5 5.5 0 0 1-7.78 0 .75.75 0 1 0-1.06 1.06 7 7 0 0 0 9.9 0 7 7 0 0 0 .41-9.81z"/></svg>
             </IconBtn>
@@ -293,6 +516,10 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
                   onClickFile={() => toggleFileDiff(f.file, true)}
                   diff={expandedFile === `s:${f.file}` ? fileDiff : null}
                   diffLoading={expandedFile === `s:${f.file}` && diffLoading}
+                  staged={true}
+                  onHunkAction={handleHunkAction}
+                  onHunkDiscardConfirm={(filename, hunk) => setHunkDiscardConfirm({ filename, hunk })}
+                  actionInProgress={actionInProgress}
                   actions={
                     <IconBtn onClick={(e) => { e.stopPropagation(); handleUnstage([f.file]) }} title="Unstage" disabled={actionInProgress}>
                       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 8a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 0 1H4a.5.5 0 0 1-.5-.5z"/></svg>
@@ -327,6 +554,10 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
                   onClickFile={() => toggleFileDiff(f.file, false)}
                   diff={expandedFile === `u:${f.file}` ? fileDiff : null}
                   diffLoading={expandedFile === `u:${f.file}` && diffLoading}
+                  staged={false}
+                  onHunkAction={handleHunkAction}
+                  onHunkDiscardConfirm={(filename, hunk) => setHunkDiscardConfirm({ filename, hunk })}
+                  actionInProgress={actionInProgress}
                   actions={
                     <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
                       <IconBtn onClick={() => confirmDiscard(f)} title="Discard Changes" disabled={actionInProgress}>
@@ -364,37 +595,51 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
       </div>
 
       {discardConfirm && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center px-4" onClick={() => setDiscardConfirm(null)}>
-          <div className="bg-bg-secondary border border-border-subtle rounded-xl shadow-2xl max-w-sm w-full p-4" onClick={(e) => e.stopPropagation()}>
-            <p className="text-[13px] text-text-primary leading-5">
-              {discardConfirm.status === 'U'
-                ? <>Are you sure you want to <span className="text-accent-red font-semibold">delete</span> untracked file?</>
-                : <>Are you sure you want to <span className="text-accent-red font-semibold">discard changes</span> in this file?</>
-              }
-            </p>
-            <p className="text-[12px] text-text-muted mt-1 font-mono truncate">{discardConfirm.file}</p>
-            {discardConfirm.status !== 'U' && (
-              <p className="text-[11px] text-text-muted mt-2">This action is irreversible.</p>
-            )}
-            <div className="flex items-center justify-end gap-2 mt-4">
-              <button
-                onClick={() => setDiscardConfirm(null)}
-                className="px-3 py-1.5 text-[12px] rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={executeDiscard}
-                className="px-3 py-1.5 text-[12px] rounded-md bg-accent-red text-white hover:bg-accent-red/80 font-medium transition-colors"
-              >
-                {discardConfirm.status === 'U' ? 'Delete' : 'Discard'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          message={
+            discardConfirm.status === 'U'
+              ? 'Are you sure you want to delete this untracked file?'
+              : 'Are you sure you want to discard changes in this file?'
+          }
+          detail={discardConfirm.file}
+          subtext={discardConfirm.status !== 'U' ? 'This action is irreversible.' : undefined}
+          confirmLabel={discardConfirm.status === 'U' ? 'Delete' : 'Discard'}
+          onConfirm={executeDiscard}
+          onCancel={() => setDiscardConfirm(null)}
+        />
+      )}
+
+      {hunkDiscardConfirm && (
+        <ConfirmDialog
+          message="Are you sure you want to discard this hunk?"
+          detail="This action is irreversible."
+          confirmLabel="Discard"
+          onConfirm={() => {
+            const { filename, hunk } = hunkDiscardConfirm
+            setHunkDiscardConfirm(null)
+            handleHunkAction(filename, hunk, 'discard')
+          }}
+          onCancel={() => setHunkDiscardConfirm(null)}
+        />
       )}
     </div>
   )
+}
+
+function invertHunk(hunk: DiffHunk): DiffHunk {
+  const header = hunk.header.replace(
+    /@@ -(\S+) \+(\S+) @@/,
+    (_match, old_part: string, new_part: string) => `@@ -${new_part} +${old_part} @@`
+  )
+  return {
+    header,
+    lines: hunk.lines.map(l => ({
+      ...l,
+      type: l.type === 'add' ? 'del' : l.type === 'del' ? 'add' : 'ctx',
+      old_num: l.new_num,
+      new_num: l.old_num,
+    })),
+  }
 }
 
 const IconBtn: React.FC<{
@@ -432,9 +677,7 @@ const Section: React.FC<{
     >
       <div className="flex items-center gap-1.5">
         <span className="text-[10px] text-text-muted w-3">{collapsed ? '▸' : '▾'}</span>
-        <span className="text-[11px] font-semibold text-text-secondary">
-          {title}
-        </span>
+        <span className="text-[11px] font-semibold text-text-secondary">{title}</span>
         {count > 0 && (
           <span className="text-[10px] bg-[#30363d] text-text-secondary px-1.5 rounded-full font-medium min-w-[18px] text-center">
             {count}
@@ -457,8 +700,12 @@ const FileRow: React.FC<{
   onClickFile: () => void
   diff: FileDiff | null
   diffLoading: boolean
+  staged: boolean
+  onHunkAction: (filename: string, hunk: DiffHunk, action: 'stage' | 'unstage' | 'discard', fileStatus?: string) => Promise<void>
+  onHunkDiscardConfirm: (filename: string, hunk: DiffHunk) => void
+  actionInProgress: boolean
   actions: React.ReactNode
-}> = ({ file, expanded, onClickFile, diff, diffLoading, actions }) => {
+}> = ({ file, expanded, onClickFile, diff, diffLoading, staged, onHunkAction, onHunkDiscardConfirm, actionInProgress, actions }) => {
   const filename = file.file.split('/').pop() ?? file.file
   const dir = file.file.includes('/') ? file.file.substring(0, file.file.lastIndexOf('/') + 1) : ''
   const badge = STATUS_BADGE[file.status] ?? { bg: 'bg-[#484f58]', text: 'text-[#484f58]' }
@@ -479,12 +726,32 @@ const FileRow: React.FC<{
           {file.status}
         </span>
       </div>
-      {expanded && <InlineDiff diff={diff} loading={diffLoading} />}
+      {expanded && (
+        <InlineDiff
+          diff={diff}
+          loading={diffLoading}
+          filename={file.file}
+          staged={staged}
+          fileStatus={file.status}
+          onHunkAction={onHunkAction}
+          onHunkDiscardConfirm={onHunkDiscardConfirm}
+          actionInProgress={actionInProgress}
+        />
+      )}
     </div>
   )
 }
 
-const InlineDiff: React.FC<{ diff: FileDiff | null; loading: boolean }> = ({ diff, loading }) => (
+const InlineDiff: React.FC<{
+  diff: FileDiff | null
+  loading: boolean
+  filename: string
+  staged: boolean
+  fileStatus?: string
+  onHunkAction: (filename: string, hunk: DiffHunk, action: 'stage' | 'unstage' | 'discard', fileStatus?: string) => Promise<void>
+  onHunkDiscardConfirm: (filename: string, hunk: DiffHunk) => void
+  actionInProgress: boolean
+}> = ({ diff, loading, filename, staged, fileStatus, onHunkAction, onHunkDiscardConfirm, actionInProgress }) => (
   <div className="bg-[#0d1117] overflow-x-auto max-h-[300px] overflow-y-auto border-y border-[#21262d]">
     {loading ? (
       <div className="px-4 py-3 text-[11px] text-text-muted">Loading diff...</div>
@@ -497,7 +764,36 @@ const InlineDiff: React.FC<{ diff: FileDiff | null; loading: boolean }> = ({ dif
             <React.Fragment key={hi}>
               <tr>
                 <td colSpan={4} className="px-2 py-0.5 text-[#6e7681] bg-[#161b22] text-[10px] select-none">
-                  {hunk.header}
+                  <div className="flex items-center justify-between">
+                    <span className="truncate">{hunk.header}</span>
+                    {!diff.binary && (
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        {staged ? (
+                          <HunkBtn
+                            label="Unstage"
+                            onClick={() => onHunkAction(filename, hunk, 'unstage', fileStatus)}
+                            disabled={actionInProgress}
+                            className="text-[#58a6ff]"
+                          />
+                        ) : (
+                          <>
+                            <HunkBtn
+                              label="Discard"
+                              onClick={() => onHunkDiscardConfirm(filename, hunk)}
+                              disabled={actionInProgress}
+                              className="text-accent-red"
+                            />
+                            <HunkBtn
+                              label="Stage"
+                              onClick={() => onHunkAction(filename, hunk, 'stage', fileStatus)}
+                              disabled={actionInProgress}
+                              className="text-accent-green"
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </td>
               </tr>
               {hunk.lines.map((line, li) => (
@@ -519,5 +815,87 @@ const InlineDiff: React.FC<{ diff: FileDiff | null; loading: boolean }> = ({ dif
         </tbody>
       </table>
     )}
+  </div>
+)
+
+const HunkBtn: React.FC<{
+  label: string
+  onClick: () => void
+  disabled: boolean
+  className?: string
+}> = ({ label, onClick, disabled, className = '' }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onClick() }}
+    disabled={disabled}
+    className={`px-1.5 py-0.5 text-[9px] font-medium rounded hover:bg-[#30363d] disabled:opacity-30 transition-colors ${className}`}
+  >
+    {label}
+  </button>
+)
+
+const FileTree: React.FC<{
+  nodes: TreeNode[]
+  activeFile: string | null
+  onFileClick: (path: string) => void
+  depth: number
+}> = ({ nodes, activeFile, onFileClick, depth }) => (
+  <>
+    {nodes.map(node => (
+      <div key={node.path}>
+        {node.isDir ? (
+          <>
+            <div className="flex items-center gap-1 px-3 py-0.5" style={{ paddingLeft: `${12 + depth * 12}px` }}>
+              <span className="text-[10px] text-text-muted">▾</span>
+              <span className="text-[11px] text-text-secondary">{node.name}</span>
+            </div>
+            <FileTree nodes={node.children} activeFile={activeFile} onFileClick={onFileClick} depth={depth + 1} />
+          </>
+        ) : (
+          <button
+            onClick={() => onFileClick(node.path)}
+            className={`w-full flex items-center gap-1.5 px-3 py-0.5 text-left hover:bg-[#1c2128] ${
+              activeFile === node.path ? 'bg-accent-blue/10' : ''
+            }`}
+            style={{ paddingLeft: `${12 + depth * 12}px` }}
+          >
+            <span className={`text-[10px] font-semibold shrink-0 ${STATUS_BADGE[node.status ?? '']?.text ?? 'text-text-muted'}`}>
+              {node.status}
+            </span>
+            <span className="text-[11px] text-text-primary truncate">{node.name}</span>
+          </button>
+        )}
+      </div>
+    ))}
+  </>
+)
+
+const ConfirmDialog: React.FC<{
+  message: string
+  detail: string
+  subtext?: string
+  confirmLabel: string
+  onConfirm: () => void
+  onCancel: () => void
+}> = ({ message, detail, subtext, confirmLabel, onConfirm, onCancel }) => (
+  <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center px-4" onClick={onCancel}>
+    <div className="bg-bg-secondary border border-border-subtle rounded-xl shadow-2xl max-w-sm w-full p-4" onClick={(e) => e.stopPropagation()}>
+      <p className="text-[13px] text-text-primary leading-5">{message}</p>
+      <p className="text-[12px] text-text-muted mt-1 font-mono truncate">{detail}</p>
+      {subtext && <p className="text-[11px] text-text-muted mt-2">{subtext}</p>}
+      <div className="flex items-center justify-end gap-2 mt-4">
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 text-[12px] rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          className="px-3 py-1.5 text-[12px] rounded-md bg-accent-red text-white hover:bg-accent-red/80 font-medium transition-colors"
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
   </div>
 )

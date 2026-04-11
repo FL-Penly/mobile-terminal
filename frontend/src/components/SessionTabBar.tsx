@@ -191,11 +191,14 @@ export const SessionTabBar: React.FC = () => {
       <div ref={dropdownRef} className="relative">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-1.5 px-2.5 py-1 bg-accent-purple rounded-md text-white text-xs font-medium whitespace-nowrap"
+          className="relative flex items-center gap-1.5 px-2.5 py-1 bg-accent-purple rounded-md text-white text-xs font-medium whitespace-nowrap"
         >
           <span className={`w-1.5 h-1.5 rounded-full ${currentSessionData ? 'bg-accent-green' : 'bg-text-muted opacity-50'}`} />
           {displayName}
           <span className="ml-1 text-[10px] opacity-70">{isOpen ? '▲' : '▼'}</span>
+          {sessions.some(s => s.hasNewActivity) && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent-orange rounded-full animate-pulse" />
+          )}
         </button>
 
         {isOpen && (
@@ -217,7 +220,9 @@ export const SessionTabBar: React.FC = () => {
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${
-                    session.attached ? 'bg-accent-green' : 'bg-text-muted opacity-50'
+                    session.hasNewActivity ? 'bg-accent-orange animate-pulse'
+                    : session.attached ? 'bg-accent-green'
+                    : 'bg-text-muted opacity-50'
                   }`} />
                   <span className="flex-1 truncate">{session.name}</span>
                   <span className="text-xs text-text-muted">{session.windows}w</span>

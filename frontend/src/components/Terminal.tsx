@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { CanvasAddon } from '@xterm/addon-canvas'
+import { ClipboardAddon } from '@xterm/addon-clipboard'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 
 import '@xterm/xterm/css/xterm.css'
@@ -14,19 +14,6 @@ import { AltScreenTranscript } from '../utils/alt-screen-transcript'
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
 const DEFAULT_FONT_SIZE = 12
-
-const fallbackCopy = (text: string): boolean => {
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0'
-  document.body.appendChild(textarea)
-  textarea.focus()
-  textarea.select()
-  let ok = false
-  try { ok = document.execCommand('copy') } catch {}
-  document.body.removeChild(textarea)
-  return ok
-}
 
 export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -243,12 +230,13 @@ export const Terminal = () => {
       },
       scrollback: 5000,
       cursorBlink: true,
+
       allowProposedApi: true,
       rescaleOverlappingGlyphs: true,
       macOptionClickForcesSelection: true,
       smoothScrollDuration: 0,
       fastScrollSensitivity: 5,
-      overviewRulerWidth: 0,
+
     })
     termRef.current = term
 
@@ -266,26 +254,20 @@ export const Terminal = () => {
     const unicode11Addon = new Unicode11Addon()
     term.loadAddon(unicode11Addon)
     term.unicode.activeVersion = '11'
-    let renderer: 'webgl' | 'canvas' | 'dom' = 'dom'
+    let renderer: 'webgl' | 'dom' = 'dom'
     try {
       const webglAddon = new WebglAddon()
       webglAddon.onContextLoss(() => {
-        console.warn('[Terminal] WebGL context lost, falling back to canvas')
+        console.warn('[Terminal] WebGL context lost, falling back to DOM')
         webglAddon.dispose()
-        try {
-          term.loadAddon(new CanvasAddon())
-        } catch {}
       })
       term.loadAddon(webglAddon)
       renderer = 'webgl'
-    } catch (e) {
-      try {
-        term.loadAddon(new CanvasAddon())
-        renderer = 'canvas'
-      } catch (e2) {
-        renderer = 'dom'
-      }
+    } catch {
+      renderer = 'dom'
     }
+
+    term.loadAddon(new ClipboardAddon())
     console.log(`[Terminal] Using ${renderer} renderer`)
 
     // Open terminal in container
@@ -530,24 +512,6 @@ export const Terminal = () => {
       return true
     })
 
-    const osc52Disposable = term.parser.registerOscHandler(52, (data) => {
-      const semi = data.indexOf(';')
-      if (semi < 0) return true
-      const b64 = data.slice(semi + 1)
-      if (!b64 || b64 === '?') return true
-      try {
-        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-        const text = new TextDecoder().decode(bytes)
-        if (!text) return true
-        if (window.isSecureContext && navigator.clipboard?.writeText) {
-          void navigator.clipboard.writeText(text)
-        } else {
-          fallbackCopy(text)
-        }
-      } catch {}
-      return true
-    })
-
     const HIGH_WATER = 5
     let pendingWrites = 0
     let paused = false
@@ -558,7 +522,7 @@ export const Terminal = () => {
         paused = true
         sendControl(0x32)
       }
-      term.write(data instanceof Uint8Array ? data : data, () => {
+      term.write(data, () => {
         pendingWrites--
         if (pendingWrites === 0 && paused) {
           paused = false
@@ -657,7 +621,6 @@ export const Terminal = () => {
       kittyQueryDisposable.dispose()
       kittyPushDisposable.dispose()
       kittyPopDisposable.dispose()
-      osc52Disposable.dispose()
       bufferChangeDisposable.dispose()
       altTranscript.dispose()
 

@@ -1,8 +1,15 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import type { TmuxSession } from '../hooks/useTmuxSessions'
 import { useTerminal } from './TerminalContext'
 
 const POLL_INTERVAL = 5000
+
+export interface TmuxSession {
+  name: string
+  windows: number
+  attached: boolean
+  last_activity: number
+  hasNewActivity: boolean
+}
 
 interface ServerEventsContextValue {
   branch: string
@@ -13,6 +20,13 @@ interface ServerEventsContextValue {
   clientTty: string | null
   sessionsLoaded: boolean
   refresh: () => void
+}
+
+interface RawTmuxSession {
+  name: string
+  windows: number
+  attached: boolean
+  last_activity: number
 }
 
 const ServerEventsContext = createContext<ServerEventsContextValue | null>(null)
@@ -30,18 +44,31 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const clientTtyRef = useRef<string | null>(null)
   const [branch, setBranch] = useState('')
   const [path, setPath] = useState('')
-  const [tmuxSessions, setTmuxSessions] = useState<TmuxSession[]>([])
+  const [rawSessions, setRawSessions] = useState<RawTmuxSession[]>([])
   const [currentTmuxSession, setCurrentTmuxSession] = useState<string | null>(null)
   const [isOffline, setIsOffline] = useState(false)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
+  const [lastViewedMap, setLastViewedMap] = useState<Record<string, number>>({})
   const eventSourceRef = useRef<EventSource | null>(null)
   const pollIntervalRef = useRef<number | null>(null)
-  const usingSSERef = useRef(true)
 
-  const applyData = useCallback((data: { branch: string; path: string; tmux: { sessions: TmuxSession[]; currentSession: string | null } }) => {
+  useEffect(() => {
+    if (currentTmuxSession) {
+      setLastViewedMap(prev => ({ ...prev, [currentTmuxSession]: Math.floor(Date.now() / 1000) }))
+    }
+  }, [currentTmuxSession])
+
+  const tmuxSessions = useMemo<TmuxSession[]>(() =>
+    rawSessions.map(s => ({
+      ...s,
+      hasNewActivity: !!currentTmuxSession && s.name !== currentTmuxSession && s.last_activity > (lastViewedMap[s.name] || 0),
+    }))
+  , [rawSessions, currentTmuxSession, lastViewedMap])
+
+  const applyData = useCallback((data: { branch: string; path: string; tmux: { sessions: RawTmuxSession[]; currentSession: string | null } }) => {
     setBranch(data.branch || '')
     setPath(data.path || '')
-    setTmuxSessions(data.tmux?.sessions || [])
+    setRawSessions(data.tmux?.sessions || [])
     setCurrentTmuxSession(data.tmux?.currentSession || null)
     setIsOffline(false)
     setSessionsLoaded(true)
@@ -63,7 +90,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         pathVal = diffData.git_root || diffData.cwd || ''
       }
 
-      let sessions: TmuxSession[] = []
+      let sessions: RawTmuxSession[] = []
       let currentSession: string | null = null
       if (tmuxRes.ok) {
         const tmuxData = await tmuxRes.json()
@@ -73,7 +100,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       setBranch(branchVal)
       setPath(pathVal)
-      setTmuxSessions(sessions)
+      setRawSessions(sessions)
       setCurrentTmuxSession(currentSession)
       setIsOffline(false)
       setSessionsLoaded(true)
@@ -110,7 +137,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         const res = await fetch('/api/tmux/list', { signal: AbortSignal.timeout(3000) })
         if (res.ok && !cancelled) {
           const data = await res.json()
-          setTmuxSessions(data.sessions || [])
+          setRawSessions(data.sessions || [])
           setCurrentTmuxSession(data.currentSession || null)
           setSessionsLoaded(true)
         }
@@ -138,7 +165,6 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     es.onerror = () => {
       es.close()
       eventSourceRef.current = null
-      usingSSERef.current = false
       startPolling()
     }
 

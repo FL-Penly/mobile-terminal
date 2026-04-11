@@ -150,6 +150,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/git/commit", post(api_git_commit))
         .route("/api/git/log", get(api_git_log))
         .route("/api/git/file-diff", get(api_git_file_diff))
+        .route("/api/git/stage-hunk", post(api_git_stage_hunk))
+        .route("/api/git/discard-hunk", post(api_git_discard_hunk))
         .route("/api/tmux/list", get(api_tmux_list))
         .route("/api/tmux/switch", get(api_tmux_switch))
         .route("/api/tmux/create", get(api_tmux_create))
@@ -162,6 +164,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/events", get(api_events))
         .route("/api/upload", post(api_upload_file))
         .route("/api/upload-image", post(api_upload_file))
+        .route("/api/user-config", get(api_get_user_config).post(api_set_user_config))
         // Static file serving — catch-all for frontend
         .fallback(move |req: Request| serve_static(req, static_dir.clone()))
         .layer(cors)
@@ -1599,22 +1602,107 @@ async fn api_git_file_diff(
     }
 }
 
+// ─── POST /api/git/stage-hunk ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct HunkPatchRequest {
+    patch: String,
+}
+
+async fn api_git_stage_hunk(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<HunkPatchRequest>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+    let git_root = get_git_root(&cwd);
+    let patch = body.patch;
+
+    let result = tokio::task::spawn_blocking(move || {
+        apply_patch(&git_root, &patch, &["apply", "--cached"])
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err(msg)) => json_error("stage_hunk_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── POST /api/git/discard-hunk ────────────────────────────────────────────
+
+async fn api_git_discard_hunk(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<HunkPatchRequest>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+    let git_root = get_git_root(&cwd);
+    let patch = body.patch;
+
+    let result = tokio::task::spawn_blocking(move || {
+        apply_patch(&git_root, &patch, &["apply", "--reverse"])
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err(msg)) => json_error("discard_hunk_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+fn apply_patch(git_root: &str, patch: &str, args: &[&str]) -> Result<String, String> {
+    use std::io::Write;
+
+    let mut child = StdCommand::new("git")
+        .args(args)
+        .current_dir(git_root)
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(patch.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 // ─── Tmux Operations ──────────────────────────────────────────────────────
 
 fn get_tmux_sessions() -> Vec<TmuxSession> {
     match run_cmd(
         "tmux",
-        &["ls", "-F", "#{session_name}:#{session_windows}:#{session_attached}"],
+        &["ls", "-F", "#{session_name}:#{session_windows}:#{session_attached}:#{session_activity}"],
     ) {
         Ok(output) => output
             .lines()
             .filter_map(|line| {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() >= 3 {
+                let parts: Vec<&str> = line.rsplitn(4, ':').collect();
+                if parts.len() >= 4 {
                     Some(TmuxSession {
-                        name: parts[0].to_string(),
-                        windows: parts[1].parse().unwrap_or(0),
-                        attached: parts[2].parse::<i32>().unwrap_or(0) > 0,
+                        name: parts[3].to_string(),
+                        windows: parts[2].parse().unwrap_or(0),
+                        attached: parts[1].parse::<i32>().unwrap_or(0) > 0,
+                        last_activity: parts[0].parse().unwrap_or(0),
                     })
                 } else {
                     None
@@ -2118,6 +2206,32 @@ async fn api_events(
     )
 }
 
+// ─── GET/POST /api/user-config ─────────────────────────────────────────────
+
+fn user_config_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(home).join(".vibeterm.json")
+}
+
+async fn api_get_user_config() -> Response {
+    let path = user_config_path();
+    match tokio::fs::read_to_string(&path).await {
+        Ok(content) => ([(header::CONTENT_TYPE, "application/json")], content).into_response(),
+        Err(_) => Json(serde_json::json!({})).into_response(),
+    }
+}
+
+async fn api_set_user_config(body: axum::body::Bytes) -> Response {
+    let path = user_config_path();
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    match tokio::fs::write(&path, &body).await {
+        Ok(_) => Json(serde_json::json!({ "success": true })).into_response(),
+        Err(e) => json_error("write_failed", &e.to_string(), StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
 // ─── POST /api/upload ──────────────────────────────────────────────────────
 
 async fn api_upload_file(req: Request) -> Response {
@@ -2228,6 +2342,7 @@ struct TmuxSession {
     name: String,
     windows: i32,
     attached: bool,
+    last_activity: u64,
 }
 
 struct ChangedFile {
