@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { SettingsModal, CommandConfig } from './SettingsModal'
 import { TextInputModal } from './TextInputModal'
-import { DiffViewer } from './DiffViewer'
+import { GitPanel } from './GitPanel'
 
 const hapticTap = () => { try { navigator.vibrate?.(8) } catch {} }
 
@@ -11,7 +11,7 @@ export const Toolbar: React.FC = () => {
   const [config, setConfig] = useState<CommandConfig | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isInputOpen, setIsInputOpen] = useState(false)
-  const [isDiffOpen, setIsDiffOpen] = useState(false)
+  const [isGitOpen, setIsGitOpen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(() => {
     const saved = localStorage.getItem('ttyd_toolbar_expanded')
     return saved !== 'false'
@@ -105,7 +105,7 @@ export const Toolbar: React.FC = () => {
                   <Sys label="⌨️" onClick={() => setIsInputOpen(true)} aria-label="Text input" />
                   <Sys label="📎" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" />
                   <Sys label="Sel" onClick={() => { hapticTap(); window.dispatchEvent(new Event('terminal-copy-viewport')) }} className="text-accent-purple" aria-label="Copy viewport" />
-                  <Sys label="Diff" onClick={() => setIsDiffOpen(true)} className="text-accent-green" />
+                  <Sys label="Git" onClick={() => setIsGitOpen(true)} className="text-accent-purple" />
                   <Sys label="⚙️" onClick={() => setIsSettingsOpen(true)} aria-label="Settings" />
                 </div>
 
@@ -137,7 +137,7 @@ export const Toolbar: React.FC = () => {
                 <Sys label="⌨️" onClick={() => setIsInputOpen(true)} aria-label="Text input" />
                 <Sys label="📎" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" />
                 <Sys label="Sel" onClick={() => { hapticTap(); window.dispatchEvent(new Event('terminal-copy-viewport')) }} className="text-accent-purple" aria-label="Copy viewport" />
-                <Sys label="Diff" onClick={() => setIsDiffOpen(true)} className="text-accent-green" />
+                <Sys label="Git" onClick={() => setIsGitOpen(true)} className="text-accent-purple" />
                 <Sys label="⚙️" onClick={() => setIsSettingsOpen(true)} aria-label="Settings" />
               </div>
             )}
@@ -163,9 +163,9 @@ export const Toolbar: React.FC = () => {
         }}
       />
 
-      <DiffViewer
-        isOpen={isDiffOpen}
-        onClose={() => setIsDiffOpen(false)}
+      <GitPanel
+        isOpen={isGitOpen}
+        onClose={() => setIsGitOpen(false)}
       />
     </>
   )

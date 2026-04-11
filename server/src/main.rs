@@ -143,6 +143,13 @@ fn build_router(state: AppState) -> Router {
         .route("/api/diff", get(api_diff))
         .route("/api/git/branches", get(api_git_branches))
         .route("/api/git/checkout", get(api_git_checkout))
+        .route("/api/git/status", get(api_git_status))
+        .route("/api/git/stage", post(api_git_stage))
+        .route("/api/git/unstage", post(api_git_unstage))
+        .route("/api/git/discard", post(api_git_discard))
+        .route("/api/git/commit", post(api_git_commit))
+        .route("/api/git/log", get(api_git_log))
+        .route("/api/git/file-diff", get(api_git_file_diff))
         .route("/api/tmux/list", get(api_tmux_list))
         .route("/api/tmux/switch", get(api_tmux_switch))
         .route("/api/tmux/create", get(api_tmux_create))
@@ -1216,6 +1223,379 @@ async fn api_git_checkout(
     match run_cmd_in("git", &["checkout", &branch], &git_root) {
         Ok(_) => Json(serde_json::json!({ "success": true, "branch": branch })).into_response(),
         Err(msg) => json_error("checkout_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── GET /api/git/status ───────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct StatusFile {
+    file: String,
+    status: String,
+}
+
+#[derive(Serialize)]
+struct GitStatusResponse {
+    staged: Vec<StatusFile>,
+    unstaged: Vec<StatusFile>,
+    branch: String,
+}
+
+fn parse_porcelain_status(output: &str) -> (Vec<StatusFile>, Vec<StatusFile>) {
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+
+    for line in output.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let x = line.as_bytes()[0] as char;
+        let y = line.as_bytes()[1] as char;
+        let file = line[3..].to_string();
+
+        if x != ' ' && x != '?' && x != '!' {
+            let status = match x {
+                'M' => "M",
+                'A' => "A",
+                'D' => "D",
+                'R' => "R",
+                'C' => "C",
+                _ => "M",
+            };
+            staged.push(StatusFile {
+                file: file.clone(),
+                status: status.to_string(),
+            });
+        }
+
+        if y != ' ' && y != '!' {
+            let status = match y {
+                'M' => "M",
+                'D' => "D",
+                '?' => "U",
+                _ => "M",
+            };
+            unstaged.push(StatusFile {
+                file: file.clone(),
+                status: status.to_string(),
+            });
+        }
+    }
+
+    (staged, unstaged)
+}
+
+async fn api_git_status(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+    let git_root_clone = git_root.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let branch = get_branch(&git_root_clone);
+        let output = run_cmd_in("git", &["status", "--porcelain=v1"], &git_root_clone)
+            .unwrap_or_default();
+        let (staged, unstaged) = parse_porcelain_status(&output);
+        GitStatusResponse {
+            staged,
+            unstaged,
+            branch,
+        }
+    })
+    .await
+    .unwrap_or_else(|_| GitStatusResponse {
+        staged: vec![],
+        unstaged: vec![],
+        branch: "unknown".to_string(),
+    });
+
+    json_response(&result)
+}
+
+// ─── POST /api/git/stage ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct GitFilesRequest {
+    files: Option<Vec<String>>,
+    all: Option<bool>,
+}
+
+async fn api_git_stage(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<GitFilesRequest>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+
+    let result = tokio::task::spawn_blocking(move || {
+        if body.all.unwrap_or(false) {
+            run_cmd_in("git", &["add", "-A"], &git_root)
+        } else if let Some(files) = &body.files {
+            if files.is_empty() {
+                return Err("No files specified".to_string());
+            }
+            let args: Vec<&str> = std::iter::once("add")
+                .chain(files.iter().map(|s| s.as_str()))
+                .collect();
+            run_cmd_in("git", &args, &git_root)
+        } else {
+            Err("No files specified".to_string())
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err(msg)) => json_error("stage_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── POST /api/git/unstage ────────────────────────────────────────────────
+
+async fn api_git_unstage(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<GitFilesRequest>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+
+    let result = tokio::task::spawn_blocking(move || {
+        if body.all.unwrap_or(false) {
+            run_cmd_in("git", &["reset", "HEAD"], &git_root)
+        } else if let Some(files) = &body.files {
+            if files.is_empty() {
+                return Err("No files specified".to_string());
+            }
+            let args: Vec<&str> = std::iter::once("reset")
+                .chain(std::iter::once("HEAD"))
+                .chain(files.iter().map(|s| s.as_str()))
+                .collect();
+            run_cmd_in("git", &args, &git_root)
+        } else {
+            Err("No files specified".to_string())
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err(msg)) => json_error("unstage_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── POST /api/git/discard ────────────────────────────────────────────────
+
+async fn api_git_discard(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<GitFilesRequest>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+
+    let result = tokio::task::spawn_blocking(move || {
+        let files = match &body.files {
+            Some(f) if !f.is_empty() => f,
+            _ => return Err("No files specified".to_string()),
+        };
+
+        for file in files {
+            let is_tracked = run_cmd_in(
+                "git",
+                &["ls-files", "--error-unmatch", file],
+                &git_root,
+            )
+            .is_ok();
+            if is_tracked {
+                let _ = run_cmd_in("git", &["checkout", "--", file], &git_root);
+            } else {
+                let path = std::path::Path::new(&git_root).join(file);
+                if path.exists() {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+        Ok("done".to_string())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(_)) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err(msg)) => json_error("discard_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── POST /api/git/commit ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct GitCommitRequest {
+    message: String,
+}
+
+async fn api_git_commit(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<GitCommitRequest>,
+) -> Response {
+    if body.message.trim().is_empty() {
+        return json_error("empty_message", "Commit message required", StatusCode::BAD_REQUEST);
+    }
+
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+    let message = body.message.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        run_cmd_in("git", &["commit", "-m", &message], &git_root)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(output)) => Json(serde_json::json!({
+            "success": true,
+            "output": output.trim(),
+        }))
+        .into_response(),
+        Ok(Err(msg)) => json_error("commit_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── GET /api/git/log ─────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct GitLogEntry {
+    hash: String,
+    message: String,
+    author: String,
+    date: String,
+}
+
+#[derive(Deserialize)]
+struct GitLogQuery {
+    count: Option<usize>,
+}
+
+async fn api_git_log(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<GitLogQuery>,
+) -> Response {
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+    let count = query.count.unwrap_or(50).min(200);
+    let count_str = count.to_string();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let format = "%H\x1f%s\x1f%an\x1f%cr";
+        run_cmd_in(
+            "git",
+            &["log", &format!("--max-count={}", count_str), &format!("--format={}", format)],
+            &git_root,
+        )
+    })
+    .await;
+
+    match result {
+        Ok(Ok(output)) => {
+            let entries: Vec<GitLogEntry> = output
+                .lines()
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.splitn(4, '\x1f').collect();
+                    if parts.len() == 4 {
+                        Some(GitLogEntry {
+                            hash: parts[0][..7.min(parts[0].len())].to_string(),
+                            message: parts[1].to_string(),
+                            author: parts[2].to_string(),
+                            date: parts[3].to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            json_response(&entries)
+        }
+        Ok(Err(msg)) => json_error("log_failed", &msg, StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+// ─── GET /api/git/file-diff ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct FileDiffQuery {
+    file: String,
+    staged: Option<bool>,
+}
+
+async fn api_git_file_diff(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<FileDiffQuery>,
+) -> Response {
+    if query.file.is_empty() {
+        return json_error("missing_file", "File path required", StatusCode::BAD_REQUEST);
+    }
+
+    let cwd = get_cwd(get_effective_client_tty(&state, None));
+    if !is_git_repo(&cwd) {
+        return json_error("not_git_repo", "Not a git repository", StatusCode::BAD_REQUEST);
+    }
+
+    let git_root = get_git_root(&cwd);
+    let file = query.file.clone();
+    let is_staged = query.staged.unwrap_or(false);
+
+    let result = tokio::task::spawn_blocking(move || {
+        let args = if is_staged {
+            vec!["diff", "--cached", "-U3", "--", &file]
+        } else {
+            let _ = run_cmd_in("git", &["add", "-N", &file], &git_root);
+            vec!["diff", "-U3", "--", &file]
+        };
+        let raw = run_cmd_in("git", &args, &git_root).unwrap_or_default();
+        let changed = vec![ChangedFile {
+            status: if is_staged { "M" } else { "M" }.to_string(),
+            filename: file.clone(),
+        }];
+        parse_unified_diff(&raw, &changed)
+    })
+    .await;
+
+    match result {
+        Ok(diff) => {
+            let file_diff = diff.files.into_iter().next();
+            match file_diff {
+                Some(f) => json_response(&f),
+                None => Json(serde_json::json!({ "hunks": [], "additions": 0, "deletions": 0 })).into_response(),
+            }
+        }
+        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 
