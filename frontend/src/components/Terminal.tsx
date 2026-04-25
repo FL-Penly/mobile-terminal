@@ -7,6 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 
 import '@xterm/xterm/css/xterm.css'
 import { useTerminal } from '../contexts/TerminalContext'
+import { useServerEvents } from '../contexts/ServerEventsContext'
 import { ZerolagInputAddon } from 'xterm-zerolag-input'
 import { CopyModeOverlay } from './CopyModeOverlay'
 import { AltScreenTranscript } from '../utils/alt-screen-transcript'
@@ -20,6 +21,7 @@ export const Terminal = () => {
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const { subscribeOutput, sendInput, sendControl, resize, setClientTty } = useTerminal()
+  const { tuiActive } = useServerEvents()
   const setClientTtyRef = useRef(setClientTty)
   
   const [fontSize, setFontSize] = useState(() => {
@@ -47,7 +49,7 @@ export const Terminal = () => {
   const lastTapTimeRef = useRef(0)
 
   useEffect(() => { sendInputRef.current = sendInput }, [sendInput])
-
+  useEffect(() => { selectionPolicyRef.current = tuiActive ? 'pty' : 'local' }, [tuiActive])
 
   const handleResize = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
@@ -317,17 +319,6 @@ export const Terminal = () => {
       }
     }
 
-    let policyPollId: number | null = null
-
-    const fetchSelectionPolicy = () => {
-      const tty = clientTtyValueRef.current
-      const params = tty ? `?client_tty=${encodeURIComponent(tty)}` : ''
-      void fetch(`/api/tmux/pane-mode${params}`, { signal: AbortSignal.timeout(500) })
-        .then(r => r.json() as Promise<{ tuiActive: boolean }>)
-        .then(data => { selectionPolicyRef.current = data.tuiActive ? 'pty' : 'local' })
-        .catch(() => {})
-    }
-
     let currentDragMode: 'local' | 'pty' = 'local'
 
     const onMouseDownCapture = (e: MouseEvent) => {
@@ -411,10 +402,6 @@ export const Terminal = () => {
           if (typeof p === 'number') {
             if (p === 1000 || p === 1002 || p === 1003) {
               mouseStateRef.current.mouseTracking = true
-              if (policyPollId === null) {
-                fetchSelectionPolicy()
-                policyPollId = window.setInterval(fetchSelectionPolicy, 300)
-              }
             }
             if (p === 1006) mouseStateRef.current.sgrMode = true
             if (p === 1049 || p === 47) {
@@ -434,10 +421,6 @@ export const Terminal = () => {
           if (typeof p === 'number') {
             if (p === 1000 || p === 1002 || p === 1003) {
               mouseStateRef.current.mouseTracking = false
-              if (policyPollId !== null) {
-                window.clearInterval(policyPollId)
-                policyPollId = null
-              }
             }
             if (p === 1006) mouseStateRef.current.sgrMode = false
             if (p === 1049 || p === 47) zerolagRef.current?.clear()
@@ -448,7 +431,7 @@ export const Terminal = () => {
     )
 
     // Initial fit
-    setTimeout(() => {
+    const initialFitTimer = setTimeout(() => {
       fitAddon.fit()
       const { cols, rows } = term
       resize(cols, rows)
@@ -512,19 +495,21 @@ export const Terminal = () => {
       return true
     })
 
-    const HIGH_WATER = 5
-    let pendingWrites = 0
+    const HIGH_WATER_BYTES = 256 * 1024
+    let pendingBytes = 0
     let paused = false
 
     const unsubscribe = subscribeOutput((data) => {
-      pendingWrites++
-      if (pendingWrites >= HIGH_WATER && !paused) {
+      const size = typeof data === 'string' ? data.length : data.byteLength
+      pendingBytes += size
+      if (pendingBytes >= HIGH_WATER_BYTES && !paused) {
         paused = true
         sendControl(0x32)
       }
       term.write(data, () => {
-        pendingWrites--
-        if (pendingWrites === 0 && paused) {
+        pendingBytes -= size
+        if (pendingBytes <= 0 && paused) {
+          pendingBytes = 0
           paused = false
           sendControl(0x33)
         }
@@ -566,6 +551,7 @@ export const Terminal = () => {
                 'X-Filename': encodeURIComponent(blob.name),
               },
               body: blob,
+              signal: AbortSignal.timeout(30000),
             })
             if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
             const { path } = await response.json()
@@ -611,7 +597,6 @@ export const Terminal = () => {
     window.addEventListener('terminal-copy-viewport', handleCopyViewport)
 
     return () => {
-      if (policyPollId !== null) window.clearInterval(policyPollId)
       unsubscribe()
       dataDisposable.dispose()
       writeParsedDisposable.dispose()
@@ -633,6 +618,7 @@ export const Terminal = () => {
         xtermScreen.removeEventListener('mousemove', onMouseMoveCapture, { capture: true })
         xtermScreen.removeEventListener('mouseup', onMouseUpCapture, { capture: true })
       }
+      clearTimeout(initialFitTimer)
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
       if (pinchWriteTimerRef.current) clearTimeout(pinchWriteTimerRef.current)
       if (pinchResizeTimerRef.current) clearTimeout(pinchResizeTimerRef.current)

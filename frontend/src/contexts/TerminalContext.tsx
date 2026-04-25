@@ -24,9 +24,6 @@ export interface TerminalContextValue {
 
   clientTty: string | null
   setClientTty: (tty: string) => void
-
-  mobileKeyboardLocked: boolean
-  setMobileKeyboardLocked: (locked: boolean) => void
 }
 
 const TerminalContext = createContext<TerminalContextValue | null>(null)
@@ -72,13 +69,6 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const clientTtyRef = useRef<string | null>(null)
   
   const dimensionsRef = useRef({ cols: 80, rows: 24 })
-
-  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0)
-  const [mobileKeyboardLocked, setMobileKeyboardLockedState] = useState(isTouchDevice)
-
-  const setMobileKeyboardLocked = useCallback((locked: boolean) => {
-    setMobileKeyboardLockedState(locked)
-  }, [])
 
   const earlyOutputRef = useRef<Uint8Array[]>([])
   const hasSubscribersRef = useRef(false)
@@ -211,7 +201,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (!clientTtyRef.current) {
           const text = new TextDecoder().decode(payload)
-          const m = text.match(/\]7337;(\/dev\/pts\/\d+)/)
+          const m = text.match(/\]7337;(\/dev\/[A-Za-z0-9/]+)/)
           if (m) {
             clientTtyRef.current = m[1]
             setClientTty(m[1])
@@ -404,9 +394,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     reconnectAttempt,
     clientTty,
     setClientTty: setClientTtyValue,
-    mobileKeyboardLocked,
-    setMobileKeyboardLocked,
-  }), [connectionState, sendInput, sendKey, subscribeOutput, sendControl, terminalRef, resize, reconnect, reconnectAttempt, clientTty, setClientTtyValue, mobileKeyboardLocked, setMobileKeyboardLocked])
+  }), [connectionState, sendInput, sendKey, subscribeOutput, sendControl, terminalRef, resize, reconnect, reconnectAttempt, clientTty, setClientTtyValue])
 
   return (
     <TerminalContext.Provider value={contextValue}>

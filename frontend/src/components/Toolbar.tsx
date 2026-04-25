@@ -51,6 +51,7 @@ export const Toolbar: React.FC = () => {
           'X-Filename': encodeURIComponent(file.name),
         },
         body: file,
+        signal: AbortSignal.timeout(30000),
       })
       if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
       const { path } = await response.json()
@@ -235,6 +236,9 @@ const CommandPicker: React.FC<{
 
   useEffect(() => {
     inputRef.current?.focus()
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    }
   }, [])
 
   useEffect(() => {

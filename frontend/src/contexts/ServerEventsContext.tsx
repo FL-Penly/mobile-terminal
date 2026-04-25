@@ -14,6 +14,7 @@ export interface TmuxSession {
 interface ServerEventsContextValue {
   branch: string
   path: string
+  tuiActive: boolean
   tmuxSessions: TmuxSession[]
   currentTmuxSession: string | null
   isOffline: boolean
@@ -47,6 +48,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [rawSessions, setRawSessions] = useState<RawTmuxSession[]>([])
   const [currentTmuxSession, setCurrentTmuxSession] = useState<string | null>(null)
   const [isOffline, setIsOffline] = useState(false)
+  const [tuiActive, setTuiActive] = useState(false)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [lastViewedMap, setLastViewedMap] = useState<Record<string, number>>({})
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -65,9 +67,10 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }))
   , [rawSessions, currentTmuxSession, lastViewedMap])
 
-  const applyData = useCallback((data: { branch: string; path: string; tmux: { sessions: RawTmuxSession[]; currentSession: string | null } }) => {
+  const applyData = useCallback((data: { branch: string; path: string; tuiActive?: boolean; tmux: { sessions: RawTmuxSession[]; currentSession: string | null } }) => {
     setBranch(data.branch || '')
     setPath(data.path || '')
+    setTuiActive(data.tuiActive ?? false)
     setRawSessions(data.tmux?.sessions || [])
     setCurrentTmuxSession(data.tmux?.currentSession || null)
     setIsOffline(false)
@@ -77,9 +80,10 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
    const fetchPollData = useCallback(async () => {
      try {
        const ttyParam = clientTtyRef.current ? `?client_tty=${encodeURIComponent(clientTtyRef.current)}` : ''
-       const [diffRes, tmuxRes] = await Promise.all([
+       const [diffRes, tmuxRes, paneModeRes] = await Promise.all([
          fetch(`/api/diff`, { signal: AbortSignal.timeout(3000) }),
          fetch(`/api/tmux/list${ttyParam}`, { signal: AbortSignal.timeout(3000) }),
+         fetch(`/api/tmux/pane-mode${ttyParam}`, { signal: AbortSignal.timeout(3000) }),
        ])
 
       let branchVal = ''
@@ -98,8 +102,15 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         currentSession = tmuxData.currentSession || null
       }
 
+      let tuiActiveVal = false
+      if (paneModeRes.ok) {
+        const paneModeData = await paneModeRes.json()
+        tuiActiveVal = paneModeData.tuiActive ?? false
+      }
+
       setBranch(branchVal)
       setPath(pathVal)
+      setTuiActive(tuiActiveVal)
       setRawSessions(sessions)
       setCurrentTmuxSession(currentSession)
       setIsOffline(false)
@@ -178,13 +189,14 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const contextValue = useMemo(() => ({
     branch,
     path,
+    tuiActive,
     tmuxSessions,
     currentTmuxSession,
     isOffline,
     clientTty,
     sessionsLoaded,
     refresh,
-  }), [branch, path, tmuxSessions, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
+  }), [branch, path, tuiActive, tmuxSessions, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
 
   return (
     <ServerEventsContext.Provider value={contextValue}>

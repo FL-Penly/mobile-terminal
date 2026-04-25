@@ -309,16 +309,23 @@ export const GitPanel: React.FC<GitPanelProps> = ({ isOpen, onClose }) => {
     setReviewLoading(true)
     const allFiles = [...status.unstaged, ...status.staged]
     const uniqueFiles = [...new Map(allFiles.map(f => [f.file, f])).values()]
-    const diffs = new Map<string, FileDiff>()
-
-    await Promise.all(uniqueFiles.map(async (f) => {
-      const staged = status.staged.some(s => s.file === f.file)
-      const data = await gitFetch<FileDiff>(
-        `/api/git/file-diff?file=${encodeURIComponent(f.file)}&staged=${staged}`
-      )
-      if (data) diffs.set(f.file, data)
+    const batchEntries = uniqueFiles.map(f => ({
+      file: f.file,
+      staged: status.staged.some(s => s.file === f.file),
     }))
 
+    const result = await gitFetch<Record<string, FileDiff>>('/api/git/batch-file-diff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: batchEntries }),
+    })
+
+    const diffs = new Map<string, FileDiff>()
+    if (result) {
+      for (const [file, diff] of Object.entries(result)) {
+        diffs.set(file, diff)
+      }
+    }
     setReviewDiffs(diffs)
     setReviewLoading(false)
   }, [status])
@@ -669,7 +676,7 @@ const Section: React.FC<{
   onToggle: () => void
   actions?: React.ReactNode
   children: React.ReactNode
-}> = ({ title, count, collapsed, onToggle, actions, children }) => (
+}> = React.memo(({ title, count, collapsed, onToggle, actions, children }) => (
   <div className="border-t border-border-subtle">
     <div
       className="flex items-center justify-between px-3 py-1 bg-[#161b22] cursor-pointer hover:bg-[#1c2128] select-none"
@@ -692,7 +699,7 @@ const Section: React.FC<{
     </div>
     {!collapsed && children}
   </div>
-)
+))
 
 const FileRow: React.FC<{
   file: StatusFile
@@ -705,7 +712,7 @@ const FileRow: React.FC<{
   onHunkDiscardConfirm: (filename: string, hunk: DiffHunk) => void
   actionInProgress: boolean
   actions: React.ReactNode
-}> = ({ file, expanded, onClickFile, diff, diffLoading, staged, onHunkAction, onHunkDiscardConfirm, actionInProgress, actions }) => {
+}> = React.memo(({ file, expanded, onClickFile, diff, diffLoading, staged, onHunkAction, onHunkDiscardConfirm, actionInProgress, actions }) => {
   const filename = file.file.split('/').pop() ?? file.file
   const dir = file.file.includes('/') ? file.file.substring(0, file.file.lastIndexOf('/') + 1) : ''
   const badge = STATUS_BADGE[file.status] ?? { bg: 'bg-[#484f58]', text: 'text-[#484f58]' }
@@ -740,7 +747,7 @@ const FileRow: React.FC<{
       )}
     </div>
   )
-}
+})
 
 const InlineDiff: React.FC<{
   diff: FileDiff | null
@@ -751,7 +758,7 @@ const InlineDiff: React.FC<{
   onHunkAction: (filename: string, hunk: DiffHunk, action: 'stage' | 'unstage' | 'discard', fileStatus?: string) => Promise<void>
   onHunkDiscardConfirm: (filename: string, hunk: DiffHunk) => void
   actionInProgress: boolean
-}> = ({ diff, loading, filename, staged, fileStatus, onHunkAction, onHunkDiscardConfirm, actionInProgress }) => (
+}> = React.memo(({ diff, loading, filename, staged, fileStatus, onHunkAction, onHunkDiscardConfirm, actionInProgress }) => (
   <div className="bg-[#0d1117] overflow-x-auto max-h-[300px] overflow-y-auto border-y border-[#21262d]">
     {loading ? (
       <div className="px-4 py-3 text-[11px] text-text-muted">Loading diff...</div>
@@ -816,7 +823,7 @@ const InlineDiff: React.FC<{
       </table>
     )}
   </div>
-)
+))
 
 const HunkBtn: React.FC<{
   label: string

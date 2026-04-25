@@ -11,7 +11,7 @@ interface BranchSelectorProps {
   onBranchChange?: () => void
 }
 
-export const BranchSelector: React.FC<BranchSelectorProps> = ({ currentBranch, onBranchChange }) => {
+export const BranchSelector: React.FC<BranchSelectorProps> = React.memo(({ currentBranch, onBranchChange }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [branches, setBranches] = useState<BranchData>({ local: [], remote: [], current: '' })
   const [search, setSearch] = useState('')
@@ -37,7 +37,8 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({ currentBranch, o
   useEffect(() => {
     if (isOpen) {
       fetchBranches()
-      setTimeout(() => inputRef.current?.focus(), 100)
+      const timer = setTimeout(() => inputRef.current?.focus(), 100)
+      return () => clearTimeout(timer)
     } else {
       setSearch('')
     }
@@ -154,4 +155,4 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({ currentBranch, o
       )}
     </div>
   )
-}
+})
