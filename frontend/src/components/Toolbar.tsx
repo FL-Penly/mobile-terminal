@@ -116,6 +116,7 @@ export const Toolbar: React.FC = () => {
 
                 <div className="flex items-center gap-1.5">
                   <K label="Tab" onClick={() => k('TAB')} wide />
+                  <K label="⇧Tab" onClick={() => k('SHIFT_TAB')} wide />
                   <K label="Enter" onClick={() => k('ENTER')} wide />
                   <div className="flex-1" />
                   <K label="↑" onClick={() => k('ARROW_UP')} />
@@ -132,6 +133,7 @@ export const Toolbar: React.FC = () => {
                 <Toggle expanded={false} onClick={toggleExpanded} />
                 <K label="ESC" onClick={() => k('ESC')} />
                 <K label="Tab" onClick={() => k('TAB')} />
+                <K label="⇧Tab" onClick={() => k('SHIFT_TAB')} />
                 <K label="^C" onClick={() => k('CTRL_C')} className="text-accent-red" />
                 <K label="↑" onClick={() => k('ARROW_UP')} />
                 <K label="↓" onClick={() => k('ARROW_DOWN')} />

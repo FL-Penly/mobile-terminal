@@ -8,7 +8,7 @@ export interface TerminalContextValue {
   
   sendInput: (text: string) => void
   
-  sendKey: (key: 'ESC' | 'TAB' | 'ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
+  sendKey: (key: 'ESC' | 'TAB' | 'SHIFT_TAB' | 'ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
   
   subscribeOutput: (callback: (data: string | Uint8Array) => void) => () => void
   
@@ -39,6 +39,7 @@ export const useTerminal = () => {
 const KEY_SEQUENCES: Record<string, string> = {
   'ESC': '\x1b',
   'TAB': '\t',
+  'SHIFT_TAB': '\x1b[Z',
   'ENTER': '\r',
   'CTRL_C': '\x03',
   'ARROW_UP': '\x1b[A',
