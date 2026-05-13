@@ -287,6 +287,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         reader: Box<dyn Read + Send>,
         writer: Box<dyn Write + Send>,
         master: Box<dyn portable_pty::MasterPty + Send>,
+        wrapper_pid: Option<u32>,
     }
 
     let pty_result = tokio::task::spawn_blocking(move || -> Result<PtyHandles, String> {
@@ -305,10 +306,12 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         cmd.env_remove("TMUX");
         cmd.env_remove("TMUX_PANE");
 
-        let _child = pair
+        let child = pair
             .slave
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+        let wrapper_pid = child.process_id();
+        drop(child);
 
         drop(pair.slave);
 
@@ -325,6 +328,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
             reader,
             writer,
             master: pair.master,
+            wrapper_pid,
         })
     })
     .await;
@@ -349,6 +353,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
     let mut pty_reader = pty.reader;
     let pty_writer = pty.writer;
     let master = Arc::new(Mutex::new(pty.master));
+    let wrapper_pid = pty.wrapper_pid;
 
     let paused = Arc::new((Mutex::new(false), Condvar::new()));
     let paused_reader = paused.clone();
@@ -589,24 +594,28 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         }
     }
 
+    if let Some(pid) = wrapper_pid {
+        let detached = tokio::task::spawn_blocking(move || {
+            let owned = find_owned_tmux_clients(pid);
+            for tty in &owned {
+                if let Err(e) = run_cmd("tmux", &["detach-client", "-t", tty]) {
+                    tracing::warn!("tmux detach-client {} failed: {}", tty, e);
+                }
+            }
+            !owned.is_empty()
+        })
+        .await
+        .unwrap_or(false);
+        if detached {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
     drop(master);
     let _ = reader_handle.join();
     let _ = writer_handle.join();
 
     let cleanup_tty = connection_tty.lock().ok().and_then(|lock| lock.clone());
-    if let Some(tty) = cleanup_tty.clone() {
-        let detach_result = tokio::task::spawn_blocking(move || {
-            run_cmd("tmux", &["detach-client", "-t", &tty])
-        })
-        .await;
-        match detach_result {
-            Ok(Err(e)) => tracing::warn!("tmux detach-client failed: {}", e),
-            Err(e) => tracing::warn!("tmux detach-client task join error: {}", e),
-            Ok(Ok(_)) => {}
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    // Only clear global tty if it still belongs to this connection (compare-and-swap)
     if let Ok(mut lock) = state.client_tty.lock() {
         if *lock == cleanup_tty {
             *lock = None;
@@ -2673,6 +2682,54 @@ fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
         }
         Err(e) => Err(e.to_string()),
     }
+}
+
+fn find_owned_tmux_clients(wrapper_pid: u32) -> Vec<String> {
+    let output = match run_cmd("tmux", &["list-clients", "-F", "#{client_tty} #{client_pid}"]) {
+        Ok(out) => out,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut owned = Vec::new();
+    for line in output.lines() {
+        let mut parts = line.split_whitespace();
+        let tty = match parts.next() {
+            Some(t) if !t.is_empty() => t,
+            _ => continue,
+        };
+        let pid: u32 = match parts.next().and_then(|s| s.parse().ok()) {
+            Some(p) => p,
+            None => continue,
+        };
+        if process_descends_from(pid, wrapper_pid) {
+            owned.push(tty.to_string());
+        }
+    }
+    owned
+}
+
+fn process_descends_from(pid: u32, ancestor: u32) -> bool {
+    if pid == ancestor {
+        return true;
+    }
+    let mut current = pid;
+    for _ in 0..10 {
+        let ppid = match run_cmd("ps", &["-o", "ppid=", "-p", &current.to_string()])
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+        {
+            Some(p) => p,
+            None => return false,
+        };
+        if ppid == ancestor {
+            return true;
+        }
+        if ppid <= 1 {
+            return false;
+        }
+        current = ppid;
+    }
+    false
 }
 
 fn spawn_detached_cmd(cmd: &str, args: &[&str]) -> Result<(), String> {
