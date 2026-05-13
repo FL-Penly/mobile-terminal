@@ -394,6 +394,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         for data in pty_input_rx {
             let _ = writer.write_all(&data);
         }
+        std::mem::forget(writer);
     });
 
     // Client TTY tracking
