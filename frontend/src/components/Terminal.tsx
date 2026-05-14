@@ -235,6 +235,7 @@ export const Terminal = () => {
 
       allowProposedApi: true,
       rescaleOverlappingGlyphs: true,
+      macOptionIsMeta: true,
       macOptionClickForcesSelection: true,
       smoothScrollDuration: 0,
       fastScrollSensitivity: 5,
