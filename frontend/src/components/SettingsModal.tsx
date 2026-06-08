@@ -6,14 +6,21 @@ export interface UserCommand {
   autoEnter: boolean
 }
 
+export interface UserPreset {
+  label: string
+  text: string
+}
+
 export interface UserConfig {
   commands: UserCommand[]
+  presets: UserPreset[]
 }
 
 export const DEFAULT_CONFIG: UserConfig = {
   commands: [
     { label: 'claude', cmd: 'claude --dangerously-skip-permissions', autoEnter: true },
   ],
+  presets: [],
 }
 
 export async function loadUserConfig(): Promise<UserConfig> {
@@ -21,7 +28,7 @@ export async function loadUserConfig(): Promise<UserConfig> {
     const res = await fetch('/api/user-config', { signal: AbortSignal.timeout(3000) })
     if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
       const data = await res.json()
-      if (data.commands) return data
+      if (data.commands) return { commands: data.commands, presets: data.presets ?? [] }
     }
   } catch {}
   return DEFAULT_CONFIG

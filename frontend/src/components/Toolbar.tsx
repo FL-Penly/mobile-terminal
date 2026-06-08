@@ -74,6 +74,12 @@ export const Toolbar: React.FC = () => {
           isOpen={isInputOpen}
           onClose={() => setIsInputOpen(false)}
           onSend={(text) => sendInput(text)}
+          presets={config.presets}
+          onPresetsChange={(presets) => {
+            const updated = { ...config, presets }
+            setConfig(updated)
+            saveUserConfig(updated)
+          }}
         />
 
         {isPickerOpen && (
