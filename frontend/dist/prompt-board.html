@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prompt Board</title>
+<style>
+  :root {
+    --bg: #1b1d22;
+    --panel: #23262d;
+    --panel-2: #2a2e36;
+    --border: #353a44;
+    --text: #e6e8eb;
+    --muted: #8b929e;
+    --accent: #4a9eff;
+    --danger: #ff5c5c;
+    --ok: #46c46e;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  .status { font-size: 12px; color: var(--muted); min-width: 70px; text-align: right; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--danger); }
+  button {
+    font: inherit; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  button.ghost:hover { color: var(--text); border-color: var(--border); }
+  .main { flex: 1; display: flex; min-height: 0; }
+
+  /* left list */
+  .list { width: 300px; flex: 0 0 auto; border-right: 1px solid var(--border); overflow-y: auto; }
+  .item {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    cursor: pointer; display: flex; align-items: center; gap: 8px;
+  }
+  .item:hover { background: var(--panel); }
+  .item.active { background: var(--panel-2); }
+  .item .grip { color: var(--muted); cursor: grab; user-select: none; font-size: 13px; }
+  .item .label { color: var(--accent); font-weight: 600; flex: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item.drag-over { border-top: 2px solid var(--accent); }
+  .item.dragging { opacity: 0.4; }
+  .list .add { padding: 12px 14px; color: var(--muted); cursor: pointer; }
+  .list .add:hover { color: var(--accent); }
+
+  /* right detail */
+  .detail { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 16px; gap: 12px; }
+  .detail .empty { margin: auto; color: var(--muted); }
+  .detail input.title {
+    font-size: 16px; font-weight: 600; color: var(--text);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; width: 100%;
+  }
+  .detail textarea {
+    flex: 1; resize: none; color: var(--text);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px; font: inherit; line-height: 1.6;
+  }
+  .detail input.title:focus, .detail textarea:focus { outline: none; border-color: var(--accent); }
+  .detail .actions { display: flex; gap: 8px; align-items: center; }
+  .detail .actions .spacer { flex: 1; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--ok); color: #fff; padding: 8px 16px; border-radius: 8px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; font-size: 13px;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>📋 Prompt Board</h1>
+    <span class="hint">与 rust-terminal 共享 ~/.vibeterm.json</span>
+    <div class="spacer"></div>
+    <span id="status" class="status">加载中…</span>
+    <button class="ghost" id="reload">刷新</button>
+  </header>
+  <div class="main">
+    <div class="list" id="list"></div>
+    <div class="detail" id="detail">
+      <div class="empty">从左侧选择一个 prompt</div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const API = '/api/user-config';
+let config = { commands: [], presets: [] };
+let selected = -1;
+let dragFrom = -1;
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 1200);
+}
+
+async function load() {
+  setStatus('加载中…');
+  try {
+    const res = await fetch(API, { cache: 'no-store' });
+    const data = await res.json();
+    config = { commands: data.commands || [], presets: data.presets || [] };
+    setStatus('已同步', 'ok');
+    render();
+  } catch (e) {
+    setStatus('读取失败', 'err');
+  }
+}
+
+async function save() {
+  setStatus('保存中…');
+  try {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!res.ok) throw new Error('bad status');
+    setStatus('已同步', 'ok');
+  } catch (e) {
+    setStatus('保存失败', 'err');
+  }
+}
+
+function render() {
+  renderList();
+  renderDetail();
+}
+
+function renderList() {
+  const list = $('list');
+  list.innerHTML = '';
+  config.presets.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'item' + (i === selected ? ' active' : '');
+    row.draggable = true;
+    row.dataset.idx = i;
+
+    const grip = document.createElement('span');
+    grip.className = 'grip';
+    grip.textContent = '⠿';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = p.label || '(未命名)';
+    row.append(grip, label);
+
+    row.addEventListener('click', () => { selected = i; render(); });
+
+    row.addEventListener('dragstart', (e) => {
+      dragFrom = i; row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      dragFrom = -1;
+      document.querySelectorAll('.item').forEach(el => el.classList.remove('drag-over', 'dragging'));
+    });
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      const to = i;
+      if (dragFrom === -1 || dragFrom === to) return;
+      const [moved] = config.presets.splice(dragFrom, 1);
+      config.presets.splice(to, 0, moved);
+      // keep selection on the moved item
+      selected = to;
+      render();
+      save();
+    });
+
+    list.appendChild(row);
+  });
+
+  const add = document.createElement('div');
+  add.className = 'add';
+  add.textContent = '＋ 新建 prompt';
+  add.addEventListener('click', addPreset);
+  list.appendChild(add);
+}
+
+function renderDetail() {
+  const d = $('detail');
+  if (selected < 0 || selected >= config.presets.length) {
+    d.innerHTML = '<div class="empty">从左侧选择一个 prompt，或点「＋ 新建」</div>';
+    return;
+  }
+  const p = config.presets[selected];
+  d.innerHTML = '';
+
+  const title = document.createElement('input');
+  title.className = 'title';
+  title.value = p.label || '';
+  title.placeholder = '标签名';
+  title.addEventListener('input', () => { p.label = title.value; renderListLabel(); });
+  title.addEventListener('change', save);
+
+  const ta = document.createElement('textarea');
+  ta.value = p.text || '';
+  ta.placeholder = 'prompt 内容…';
+  ta.addEventListener('input', () => { p.text = ta.value; });
+  ta.addEventListener('change', save);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'primary';
+  copyBtn.textContent = '复制内容';
+  copyBtn.addEventListener('click', () => copy(p.text));
+  const spacer = document.createElement('div');
+  spacer.className = 'spacer';
+  const delBtn = document.createElement('button');
+  delBtn.textContent = '删除';
+  delBtn.style.color = 'var(--danger)';
+  delBtn.addEventListener('click', () => removePreset(selected));
+
+  actions.append(copyBtn, spacer, delBtn);
+  d.append(title, ta, actions);
+}
+
+// update only the active label in the list without full re-render (keeps focus)
+function renderListLabel() {
+  const row = document.querySelector('.item.active .label');
+  if (row) row.textContent = config.presets[selected].label || '(未命名)';
+}
+
+function addPreset() {
+  config.presets.push({ label: '新标签', text: '' });
+  selected = config.presets.length - 1;
+  render();
+  save();
+  // focus title
+  const t = document.querySelector('.detail input.title');
+  if (t) { t.focus(); t.select(); }
+}
+
+function removePreset(i) {
+  if (!confirm('删除「' + (config.presets[i].label || '未命名') + '」？')) return;
+  config.presets.splice(i, 1);
+  if (selected >= config.presets.length) selected = config.presets.length - 1;
+  render();
+  save();
+}
+
+async function copy(text) {
+  try {
+    await navigator.clipboard.writeText(text || '');
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text || ''; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  toast('已复制 ✓');
+}
+
+$('reload').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>
