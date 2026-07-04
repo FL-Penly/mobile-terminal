@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { UserPreset, UserPresetGroup } from './SettingsModal'
 
 const DRAFT_KEY = 'ttyd_text_input_draft'
@@ -8,6 +8,9 @@ const LINE_HEIGHT = 20
 const PADDING_Y = 12
 const SINGLE_LINE = LINE_HEIGHT + PADDING_Y
 const MAX_HEIGHT_RATIO = 0.4
+const VARIABLE_START = '【变量区】'
+const VARIABLE_END = '【执行区】'
+const VARIABLE_LINE_RE = /^(\s*)([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/
 
 const hapticTap = () => { try { navigator.vibrate?.(8) } catch {} }
 
@@ -18,6 +21,75 @@ const loadHistory = (): string[] => {
   } catch {
     return []
   }
+}
+
+interface PromptVariable {
+  key: string
+  value: string
+}
+
+const getVariableSection = (text: string): { start: number; end: number } | null => {
+  const startMarker = text.indexOf(VARIABLE_START)
+  if (startMarker === -1) return null
+  const start = startMarker + VARIABLE_START.length
+  const endMarker = text.indexOf(VARIABLE_END, start)
+  return { start, end: endMarker === -1 ? text.length : endMarker }
+}
+
+const extractPromptVariables = (text: string): PromptVariable[] => {
+  const section = getVariableSection(text)
+  if (!section) return []
+  return text
+    .slice(section.start, section.end)
+    .split(/\r?\n/)
+    .map(line => {
+      const match = line.match(VARIABLE_LINE_RE)
+      return match ? { key: match[2], value: match[3].trim() } : null
+    })
+    .filter((item): item is PromptVariable => item !== null)
+}
+
+const getGroupVariableValues = (presets: UserPreset[]): Record<string, string> => {
+  const values: Record<string, string> = {}
+  presets.forEach(preset => {
+    extractPromptVariables(preset.text).forEach(variable => {
+      if (!(variable.key in values)) values[variable.key] = variable.value
+    })
+  })
+  return values
+}
+
+const getGroupVariableKeys = (presets: UserPreset[]): string[] => {
+  const keys: string[] = []
+  const seen = new Set<string>()
+  presets.forEach(preset => {
+    extractPromptVariables(preset.text).forEach(variable => {
+      if (seen.has(variable.key)) return
+      seen.add(variable.key)
+      keys.push(variable.key)
+    })
+  })
+  return keys
+}
+
+const sanitizeVariableValue = (value: string): string => value.replace(/\s*\r?\n\s*/g, ' ').trim()
+
+const applyVariablesToPrompt = (text: string, values: Record<string, string>): string => {
+  const section = getVariableSection(text)
+  if (!section) return text
+  const before = text.slice(0, section.start)
+  const variableBlock = text.slice(section.start, section.end)
+  const after = text.slice(section.end)
+  const nextBlock = variableBlock
+    .split(/(\r?\n)/)
+    .map(part => {
+      if (part === '\n' || part === '\r\n') return part
+      const match = part.match(VARIABLE_LINE_RE)
+      if (!match || !(match[2] in values)) return part
+      return `${match[1]}${match[2]} = ${sanitizeVariableValue(values[match[2]])}`
+    })
+    .join('')
+  return before + nextBlock + after
 }
 
 interface TextInputBarProps {
@@ -44,6 +116,8 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const [showHistory, setShowHistory] = useState(false)
   const [showGroups, setShowGroups] = useState(false)
   const [managing, setManaging] = useState(false)
+  const [showVariables, setShowVariables] = useState(false)
+  const [variableValues, setVariableValues] = useState<Record<string, string>>({})
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [formLabel, setFormLabel] = useState('')
   const [formText, setFormText] = useState('')
@@ -51,6 +125,7 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const activeGroup = presetGroups.find(group => group.id === activePresetGroupId) ?? presetGroups[0]
   const activePresets = activeGroup?.presets ?? []
+  const variableKeys = useMemo(() => getGroupVariableKeys(activePresets), [activePresets])
 
   const maxHeight = typeof window !== 'undefined'
     ? (window.visualViewport?.height || window.innerHeight) * MAX_HEIGHT_RATIO
@@ -77,12 +152,17 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
       setShowHistory(false)
       setShowGroups(false)
       setManaging(false)
+      setShowVariables(false)
     }
   }, [isOpen, autoResize])
 
   useEffect(() => {
     autoResize()
   }, [text, autoResize])
+
+  useEffect(() => {
+    setShowVariables(false)
+  }, [activeGroup?.id])
 
   const handleTextChange = useCallback((value: string) => {
     setText(value)
@@ -130,20 +210,33 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const toggleHistory = () => {
     setManaging(false)
     setShowGroups(false)
+    setShowVariables(false)
     setShowHistory(v => !v)
   }
 
   const toggleGroups = () => {
     setShowHistory(false)
     setManaging(false)
+    setShowVariables(false)
     setShowGroups(v => !v)
   }
 
   const toggleManage = () => {
     setShowHistory(false)
     setShowGroups(false)
+    setShowVariables(false)
     setManaging(v => {
       if (v) resetForm()
+      return !v
+    })
+  }
+
+  const toggleVariables = () => {
+    setShowHistory(false)
+    setShowGroups(false)
+    setManaging(false)
+    setShowVariables(v => {
+      if (!v) setVariableValues(getGroupVariableValues(activePresets))
       return !v
     })
   }
@@ -175,6 +268,18 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
       ? presetGroups.map(group => group.id === activeGroup.id ? { ...group, presets: nextPresets } : group)
       : [{ ...activeGroup, presets: nextPresets }]
     onPresetGroupsChange(nextGroups, activeGroup.id)
+  }
+
+  const applyGroupVariables = () => {
+    if (!activeGroup || variableKeys.length === 0) return
+    const nextPresets = activePresets.map(preset => ({
+      ...preset,
+      text: applyVariablesToPrompt(preset.text, variableValues),
+    }))
+    hapticTap()
+    updateActivePresets(nextPresets)
+    setShowVariables(false)
+    setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
   const savePreset = () => {
@@ -299,6 +404,40 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
         </div>
       )}
 
+      {showVariables && (
+        <div className="max-h-[50vh] overflow-y-auto border-b border-border-subtle p-2 flex flex-col gap-2">
+          {variableKeys.length === 0 ? (
+            <div className="px-3 py-4 text-center text-text-muted text-xs">当前分组没有变量区</div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 px-1">
+                <div className="text-xs font-semibold text-text-secondary truncate">当前分组变量</div>
+                <button
+                  onClick={applyGroupVariables}
+                  className="shrink-0 px-3 h-[30px] rounded-lg text-xs font-medium bg-accent-blue/10 text-accent-blue border border-accent-blue/30 transition-colors"
+                >
+                  应用
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                {variableKeys.map(key => (
+                  <label key={key} className="flex flex-col gap-1">
+                    <span className="text-[11px] font-mono text-text-muted">{key}</span>
+                    <textarea
+                      value={variableValues[key] ?? ''}
+                      rows={2}
+                      onChange={e => setVariableValues(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="min-h-[40px] bg-bg-primary border border-border-subtle rounded-lg px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue/60 resize-none"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="px-1 text-[11px] text-text-muted">只替换当前分组所有 prompt 的【变量区】同名变量。</div>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 px-2 pt-1.5">
         <button
           onClick={toggleHistory}
@@ -318,6 +457,15 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
           >
             <span className="truncate">{activeGroup?.label ?? '默认'}</span>
             <span className="text-text-muted">⌄</span>
+          </button>
+          <button
+            onClick={toggleVariables}
+            disabled={variableKeys.length === 0}
+            className={`shrink-0 h-[32px] px-3 flex items-center rounded-lg border text-sm font-semibold transition-colors disabled:opacity-30 ${
+              showVariables ? 'bg-accent-blue/20 border-accent-blue text-accent-blue' : 'bg-bg-tertiary/50 border-border-subtle text-text-secondary'
+            }`}
+          >
+            变量
           </button>
           {activePresets.map((p, idx) => (
             <button

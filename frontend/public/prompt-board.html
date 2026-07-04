@@ -212,6 +212,60 @@
     outline: none;
     border-color: var(--accent);
   }
+  .variable-panel {
+    display: none;
+    border-bottom: 1px solid var(--border);
+    padding: 10px;
+    background: rgba(0,0,0,.08);
+    max-height: 34vh;
+    overflow-y: auto;
+  }
+  .variable-panel.open { display: block; }
+  .variable-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .variable-title {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .variable-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+  }
+  .variable-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .variable-key {
+    color: var(--muted);
+    font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .variable-value {
+    width: 100%;
+    min-height: 42px;
+    resize: vertical;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 8px;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .variable-value:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .variable-note {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
   .actions {
     display: flex;
     gap: 8px;
@@ -277,6 +331,7 @@
 
     <section class="pane">
       <div class="pane-head" id="prompts-head"></div>
+      <div class="variable-panel" id="variable-panel"></div>
       <div class="scroll" id="prompts"></div>
     </section>
 
@@ -291,11 +346,15 @@
 <script>
 const API = '/api/user-config';
 const DEFAULT_GROUP_ID = 'default';
+const VARIABLE_START = '【变量区】';
+const VARIABLE_END = '【执行区】';
+const VARIABLE_LINE_RE = /^(\s*)([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/;
 let config = { commands: [], presets: [], presetGroups: [], activePresetGroupId: DEFAULT_GROUP_ID };
 let selectedGroupId = DEFAULT_GROUP_ID;
 let selectedPrompt = -1;
 let groupDragFrom = -1;
 let promptDragFrom = -1;
+let variablePanelOpen = false;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -314,6 +373,73 @@ function toPreset(value) {
 function toPresets(value) {
   if (!Array.isArray(value)) return [];
   return value.map(toPreset).filter(Boolean);
+}
+
+function getVariableSection(text) {
+  const startMarker = text.indexOf(VARIABLE_START);
+  if (startMarker === -1) return null;
+  const start = startMarker + VARIABLE_START.length;
+  const endMarker = text.indexOf(VARIABLE_END, start);
+  return { start, end: endMarker === -1 ? text.length : endMarker };
+}
+
+function extractPromptVariables(text) {
+  const section = getVariableSection(text || '');
+  if (!section) return [];
+  return text.slice(section.start, section.end)
+    .split(/\r?\n/)
+    .map(line => {
+      const match = line.match(VARIABLE_LINE_RE);
+      return match ? { key: match[2], value: match[3].trim() } : null;
+    })
+    .filter(Boolean);
+}
+
+function getGroupVariableKeys(group) {
+  const keys = [];
+  const seen = new Set();
+  if (!group) return keys;
+  group.presets.forEach(preset => {
+    extractPromptVariables(preset.text).forEach(variable => {
+      if (seen.has(variable.key)) return;
+      seen.add(variable.key);
+      keys.push(variable.key);
+    });
+  });
+  return keys;
+}
+
+function getGroupVariableValues(group) {
+  const values = {};
+  if (!group) return values;
+  group.presets.forEach(preset => {
+    extractPromptVariables(preset.text).forEach(variable => {
+      if (!(variable.key in values)) values[variable.key] = variable.value;
+    });
+  });
+  return values;
+}
+
+function sanitizeVariableValue(value) {
+  return String(value || '').replace(/\s*\r?\n\s*/g, ' ').trim();
+}
+
+function applyVariablesToPrompt(text, values) {
+  const section = getVariableSection(text || '');
+  if (!section) return text || '';
+  const before = text.slice(0, section.start);
+  const variableBlock = text.slice(section.start, section.end);
+  const after = text.slice(section.end);
+  const nextBlock = variableBlock
+    .split(/(\r?\n)/)
+    .map(part => {
+      if (part === '\n' || part === '\r\n') return part;
+      const match = part.match(VARIABLE_LINE_RE);
+      if (!match || !(match[2] in values)) return part;
+      return `${match[1]}${match[2]} = ${sanitizeVariableValue(values[match[2]])}`;
+    })
+    .join('');
+  return before + nextBlock + after;
 }
 
 function toGroup(value, idx) {
@@ -466,6 +592,7 @@ function renderGroups() {
       selectedGroupId = group.id;
       config.activePresetGroupId = group.id;
       selectedPrompt = group.presets.length ? 0 : -1;
+      variablePanelOpen = false;
       render();
       save();
     });
@@ -508,6 +635,8 @@ function renderPromptPane() {
   if (!group) {
     head.innerHTML = '<span class="pane-title">Prompt</span>';
     list.innerHTML = '<div class="empty">暂无分组</div>';
+    $('variable-panel').innerHTML = '';
+    $('variable-panel').className = 'variable-panel';
     return;
   }
 
@@ -527,13 +656,24 @@ function renderPromptPane() {
   addBtn.textContent = '+';
   addBtn.addEventListener('click', addPreset);
 
+  const variableBtn = document.createElement('button');
+  variableBtn.className = 'icon-btn';
+  variableBtn.title = '编辑当前分组变量';
+  variableBtn.textContent = 'V';
+  variableBtn.disabled = getGroupVariableKeys(group).length === 0;
+  variableBtn.addEventListener('click', () => {
+    variablePanelOpen = !variablePanelOpen;
+    renderPromptPane();
+  });
+
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'icon-btn danger';
   deleteBtn.title = '删除分组';
   deleteBtn.textContent = '×';
   deleteBtn.addEventListener('click', removeGroup);
 
-  head.append(nameInput, addBtn, deleteBtn);
+  head.append(nameInput, variableBtn, addBtn, deleteBtn);
+  renderVariablePanel();
 
   group.presets.forEach((preset, idx) => {
     const row = document.createElement('div');
@@ -588,6 +728,73 @@ function renderPromptPane() {
   add.textContent = '+ 新建 prompt';
   add.addEventListener('click', addPreset);
   list.appendChild(add);
+}
+
+function renderVariablePanel() {
+  const panel = $('variable-panel');
+  const group = currentGroup();
+  const keys = getGroupVariableKeys(group);
+  panel.innerHTML = '';
+  panel.className = 'variable-panel' + (variablePanelOpen ? ' open' : '');
+  if (!variablePanelOpen) return;
+
+  if (!group || keys.length === 0) {
+    panel.innerHTML = '<div class="empty">当前分组没有变量区</div>';
+    return;
+  }
+
+  const values = getGroupVariableValues(group);
+  const head = document.createElement('div');
+  head.className = 'variable-head';
+  const title = document.createElement('div');
+  title.className = 'variable-title';
+  title.textContent = '当前分组变量';
+  const spacer = document.createElement('div');
+  spacer.className = 'spacer';
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'primary';
+  applyBtn.textContent = '应用到当前分组';
+  applyBtn.addEventListener('click', applyGroupVariables);
+  head.append(title, spacer, applyBtn);
+
+  const grid = document.createElement('div');
+  grid.className = 'variable-grid';
+  keys.forEach(key => {
+    const field = document.createElement('label');
+    field.className = 'variable-field';
+    const name = document.createElement('span');
+    name.className = 'variable-key';
+    name.textContent = key;
+    const input = document.createElement('textarea');
+    input.className = 'variable-value';
+    input.rows = 2;
+    input.dataset.key = key;
+    input.value = values[key] || '';
+    field.append(name, input);
+    grid.appendChild(field);
+  });
+
+  const note = document.createElement('div');
+  note.className = 'variable-note';
+  note.textContent = '只替换当前分组所有 prompt 的【变量区】同名变量，不修改执行区。';
+  panel.append(head, grid, note);
+}
+
+function applyGroupVariables() {
+  const group = currentGroup();
+  if (!group) return;
+  const values = {};
+  document.querySelectorAll('#variable-panel .variable-value').forEach(input => {
+    const key = input.dataset.key;
+    if (key) values[key] = input.value;
+  });
+  group.presets = group.presets.map(preset => ({
+    label: preset.label || '',
+    text: applyVariablesToPrompt(preset.text || '', values),
+  }));
+  render();
+  save();
+  toast(`已应用到 ${group.presets.length} 个 prompt`);
 }
 
 function renderDetail() {
