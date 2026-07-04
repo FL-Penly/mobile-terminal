@@ -9,6 +9,7 @@
     --bg: #1b1d22;
     --panel: #23262d;
     --panel-2: #2a2e36;
+    --panel-3: #303540;
     --border: #353a44;
     --text: #e6e8eb;
     --muted: #8b929e;
@@ -36,6 +37,7 @@
   .status { font-size: 12px; color: var(--muted); min-width: 70px; text-align: right; }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--danger); }
+  .hint { color: var(--muted); font-size: 12px; }
   button {
     font: inherit; color: var(--text); background: var(--panel-2);
     border: 1px solid var(--border); border-radius: 6px;
@@ -45,73 +47,317 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
   button.ghost:hover { color: var(--text); border-color: var(--border); }
-  .main { flex: 1; display: flex; min-height: 0; }
+  button.danger { color: var(--danger); }
 
-  /* left list */
-  .list { width: 300px; flex: 0 0 auto; border-right: 1px solid var(--border); overflow-y: auto; }
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 220px 300px minmax(0, 1fr);
+    min-height: 0;
+  }
+  .pane {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+  }
+  .pane:last-child { border-right: 0; }
+  .pane-head {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,.12);
+  }
+  .pane-title {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 700;
+  }
+  .pane-head .spacer { flex: 1; }
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+  }
+  .group-name {
+    min-width: 0;
+    flex: 1;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 0 9px;
+    font-weight: 700;
+  }
+  .group-name:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .scroll {
+    overflow-y: auto;
+    min-height: 0;
+  }
   .item {
-    padding: 10px 14px; border-bottom: 1px solid var(--border);
-    cursor: pointer; display: flex; align-items: center; gap: 8px;
+    min-height: 42px;
+    padding: 9px 10px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
   .item:hover { background: var(--panel); }
-  .item.active { background: var(--panel-2); }
-  .item .grip { color: var(--muted); cursor: grab; user-select: none; font-size: 13px; }
-  .item .label { color: var(--accent); font-weight: 600; flex: 1;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item.active {
+    background: var(--panel-2);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
   .item.drag-over { border-top: 2px solid var(--accent); }
-  .item.dragging { opacity: 0.4; }
-  .list .add { padding: 12px 14px; color: var(--muted); cursor: pointer; }
-  .list .add:hover { color: var(--accent); }
+  .item.dragging { opacity: .4; }
+  .grip {
+    color: var(--muted);
+    cursor: grab;
+    user-select: none;
+    font-size: 13px;
+  }
+  .label {
+    color: var(--text);
+    font-weight: 650;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item.active .label { color: var(--accent); }
+  .count {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .preview {
+    color: var(--muted);
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .prompt-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    position: relative;
+    padding-left: 30px;
+  }
+  .prompt-row .grip {
+    position: absolute;
+    top: 12px;
+    left: 10px;
+  }
+  .add-row {
+    color: var(--ok);
+    padding: 12px 10px;
+    cursor: pointer;
+    font-weight: 650;
+  }
+  .add-row:hover { background: var(--panel); }
 
-  /* right detail */
-  .detail { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 16px; gap: 12px; }
-  .detail .empty { margin: auto; color: var(--muted); }
-  .detail input.title {
-    font-size: 16px; font-weight: 600; color: var(--text);
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 6px; padding: 8px 10px; width: 100%;
+  .detail {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 12px;
   }
-  .detail textarea {
-    flex: 1; resize: none; color: var(--text);
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 6px; padding: 10px; font: inherit; line-height: 1.6;
+  .empty {
+    margin: auto;
+    color: var(--muted);
+    text-align: center;
   }
-  .detail input.title:focus, .detail textarea:focus { outline: none; border-color: var(--accent); }
-  .detail .actions { display: flex; gap: 8px; align-items: center; }
-  .detail .actions .spacer { flex: 1; }
-  .hint { color: var(--muted); font-size: 12px; }
+  .title-input {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    width: 100%;
+  }
+  .prompt-text {
+    flex: 1;
+    min-height: 0;
+    resize: none;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .title-input:focus,
+  .prompt-text:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .actions .spacer { flex: 1; }
+  select {
+    height: 34px;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0 8px;
+  }
   .toast {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-    background: var(--ok); color: #fff; padding: 8px 16px; border-radius: 8px;
-    opacity: 0; transition: opacity .2s; pointer-events: none; font-size: 13px;
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ok);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    opacity: 0;
+    transition: opacity .2s;
+    pointer-events: none;
+    font-size: 13px;
   }
   .toast.show { opacity: 1; }
+
+  @media (max-width: 900px) {
+    .main {
+      grid-template-columns: 140px minmax(0, 1fr);
+      grid-template-rows: 42vh minmax(0, 1fr);
+    }
+    .pane.detail-pane {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--border);
+    }
+    .hint { display: none; }
+  }
 </style>
 </head>
 <body>
   <header>
-    <h1>📋 Prompt Board</h1>
-    <span class="hint">与 rust-terminal 共享 ~/.vibeterm.json</span>
+    <h1>Prompt Board</h1>
+    <span class="hint">与 rust-terminal 共享 ~/.vibeterm.json，支持 prompt 分组</span>
     <div class="spacer"></div>
-    <span id="status" class="status">加载中…</span>
+    <span id="status" class="status">加载中...</span>
     <button class="ghost" id="reload">刷新</button>
   </header>
+
   <div class="main">
-    <div class="list" id="list"></div>
-    <div class="detail" id="detail">
-      <div class="empty">从左侧选择一个 prompt</div>
-    </div>
+    <section class="pane">
+      <div class="pane-head">
+        <span class="pane-title">分组</span>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="add-group" title="新建分组">+</button>
+      </div>
+      <div class="scroll" id="groups"></div>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head" id="prompts-head"></div>
+      <div class="scroll" id="prompts"></div>
+    </section>
+
+    <section class="pane detail-pane">
+      <div class="detail" id="detail">
+        <div class="empty">选择一个 prompt，或在当前分组中新建</div>
+      </div>
+    </section>
   </div>
   <div class="toast" id="toast"></div>
 
 <script>
 const API = '/api/user-config';
-let config = { commands: [], presets: [] };
-let selected = -1;
-let dragFrom = -1;
+const DEFAULT_GROUP_ID = 'default';
+let config = { commands: [], presets: [], presetGroups: [], activePresetGroupId: DEFAULT_GROUP_ID };
+let selectedGroupId = DEFAULT_GROUP_ID;
+let selectedPrompt = -1;
+let groupDragFrom = -1;
+let promptDragFrom = -1;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
+
+function isRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toPreset(value) {
+  if (!isRecord(value)) return null;
+  const label = typeof value.label === 'string' ? value.label : '';
+  const text = typeof value.text === 'string' ? value.text : '';
+  return label || text ? { label, text } : null;
+}
+
+function toPresets(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(toPreset).filter(Boolean);
+}
+
+function toGroup(value, idx) {
+  if (!isRecord(value)) return null;
+  const rawId = typeof value.id === 'string' ? value.id.trim() : '';
+  const id = rawId || `group-${idx + 1}`;
+  const rawLabel = typeof value.label === 'string' ? value.label.trim() : '';
+  return {
+    id,
+    label: rawLabel || id,
+    presets: toPresets(value.presets),
+  };
+}
+
+function normalize(raw) {
+  const data = isRecord(raw) ? raw : {};
+  const commands = Array.isArray(data.commands) ? data.commands : [];
+  const legacyPresets = toPresets(data.presets);
+  const groups = Array.isArray(data.presetGroups)
+    ? data.presetGroups.map(toGroup).filter(Boolean)
+    : [];
+  const presetGroups = groups.length > 0
+    ? groups
+    : [{ id: DEFAULT_GROUP_ID, label: '默认', presets: legacyPresets }];
+  const requestedActive = typeof data.activePresetGroupId === 'string'
+    ? data.activePresetGroupId
+    : presetGroups[0].id;
+  const activePresetGroupId = presetGroups.some(g => g.id === requestedActive)
+    ? requestedActive
+    : presetGroups[0].id;
+  const activeGroup = presetGroups.find(g => g.id === activePresetGroupId) || presetGroups[0];
+  return {
+    commands,
+    presets: activeGroup.presets,
+    presetGroups,
+    activePresetGroupId,
+  };
+}
+
+function syncLegacyPresets() {
+  const group = currentGroup();
+  config.activePresetGroupId = selectedGroupId;
+  config.presets = group ? group.presets : [];
+}
 
 function setStatus(text, cls) {
   statusEl.textContent = text;
@@ -126,12 +372,47 @@ function toast(msg) {
   toast._t = setTimeout(() => t.classList.remove('show'), 1200);
 }
 
+function currentGroup() {
+  return config.presetGroups.find(g => g.id === selectedGroupId) || config.presetGroups[0] || null;
+}
+
+function currentGroupIndex() {
+  return config.presetGroups.findIndex(g => g.id === selectedGroupId);
+}
+
+function currentPrompt() {
+  const group = currentGroup();
+  if (!group) return null;
+  return group.presets[selectedPrompt] || null;
+}
+
+function ensureSelection() {
+  if (config.presetGroups.length === 0) {
+    config.presetGroups.push({ id: DEFAULT_GROUP_ID, label: '默认', presets: [] });
+  }
+  if (!config.presetGroups.some(g => g.id === selectedGroupId)) {
+    selectedGroupId = config.activePresetGroupId || config.presetGroups[0].id;
+  }
+  if (!config.presetGroups.some(g => g.id === selectedGroupId)) {
+    selectedGroupId = config.presetGroups[0].id;
+  }
+  const group = currentGroup();
+  if (!group || group.presets.length === 0) {
+    selectedPrompt = -1;
+  } else if (selectedPrompt < 0 || selectedPrompt >= group.presets.length) {
+    selectedPrompt = 0;
+  }
+}
+
 async function load() {
-  setStatus('加载中…');
+  setStatus('加载中...');
   try {
     const res = await fetch(API, { cache: 'no-store' });
     const data = await res.json();
-    config = { commands: data.commands || [], presets: data.presets || [] };
+    config = normalize(data);
+    selectedGroupId = config.activePresetGroupId;
+    selectedPrompt = currentGroup()?.presets.length ? 0 : -1;
+    ensureSelection();
     setStatus('已同步', 'ok');
     render();
   } catch (e) {
@@ -140,7 +421,8 @@ async function load() {
 }
 
 async function save() {
-  setStatus('保存中…');
+  setStatus('保存中...');
+  syncLegacyPresets();
   try {
     const res = await fetch(API, {
       method: 'POST',
@@ -155,36 +437,46 @@ async function save() {
 }
 
 function render() {
-  renderList();
+  ensureSelection();
+  renderGroups();
+  renderPromptPane();
   renderDetail();
 }
 
-function renderList() {
-  const list = $('list');
-  list.innerHTML = '';
-  config.presets.forEach((p, i) => {
+function renderGroups() {
+  const el = $('groups');
+  el.innerHTML = '';
+  config.presetGroups.forEach((group, idx) => {
     const row = document.createElement('div');
-    row.className = 'item' + (i === selected ? ' active' : '');
+    row.className = 'item' + (group.id === selectedGroupId ? ' active' : '');
     row.draggable = true;
-    row.dataset.idx = i;
 
     const grip = document.createElement('span');
     grip.className = 'grip';
-    grip.textContent = '⠿';
+    grip.textContent = '::';
     const label = document.createElement('span');
     label.className = 'label';
-    label.textContent = p.label || '(未命名)';
-    row.append(grip, label);
+    label.textContent = group.label || '(未命名)';
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = String(group.presets.length);
+    row.append(grip, label, count);
 
-    row.addEventListener('click', () => { selected = i; render(); });
-
+    row.addEventListener('click', () => {
+      selectedGroupId = group.id;
+      config.activePresetGroupId = group.id;
+      selectedPrompt = group.presets.length ? 0 : -1;
+      render();
+      save();
+    });
     row.addEventListener('dragstart', (e) => {
-      dragFrom = i; row.classList.add('dragging');
+      groupDragFrom = idx;
+      row.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
     });
     row.addEventListener('dragend', () => {
-      dragFrom = -1;
-      document.querySelectorAll('.item').forEach(el => el.classList.remove('drag-over', 'dragging'));
+      groupDragFrom = -1;
+      document.querySelectorAll('.item').forEach(item => item.classList.remove('drag-over', 'dragging'));
     });
     row.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -194,12 +486,96 @@ function renderList() {
     row.addEventListener('drop', (e) => {
       e.preventDefault();
       row.classList.remove('drag-over');
-      const to = i;
-      if (dragFrom === -1 || dragFrom === to) return;
-      const [moved] = config.presets.splice(dragFrom, 1);
-      config.presets.splice(to, 0, moved);
-      // keep selection on the moved item
-      selected = to;
+      if (groupDragFrom === -1 || groupDragFrom === idx) return;
+      const moved = config.presetGroups.splice(groupDragFrom, 1)[0];
+      config.presetGroups.splice(idx, 0, moved);
+      selectedGroupId = moved.id;
+      render();
+      save();
+    });
+
+    el.appendChild(row);
+  });
+}
+
+function renderPromptPane() {
+  const group = currentGroup();
+  const head = $('prompts-head');
+  const list = $('prompts');
+  head.innerHTML = '';
+  list.innerHTML = '';
+
+  if (!group) {
+    head.innerHTML = '<span class="pane-title">Prompt</span>';
+    list.innerHTML = '<div class="empty">暂无分组</div>';
+    return;
+  }
+
+  const nameInput = document.createElement('input');
+  nameInput.className = 'group-name';
+  nameInput.value = group.label;
+  nameInput.placeholder = '分组名称';
+  nameInput.addEventListener('input', () => {
+    group.label = nameInput.value;
+    renderGroups();
+  });
+  nameInput.addEventListener('change', save);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'icon-btn';
+  addBtn.title = '新建 prompt';
+  addBtn.textContent = '+';
+  addBtn.addEventListener('click', addPreset);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'icon-btn danger';
+  deleteBtn.title = '删除分组';
+  deleteBtn.textContent = '×';
+  deleteBtn.addEventListener('click', removeGroup);
+
+  head.append(nameInput, addBtn, deleteBtn);
+
+  group.presets.forEach((preset, idx) => {
+    const row = document.createElement('div');
+    row.className = 'item prompt-row' + (idx === selectedPrompt ? ' active' : '');
+    row.draggable = true;
+
+    const grip = document.createElement('span');
+    grip.className = 'grip';
+    grip.textContent = '::';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = preset.label || '(未命名)';
+    const preview = document.createElement('div');
+    preview.className = 'preview';
+    preview.textContent = (preset.text || '').replace(/\s+/g, ' ').trim() || '空内容';
+    row.append(grip, label, preview);
+
+    row.addEventListener('click', () => {
+      selectedPrompt = idx;
+      render();
+    });
+    row.addEventListener('dragstart', (e) => {
+      promptDragFrom = idx;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      promptDragFrom = -1;
+      document.querySelectorAll('.item').forEach(item => item.classList.remove('drag-over', 'dragging'));
+    });
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if (promptDragFrom === -1 || promptDragFrom === idx) return;
+      const moved = group.presets.splice(promptDragFrom, 1)[0];
+      group.presets.splice(idx, 0, moved);
+      selectedPrompt = idx;
       render();
       save();
     });
@@ -208,71 +584,151 @@ function renderList() {
   });
 
   const add = document.createElement('div');
-  add.className = 'add';
-  add.textContent = '＋ 新建 prompt';
+  add.className = 'add-row';
+  add.textContent = '+ 新建 prompt';
   add.addEventListener('click', addPreset);
   list.appendChild(add);
 }
 
 function renderDetail() {
   const d = $('detail');
-  if (selected < 0 || selected >= config.presets.length) {
-    d.innerHTML = '<div class="empty">从左侧选择一个 prompt，或点「＋ 新建」</div>';
-    return;
-  }
-  const p = config.presets[selected];
+  const group = currentGroup();
+  const preset = currentPrompt();
   d.innerHTML = '';
 
+  if (!group) {
+    d.innerHTML = '<div class="empty">先创建一个分组</div>';
+    return;
+  }
+  if (!preset) {
+    d.innerHTML = '<div class="empty">当前分组还没有 prompt</div>';
+    return;
+  }
+
   const title = document.createElement('input');
-  title.className = 'title';
-  title.value = p.label || '';
+  title.className = 'title-input';
+  title.value = preset.label || '';
   title.placeholder = '标签名';
-  title.addEventListener('input', () => { p.label = title.value; renderListLabel(); });
+  title.addEventListener('input', () => {
+    preset.label = title.value;
+    renderPromptPane();
+  });
   title.addEventListener('change', save);
 
   const ta = document.createElement('textarea');
-  ta.value = p.text || '';
-  ta.placeholder = 'prompt 内容…';
-  ta.addEventListener('input', () => { p.text = ta.value; });
-  ta.addEventListener('change', save);
+  ta.className = 'prompt-text';
+  ta.value = preset.text || '';
+  ta.placeholder = 'prompt 内容...';
+  ta.addEventListener('input', () => {
+    preset.text = ta.value;
+  });
+  ta.addEventListener('change', () => {
+    renderPromptPane();
+    save();
+  });
 
   const actions = document.createElement('div');
   actions.className = 'actions';
+
   const copyBtn = document.createElement('button');
   copyBtn.className = 'primary';
   copyBtn.textContent = '复制内容';
-  copyBtn.addEventListener('click', () => copy(p.text));
+  copyBtn.addEventListener('click', () => copy(preset.text));
+
+  const moveSelect = document.createElement('select');
+  config.presetGroups.forEach(target => {
+    if (target.id === group.id) return;
+    const opt = document.createElement('option');
+    opt.value = target.id;
+    opt.textContent = `移动到：${target.label}`;
+    moveSelect.appendChild(opt);
+  });
+  const moveBtn = document.createElement('button');
+  moveBtn.textContent = '移动';
+  moveBtn.disabled = moveSelect.options.length === 0;
+  moveBtn.addEventListener('click', () => movePreset(moveSelect.value));
+
   const spacer = document.createElement('div');
   spacer.className = 'spacer';
-  const delBtn = document.createElement('button');
-  delBtn.textContent = '删除';
-  delBtn.style.color = 'var(--danger)';
-  delBtn.addEventListener('click', () => removePreset(selected));
 
-  actions.append(copyBtn, spacer, delBtn);
+  const delBtn = document.createElement('button');
+  delBtn.className = 'danger';
+  delBtn.textContent = '删除';
+  delBtn.addEventListener('click', () => removePreset(selectedPrompt));
+
+  actions.append(copyBtn);
+  if (moveSelect.options.length > 0) actions.append(moveSelect, moveBtn);
+  actions.append(spacer, delBtn);
   d.append(title, ta, actions);
 }
 
-// update only the active label in the list without full re-render (keeps focus)
-function renderListLabel() {
-  const row = document.querySelector('.item.active .label');
-  if (row) row.textContent = config.presets[selected].label || '(未命名)';
+function makeGroupId(label) {
+  const base = (label || 'group').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'group';
+  let id = base;
+  let count = 2;
+  while (config.presetGroups.some(g => g.id === id)) {
+    id = `${base}-${count}`;
+    count += 1;
+  }
+  return id;
+}
+
+function addGroup() {
+  const label = window.prompt('新分组名称', '新分组');
+  if (!label || !label.trim()) return;
+  const group = { id: makeGroupId(label), label: label.trim(), presets: [] };
+  config.presetGroups.push(group);
+  selectedGroupId = group.id;
+  selectedPrompt = -1;
+  render();
+  save();
+}
+
+function removeGroup() {
+  const idx = currentGroupIndex();
+  const group = currentGroup();
+  if (idx < 0 || !group) return;
+  if (config.presetGroups.length === 1) {
+    toast('至少保留一个分组');
+    return;
+  }
+  if (!confirm(`删除分组「${group.label || '未命名'}」及其 ${group.presets.length} 个 prompt？`)) return;
+  config.presetGroups.splice(idx, 1);
+  selectedGroupId = config.presetGroups[Math.max(0, idx - 1)].id;
+  selectedPrompt = config.presetGroups[Math.max(0, idx - 1)].presets.length ? 0 : -1;
+  render();
+  save();
 }
 
 function addPreset() {
-  config.presets.push({ label: '新标签', text: '' });
-  selected = config.presets.length - 1;
+  const group = currentGroup();
+  if (!group) return;
+  group.presets.push({ label: '新标签', text: '' });
+  selectedPrompt = group.presets.length - 1;
   render();
   save();
-  // focus title
-  const t = document.querySelector('.detail input.title');
+  const t = document.querySelector('.detail input.title-input');
   if (t) { t.focus(); t.select(); }
 }
 
 function removePreset(i) {
-  if (!confirm('删除「' + (config.presets[i].label || '未命名') + '」？')) return;
-  config.presets.splice(i, 1);
-  if (selected >= config.presets.length) selected = config.presets.length - 1;
+  const group = currentGroup();
+  if (!group || i < 0 || i >= group.presets.length) return;
+  if (!confirm(`删除「${group.presets[i].label || '未命名'}」？`)) return;
+  group.presets.splice(i, 1);
+  if (selectedPrompt >= group.presets.length) selectedPrompt = group.presets.length - 1;
+  render();
+  save();
+}
+
+function movePreset(targetGroupId) {
+  const source = currentGroup();
+  const target = config.presetGroups.find(g => g.id === targetGroupId);
+  if (!source || !target || selectedPrompt < 0) return;
+  const moved = source.presets.splice(selectedPrompt, 1)[0];
+  target.presets.push(moved);
+  selectedGroupId = target.id;
+  selectedPrompt = target.presets.length - 1;
   render();
   save();
 }
@@ -282,13 +738,17 @@ async function copy(text) {
     await navigator.clipboard.writeText(text || '');
   } catch (e) {
     const ta = document.createElement('textarea');
-    ta.value = text || ''; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); ta.remove();
+    ta.value = text || '';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
   }
-  toast('已复制 ✓');
+  toast('已复制');
 }
 
 $('reload').addEventListener('click', load);
+$('add-group').addEventListener('click', addGroup);
 load();
 </script>
 </body>

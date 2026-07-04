@@ -11,24 +11,133 @@ export interface UserPreset {
   text: string
 }
 
+export interface UserPresetGroup {
+  id: string
+  label: string
+  presets: UserPreset[]
+}
+
 export interface UserConfig {
   commands: UserCommand[]
   presets: UserPreset[]
+  presetGroups: UserPresetGroup[]
+  activePresetGroupId: string
 }
+
+const DEFAULT_GROUP_ID = 'default'
+
+const defaultPresetGroup = (presets: UserPreset[] = []): UserPresetGroup => ({
+  id: DEFAULT_GROUP_ID,
+  label: '默认',
+  presets,
+})
 
 export const DEFAULT_CONFIG: UserConfig = {
   commands: [
     { label: 'claude', cmd: 'claude --dangerously-skip-permissions', autoEnter: true },
   ],
   presets: [],
+  presetGroups: [defaultPresetGroup()],
+  activePresetGroupId: DEFAULT_GROUP_ID,
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+)
+
+const readString = (record: Record<string, unknown>, key: string, fallback = ''): string => {
+  const value = record[key]
+  return typeof value === 'string' ? value : fallback
+}
+
+const readBoolean = (record: Record<string, unknown>, key: string, fallback: boolean): boolean => {
+  const value = record[key]
+  return typeof value === 'boolean' ? value : fallback
+}
+
+const readPresets = (value: unknown): UserPreset[] => (
+  Array.isArray(value)
+    ? value
+      .filter(isRecord)
+      .map(item => ({
+        label: readString(item, 'label'),
+        text: readString(item, 'text'),
+      }))
+      .filter(item => item.label || item.text)
+    : []
+)
+
+const readCommands = (value: unknown): UserCommand[] => (
+  Array.isArray(value)
+    ? value
+      .filter(isRecord)
+      .map(item => ({
+        label: readString(item, 'label'),
+        cmd: readString(item, 'cmd'),
+        autoEnter: readBoolean(item, 'autoEnter', true),
+      }))
+      .filter(item => item.label || item.cmd)
+    : []
+)
+
+const readPresetGroups = (value: unknown): UserPresetGroup[] => (
+  Array.isArray(value)
+    ? value
+      .filter(isRecord)
+      .map((item, idx) => {
+        const id = readString(item, 'id', `group-${idx + 1}`).trim() || `group-${idx + 1}`
+        const label = readString(item, 'label', id).trim() || id
+        return {
+          id,
+          label,
+          presets: readPresets(item.presets),
+        }
+      })
+    : []
+)
+
+export const getActivePresetGroup = (config: UserConfig): UserPresetGroup => (
+  config.presetGroups.find(group => group.id === config.activePresetGroupId)
+    ?? config.presetGroups[0]
+    ?? defaultPresetGroup()
+)
+
+export const normalizeUserConfig = (value: unknown): UserConfig => {
+  if (!isRecord(value)) return DEFAULT_CONFIG
+
+  const hasCommands = Array.isArray(value.commands)
+  const commands = readCommands(value.commands)
+  const legacyPresets = readPresets(value.presets)
+  const loadedGroups = readPresetGroups(value.presetGroups)
+  const presetGroups = loadedGroups.length > 0 ? loadedGroups : [defaultPresetGroup(legacyPresets)]
+  const activeFromConfig = readString(value, 'activePresetGroupId', presetGroups[0]?.id ?? DEFAULT_GROUP_ID)
+  const activePresetGroupId = presetGroups.some(group => group.id === activeFromConfig)
+    ? activeFromConfig
+    : presetGroups[0]?.id ?? DEFAULT_GROUP_ID
+  const activePresets = presetGroups.find(group => group.id === activePresetGroupId)?.presets ?? []
+
+  return {
+    commands: hasCommands ? commands : DEFAULT_CONFIG.commands,
+    presets: activePresets,
+    presetGroups,
+    activePresetGroupId,
+  }
+}
+
+const serializeUserConfig = (config: UserConfig): UserConfig => {
+  const normalized = normalizeUserConfig(config)
+  return {
+    ...normalized,
+    presets: getActivePresetGroup(normalized).presets,
+  }
 }
 
 export async function loadUserConfig(): Promise<UserConfig> {
   try {
     const res = await fetch('/api/user-config', { signal: AbortSignal.timeout(3000) })
     if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-      const data = await res.json()
-      if (data.commands) return { commands: data.commands, presets: data.presets ?? [] }
+      const data: unknown = await res.json()
+      return normalizeUserConfig(data)
     }
   } catch {}
   return DEFAULT_CONFIG
@@ -39,7 +148,7 @@ export async function saveUserConfig(config: UserConfig): Promise<void> {
     await fetch('/api/user-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
+      body: JSON.stringify(serializeUserConfig(config)),
       signal: AbortSignal.timeout(3000),
     })
   } catch {}

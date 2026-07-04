@@ -67,6 +67,30 @@ export const Toolbar: React.FC = () => {
     saveUserConfig(updated)
   }
 
+  const persistConfig = (updated: UserConfig) => {
+    setConfig(updated)
+    saveUserConfig(updated)
+  }
+
+  const setActivePresetGroup = (groupId: string) => {
+    const activeGroup = config.presetGroups.find(group => group.id === groupId) ?? config.presetGroups[0]
+    persistConfig({
+      ...config,
+      activePresetGroupId: activeGroup?.id ?? groupId,
+      presets: activeGroup?.presets ?? [],
+    })
+  }
+
+  const updatePresetGroups = (presetGroups: UserConfig['presetGroups'], activePresetGroupId: string) => {
+    const activeGroup = presetGroups.find(group => group.id === activePresetGroupId) ?? presetGroups[0]
+    persistConfig({
+      ...config,
+      presetGroups,
+      activePresetGroupId: activeGroup?.id ?? activePresetGroupId,
+      presets: activeGroup?.presets ?? [],
+    })
+  }
+
   return (
     <>
       <div className="shrink-0 flex flex-col">
@@ -74,12 +98,10 @@ export const Toolbar: React.FC = () => {
           isOpen={isInputOpen}
           onClose={() => setIsInputOpen(false)}
           onSend={(text) => sendInput(text)}
-          presets={config.presets}
-          onPresetsChange={(presets) => {
-            const updated = { ...config, presets }
-            setConfig(updated)
-            saveUserConfig(updated)
-          }}
+          presetGroups={config.presetGroups}
+          activePresetGroupId={config.activePresetGroupId}
+          onActivePresetGroupChange={setActivePresetGroup}
+          onPresetGroupsChange={updatePresetGroups}
         />
 
         {isPickerOpen && (
