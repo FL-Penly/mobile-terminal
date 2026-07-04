@@ -648,6 +648,19 @@ function renderDetail() {
   moveBtn.disabled = moveSelect.options.length === 0;
   moveBtn.addEventListener('click', () => movePreset(moveSelect.value));
 
+  const copyToSelect = document.createElement('select');
+  config.presetGroups.forEach(target => {
+    if (target.id === group.id) return;
+    const opt = document.createElement('option');
+    opt.value = target.id;
+    opt.textContent = `复制到：${target.label}`;
+    copyToSelect.appendChild(opt);
+  });
+  const copyToBtn = document.createElement('button');
+  copyToBtn.textContent = '复制';
+  copyToBtn.disabled = copyToSelect.options.length === 0;
+  copyToBtn.addEventListener('click', () => copyPresetToGroup(copyToSelect.value));
+
   const spacer = document.createElement('div');
   spacer.className = 'spacer';
 
@@ -658,6 +671,7 @@ function renderDetail() {
 
   actions.append(copyBtn);
   if (moveSelect.options.length > 0) actions.append(moveSelect, moveBtn);
+  if (copyToSelect.options.length > 0) actions.append(copyToSelect, copyToBtn);
   actions.append(spacer, delBtn);
   d.append(title, ta, actions);
 }
@@ -731,6 +745,20 @@ function movePreset(targetGroupId) {
   selectedPrompt = target.presets.length - 1;
   render();
   save();
+}
+
+function copyPresetToGroup(targetGroupId) {
+  const source = currentGroup();
+  const target = config.presetGroups.find(g => g.id === targetGroupId);
+  if (!source || !target || selectedPrompt < 0) return;
+  const preset = source.presets[selectedPrompt];
+  if (!preset) return;
+  target.presets.push({ label: preset.label || '', text: preset.text || '' });
+  selectedGroupId = target.id;
+  selectedPrompt = target.presets.length - 1;
+  render();
+  save();
+  toast(`已复制到 ${target.label || '目标分组'}`);
 }
 
 async function copy(text) {
