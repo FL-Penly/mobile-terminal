@@ -44,6 +44,8 @@
     padding: 6px 12px; cursor: pointer;
   }
   button:hover { border-color: var(--accent); }
+  button:disabled { cursor: not-allowed; opacity: .45; }
+  button:disabled:hover { border-color: var(--border); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
   button.ghost:hover { color: var(--text); border-color: var(--border); }
@@ -266,6 +268,32 @@
     color: var(--muted);
     font-size: 12px;
   }
+  .variable-empty {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 10px;
+    text-align: center;
+  }
+  .variable-derived {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .variable-derived summary {
+    cursor: pointer;
+    user-select: none;
+  }
+  .variable-derived-list {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .variable-derived-row {
+    color: var(--muted);
+    word-break: break-all;
+    font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
   .actions {
     display: flex;
     gap: 8px;
@@ -349,6 +377,8 @@ const DEFAULT_GROUP_ID = 'default';
 const VARIABLE_START = '【变量区】';
 const VARIABLE_END = '【执行区】';
 const VARIABLE_LINE_RE = /^(\s*)([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/;
+const DERIVED_VARIABLE_KEYS = new Set(['TEST_SCENE_DIR', 'TEST_REPORT_FILE']);
+const VARIABLE_EXPRESSION_RE = /\$\{[^}]+}/;
 let config = { commands: [], presets: [], presetGroups: [], activePresetGroupId: DEFAULT_GROUP_ID };
 let selectedGroupId = DEFAULT_GROUP_ID;
 let selectedPrompt = -1;
@@ -396,24 +426,43 @@ function extractPromptVariables(text) {
 }
 
 function getGroupVariableKeys(group) {
-  const keys = [];
-  const seen = new Set();
-  if (!group) return keys;
-  group.presets.forEach(preset => {
-    extractPromptVariables(preset.text).forEach(variable => {
-      if (seen.has(variable.key)) return;
-      seen.add(variable.key);
-      keys.push(variable.key);
-    });
-  });
-  return keys;
+  return getGroupVariables(group).all.map(variable => variable.key);
 }
 
-function getGroupVariableValues(group) {
+function isDerivedVariable(variable) {
+  return DERIVED_VARIABLE_KEYS.has(variable.key) || VARIABLE_EXPRESSION_RE.test(variable.value);
+}
+
+function getGroupVariables(group) {
+  const variablesByKey = new Map();
+  if (!group) return { all: [], editable: [], derived: [] };
+  group.presets.forEach(preset => {
+    extractPromptVariables(preset.text).forEach(variable => {
+      const derived = isDerivedVariable(variable);
+      const existing = variablesByKey.get(variable.key);
+      if (!existing) {
+        variablesByKey.set(variable.key, { ...variable, derived });
+        return;
+      }
+      if (derived && !existing.derived) {
+        variablesByKey.set(variable.key, { ...variable, derived: true });
+      }
+    });
+  });
+  const all = Array.from(variablesByKey.values());
+  return {
+    all,
+    editable: all.filter(variable => !variable.derived),
+    derived: all.filter(variable => variable.derived),
+  };
+}
+
+function getEditableVariableValues(group) {
   const values = {};
   if (!group) return values;
   group.presets.forEach(preset => {
     extractPromptVariables(preset.text).forEach(variable => {
+      if (isDerivedVariable(variable)) return;
       if (!(variable.key in values)) values[variable.key] = variable.value;
     });
   });
@@ -436,6 +485,7 @@ function applyVariablesToPrompt(text, values) {
       if (part === '\n' || part === '\r\n') return part;
       const match = part.match(VARIABLE_LINE_RE);
       if (!match || !(match[2] in values)) return part;
+      if (isDerivedVariable({ key: match[2], value: match[3].trim() })) return part;
       return `${match[1]}${match[2]} = ${sanitizeVariableValue(values[match[2]])}`;
     })
     .join('');
@@ -733,51 +783,75 @@ function renderPromptPane() {
 function renderVariablePanel() {
   const panel = $('variable-panel');
   const group = currentGroup();
-  const keys = getGroupVariableKeys(group);
+  const variables = getGroupVariables(group);
   panel.innerHTML = '';
   panel.className = 'variable-panel' + (variablePanelOpen ? ' open' : '');
   if (!variablePanelOpen) return;
 
-  if (!group || keys.length === 0) {
+  if (!group || variables.all.length === 0) {
     panel.innerHTML = '<div class="empty">当前分组没有变量区</div>';
     return;
   }
 
-  const values = getGroupVariableValues(group);
+  const values = getEditableVariableValues(group);
   const head = document.createElement('div');
   head.className = 'variable-head';
   const title = document.createElement('div');
   title.className = 'variable-title';
-  title.textContent = '当前分组变量';
+  title.textContent = '需要填写';
   const spacer = document.createElement('div');
   spacer.className = 'spacer';
   const applyBtn = document.createElement('button');
   applyBtn.className = 'primary';
   applyBtn.textContent = '应用到当前分组';
+  applyBtn.disabled = variables.editable.length === 0;
   applyBtn.addEventListener('click', applyGroupVariables);
   head.append(title, spacer, applyBtn);
 
   const grid = document.createElement('div');
   grid.className = 'variable-grid';
-  keys.forEach(key => {
+  variables.editable.forEach(variable => {
     const field = document.createElement('label');
     field.className = 'variable-field';
     const name = document.createElement('span');
     name.className = 'variable-key';
-    name.textContent = key;
+    name.textContent = variable.key;
     const input = document.createElement('textarea');
     input.className = 'variable-value';
     input.rows = 2;
-    input.dataset.key = key;
-    input.value = values[key] || '';
+    input.dataset.key = variable.key;
+    input.value = values[variable.key] || '';
     field.append(name, input);
     grid.appendChild(field);
   });
+  if (variables.editable.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'variable-empty';
+    empty.textContent = '当前分组只有自动生成变量';
+    grid.appendChild(empty);
+  }
+
+  const derived = document.createElement('details');
+  derived.className = 'variable-derived';
+  const summary = document.createElement('summary');
+  summary.textContent = `自动生成变量 ${variables.derived.length}`;
+  derived.appendChild(summary);
+  const derivedList = document.createElement('div');
+  derivedList.className = 'variable-derived-list';
+  variables.derived.forEach(variable => {
+    const row = document.createElement('div');
+    row.className = 'variable-derived-row';
+    row.textContent = `${variable.key} = ${variable.value}`;
+    derivedList.appendChild(row);
+  });
+  derived.appendChild(derivedList);
 
   const note = document.createElement('div');
   note.className = 'variable-note';
-  note.textContent = '只替换当前分组所有 prompt 的【变量区】同名变量，不修改执行区。';
-  panel.append(head, grid, note);
+  note.textContent = '只替换“需要填写”的变量；自动生成变量保持表达式不变。';
+  panel.append(head, grid);
+  if (variables.derived.length > 0) panel.appendChild(derived);
+  panel.appendChild(note);
 }
 
 function applyGroupVariables() {
