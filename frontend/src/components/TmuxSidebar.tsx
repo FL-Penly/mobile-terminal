@@ -4,6 +4,7 @@ import { useTerminal } from '../contexts/TerminalContext'
 import { NewSessionModal } from './TmuxManager'
 
 const COLLAPSED_GROUPS_KEY = 'tmux_sidebar_collapsed_groups'
+const GROUP_ORDER_KEY = 'tmux_sidebar_group_order'
 const LONG_PRESS_DURATION = 1200
 
 interface TmuxSidebarProps {
@@ -38,6 +39,15 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
   const [quickShellLoading, setQuickShellLoading] = useState(false)
   const [killTarget, setKillTarget] = useState<string | null>(null)
+  const [draggedGroup, setDraggedGroup] = useState<string | null>(null)
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null)
+  const [groupOrder, setGroupOrder] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) ?? '[]') as string[]
+    } catch {
+      return []
+    }
+  })
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) ?? '[]') as string[])
@@ -49,12 +59,19 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const longPressTriggered = useRef(false)
   const selectedSession = optimisticSession ?? currentTmuxSession
 
-  const sortedGroups = useMemo(() => [...projectGroups].sort((left, right) => {
-    const leftCurrent = left.sessions.some(session => session.name === currentTmuxSession)
-    const rightCurrent = right.sessions.some(session => session.name === currentTmuxSession)
-    if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1
-    return left.projectRoot.localeCompare(right.projectRoot)
-  }), [projectGroups, currentTmuxSession])
+  const sortedGroups = useMemo(() => {
+    const order = new Map(groupOrder.map((projectRoot, index) => [projectRoot, index]))
+    return [...projectGroups].sort((left, right) => {
+      const leftIndex = order.get(left.projectRoot)
+      const rightIndex = order.get(right.projectRoot)
+      if (leftIndex !== undefined || rightIndex !== undefined) {
+        if (leftIndex === undefined) return 1
+        if (rightIndex === undefined) return -1
+        return leftIndex - rightIndex
+      }
+      return left.projectRoot.localeCompare(right.projectRoot)
+    })
+  }, [projectGroups, groupOrder])
 
   const query = search.trim().toLocaleLowerCase()
   const matches = (session: DiscoveredTmuxSession, group?: TmuxProjectGroup) => !query || [
@@ -74,6 +91,20 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
       localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...next]))
       return next
     })
+  }
+
+  const reorderGroup = (targetRoot: string, placeAfter: boolean) => {
+    if (!draggedGroup || draggedGroup === targetRoot) return
+    const next = sortedGroups.map(group => group.projectRoot).filter(projectRoot => projectRoot !== draggedGroup)
+    const targetIndex = next.indexOf(targetRoot)
+    next.splice(targetIndex + (placeAfter ? 1 : 0), 0, draggedGroup)
+    setGroupOrder(next)
+    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(next))
+  }
+
+  const finishGroupDrag = () => {
+    setDraggedGroup(null)
+    setDragOverGroup(null)
   }
 
   const switchSession = async (sessionName: string) => {
@@ -208,16 +239,58 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
         />
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {visibleGroups.map(group => (
-          <section key={group.projectRoot} className="mb-2">
-            <button onClick={() => toggleGroup(group.projectRoot)} className="flex w-full items-center gap-2 px-2 py-2 text-left text-xs font-semibold text-text-secondary">
-              <span>{collapsedGroups.has(group.projectRoot) ? '▸' : '▾'}</span>
-              <span className="truncate" title={group.projectRoot}>{group.displayName}</span>
-              <span className="ml-auto text-text-muted">{group.sessions.length}</span>
-            </button>
+        {visibleGroups.map(group => {
+          const active = group.sessions.some(session => session.name === selectedSession)
+          return (
+          <section
+            key={group.projectRoot}
+            data-project-root={group.projectRoot}
+            data-active-project={active ? 'true' : undefined}
+            onDragOver={event => {
+              if (!draggedGroup || search) return
+              event.preventDefault()
+              setDragOverGroup(group.projectRoot)
+            }}
+            onDrop={event => {
+              event.preventDefault()
+              const bounds = event.currentTarget.getBoundingClientRect()
+              reorderGroup(group.projectRoot, event.clientY > bounds.top + bounds.height / 2)
+              finishGroupDrag()
+            }}
+            className={`mb-2 rounded-xl border transition-colors ${
+              active
+                ? 'border-accent-purple/50 bg-accent-purple/10 shadow-[inset_3px_0_0_var(--accent-purple)]'
+                : dragOverGroup === group.projectRoot
+                  ? 'border-accent-purple/50 bg-accent-purple/5'
+                  : 'border-transparent'
+            } ${draggedGroup === group.projectRoot ? 'opacity-50' : ''}`}
+          >
+            <div className="flex items-center">
+              <span
+                draggable={!search}
+                onDragStart={() => {
+                  setDraggedGroup(group.projectRoot)
+                  setDragOverGroup(group.projectRoot)
+                }}
+                onDragEnd={finishGroupDrag}
+                role="button"
+                tabIndex={0}
+                aria-label={`Move ${group.displayName} project`}
+                title={search ? 'Clear search to reorder projects' : 'Drag to reorder project'}
+                className={`ml-1 px-1.5 py-2 text-xs text-text-muted select-none ${search ? 'cursor-not-allowed opacity-40' : 'cursor-grab active:cursor-grabbing'}`}
+              >
+                ⋮⋮
+              </span>
+              <button onClick={() => toggleGroup(group.projectRoot)} className="flex min-w-0 flex-1 items-center gap-2 px-1 py-2 text-left text-xs font-semibold text-text-secondary">
+                <span>{collapsedGroups.has(group.projectRoot) ? '▸' : '▾'}</span>
+                <span className={`truncate ${active ? 'text-accent-purple' : ''}`} title={group.projectRoot}>{group.displayName}</span>
+                <span className="ml-auto pr-2 text-text-muted">{group.sessions.length}</span>
+              </button>
+            </div>
             {!collapsedGroups.has(group.projectRoot) && <div className="space-y-1">{group.sessions.map(renderSession)}</div>}
           </section>
-        ))}
+          )
+        })}
         {visibleOther.length > 0 && (
           <section>
             <button onClick={() => toggleGroup('__other__')} className="flex w-full items-center gap-2 px-2 py-2 text-left text-xs font-semibold text-text-secondary">

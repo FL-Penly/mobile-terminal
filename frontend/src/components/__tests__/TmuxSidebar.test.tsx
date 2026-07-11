@@ -46,14 +46,27 @@ describe('TmuxSidebar', () => {
     sessionStorage.clear()
   })
 
-  it('renders current project first, Other last, and current session before activity', () => {
+  it('keeps persisted project order, highlights the active project, and sorts the current session first', () => {
+    localStorage.setItem('tmux_sidebar_group_order', JSON.stringify(['/work/beta', '/work/alpha']))
     render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
     const headings = screen.getAllByRole('button').filter(button => ['alpha', 'beta', 'Other'].some(label => button.textContent?.includes(label)))
     expect(headings.map(button => button.textContent)).toEqual(expect.arrayContaining([expect.stringContaining('alpha'), expect.stringContaining('beta'), expect.stringContaining('Other')]))
     const names = ['current', 'active-news', 'idle', 'loose'].map(name => screen.getByText(name))
     expect(names[0].compareDocumentPosition(names[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByText('alpha').compareDocumentPosition(screen.getByText('beta')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('beta').compareDocumentPosition(screen.getByText('alpha')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText('beta').compareDocumentPosition(screen.getByText('Other')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('alpha').closest('section')).toHaveAttribute('data-active-project', 'true')
+  })
+
+  it('reorders project groups by drag and persists the new order', () => {
+    render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
+    const alphaSection = screen.getByText('alpha').closest('section')
+    expect(alphaSection).not.toBeNull()
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Move beta project' }))
+    fireEvent.dragOver(alphaSection as HTMLElement)
+    fireEvent.drop(alphaSection as HTMLElement, { clientY: 0 })
+    expect(screen.getByText('beta').compareDocumentPosition(screen.getByText('alpha')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(JSON.parse(localStorage.getItem('tmux_sidebar_group_order') ?? '[]')).toEqual(['/work/beta', '/work/alpha'])
   })
 
   it('searches all session metadata and persists group collapse', async () => {
