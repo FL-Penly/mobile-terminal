@@ -75,8 +75,7 @@ async fn user_config_get_returns_empty_when_file_does_not_exist() {
 async fn unknown_route_falls_back_to_static_404_when_no_dist() {
     let resp = send_get(test_app(), "/api/this-does-not-exist").await;
     assert!(
-        resp.status() == StatusCode::NOT_FOUND
-            || resp.status() == StatusCode::METHOD_NOT_ALLOWED,
+        resp.status() == StatusCode::NOT_FOUND || resp.status() == StatusCode::METHOD_NOT_ALLOWED,
         "expected 404 or 405 fallback, got {}",
         resp.status()
     );
@@ -156,8 +155,12 @@ async fn git_commit_with_empty_message_returns_400() {
 
 #[tokio::test]
 async fn git_commit_with_whitespace_message_returns_400() {
-    let resp =
-        common::send_post_json(test_app(), "/api/git/commit", json!({"message": "   \n\t  "})).await;
+    let resp = common::send_post_json(
+        test_app(),
+        "/api/git/commit",
+        json!({"message": "   \n\t  "}),
+    )
+    .await;
     assert_status(&resp, StatusCode::BAD_REQUEST);
     let body = body_json(resp).await;
     assert_eq!(body["error"], "empty_message");
@@ -165,7 +168,13 @@ async fn git_commit_with_whitespace_message_returns_400() {
 
 #[tokio::test]
 async fn upload_with_empty_body_returns_400() {
-    let resp = send_post_bytes(test_app(), "/api/upload", "application/octet-stream", vec![]).await;
+    let resp = send_post_bytes(
+        test_app(),
+        "/api/upload",
+        "application/octet-stream",
+        vec![],
+    )
+    .await;
     assert_status(&resp, StatusCode::BAD_REQUEST);
     let body = body_json(resp).await;
     assert_eq!(body["error"], "empty_body");

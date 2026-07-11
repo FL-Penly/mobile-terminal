@@ -11,6 +11,7 @@ import { useServerEvents } from '../contexts/ServerEventsContext'
 import { ZerolagInputAddon } from 'xterm-zerolag-input'
 import { CopyModeOverlay } from './CopyModeOverlay'
 import { AltScreenTranscript } from '../utils/alt-screen-transcript'
+import { observeTerminalResize } from '../utils/terminal-resize'
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -63,6 +64,12 @@ export const Terminal = () => {
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
     resizeTimerRef.current = window.setTimeout(handleResize, 60)
   }, [handleResize])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    return observeTerminalResize(container, debouncedResize)
+  }, [debouncedResize])
 
   const updateFontSize = useCallback((newSize: number) => {
     const clampedSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(newSize)))

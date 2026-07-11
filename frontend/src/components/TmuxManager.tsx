@@ -4,9 +4,11 @@ import { useTerminal } from '../contexts/TerminalContext'
 interface NewSessionModalProps {
   isOpen: boolean
   onClose: () => void
+  cwd?: string
+  onCreated?: () => void
 }
 
-export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClose }) => {
+export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClose, cwd, onCreated }) => {
   const { sendInput, clientTty } = useTerminal()
   const [sessionName, setSessionName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -25,10 +27,12 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
     onClose()
      try {
        if (clientTty) {
-         const url = `/api/tmux/create?name=${encodeURIComponent(name)}&client_tty=${encodeURIComponent(clientTty)}`
+         const cwdParam = cwd ? `&cwd=${encodeURIComponent(cwd)}` : ''
+         const url = `/api/tmux/create?name=${encodeURIComponent(name)}&client_tty=${encodeURIComponent(clientTty)}${cwdParam}`
          const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
         if (res.ok) {
           sessionStorage.setItem('ttyd_last_tmux_session', name)
+          onCreated?.()
           return
         }
       }

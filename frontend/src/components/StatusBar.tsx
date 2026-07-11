@@ -1,7 +1,6 @@
 import React, { useCallback } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { useServerEvents } from '../contexts/ServerEventsContext'
-import { SessionTabBar } from './SessionTabBar'
 import { BranchSelector } from './BranchSelector'
 
 // Truncate path to max length
@@ -12,9 +11,13 @@ function truncatePath(path: string, maxLen: number = 20): string {
   return '~/' + parts.slice(-2).join('/')
 }
 
-export const StatusBar: React.FC = () => {
+interface StatusBarProps {
+  onOpenSessions: () => void
+}
+
+export const StatusBar: React.FC<StatusBarProps> = ({ onOpenSessions }) => {
   const { connectionState } = useTerminal()
-  const { branch, path, isOffline, refresh } = useServerEvents()
+  const { branch, path, isOffline, refresh, currentTmuxSession, tmuxSessions } = useServerEvents()
 
   const handleBranchChange = useCallback(() => {
     setTimeout(() => refresh(), 500)
@@ -30,7 +33,15 @@ export const StatusBar: React.FC = () => {
           title={isConnected ? 'Connected' : 'Disconnected'}
         />
         
-        <SessionTabBar />
+        <button
+          onClick={onOpenSessions}
+          className="relative flex max-w-[150px] items-center gap-1.5 rounded-md bg-accent-purple px-2.5 py-1 text-xs font-medium text-white"
+          aria-label="Open sessions sidebar"
+        >
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-green" />
+          <span className="truncate">{currentTmuxSession ?? 'Sessions'}</span>
+          {tmuxSessions.some(session => session.hasNewActivity) && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-accent-orange" />}
+        </button>
         
         <span className="text-border-subtle shrink-0">│</span>
         

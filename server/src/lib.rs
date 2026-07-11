@@ -18,8 +18,9 @@ use futures_util::{SinkExt, StreamExt};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
-
+    collections::{hash_map::DefaultHasher, HashMap},
     convert::Infallible,
+    hash::{Hash, Hasher},
     io::{Read, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -30,6 +31,10 @@ use std::{
 use tokio::sync::mpsc;
 
 use tower_http::cors::CorsLayer;
+
+mod tmux_discovery;
+
+use tmux_discovery::{DiscoverySnapshot, GitRootCache};
 
 // ─── CLI ───────────────────────────────────────────────────────────────────
 
@@ -56,6 +61,9 @@ pub struct AppState {
     shell: String,
     static_dir: PathBuf,
     client_tty: Arc<Mutex<Option<String>>>,
+    git_contexts: Arc<Mutex<HashMap<String, String>>>,
+    tmux_snapshot: Arc<Mutex<DiscoverySnapshot>>,
+    tmux_scan_trigger: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -64,6 +72,9 @@ impl AppState {
             shell: shell.into(),
             static_dir,
             client_tty: Arc::new(Mutex::new(None)),
+            git_contexts: Arc::new(Mutex::new(HashMap::new())),
+            tmux_snapshot: Arc::new(Mutex::new(DiscoverySnapshot::default())),
+            tmux_scan_trigger: Arc::new(tokio::sync::Notify::new()),
         }
     }
 }
@@ -90,6 +101,8 @@ pub async fn run() {
     std::env::remove_var("TMUX_PANE");
 
     let state = AppState::new(cli.shell.clone(), cli.static_dir.clone());
+
+    start_tmux_discovery(state.clone());
 
     // Build router
     let app = build_router(state);
@@ -164,6 +177,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/git/discard", post(api_git_discard))
         .route("/api/git/commit", post(api_git_commit))
         .route("/api/git/log", get(api_git_log))
+        .route("/api/git/commit-diff", get(api_git_commit_diff))
         .route("/api/git/file-diff", get(api_git_file_diff))
         .route("/api/git/batch-file-diff", post(api_git_batch_file_diff))
         .route("/api/git/stage-hunk", post(api_git_stage_hunk))
@@ -180,11 +194,85 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/events", get(api_events))
         .route("/api/upload", post(api_upload_file))
         .route("/api/upload-image", post(api_upload_file))
-        .route("/api/user-config", get(api_get_user_config).post(api_set_user_config))
+        .route(
+            "/api/user-config",
+            get(api_get_user_config).post(api_set_user_config),
+        )
         // Static file serving — catch-all for frontend
         .fallback(move |req: Request| serve_static(req, static_dir.clone()))
         .layer(cors)
         .with_state(state)
+}
+
+fn start_tmux_discovery(state: AppState) {
+    start_tmux_discovery_with(state, Arc::new(tmux_discovery::scan));
+}
+
+type TmuxScanner = dyn Fn(&mut GitRootCache) -> Result<DiscoverySnapshot, String> + Send + Sync;
+
+fn start_tmux_discovery_with(state: AppState, scanner: Arc<TmuxScanner>) {
+    tokio::spawn(async move {
+        let mut cache = GitRootCache::default();
+        loop {
+            let scan_result = tokio::task::spawn_blocking({
+                let mut cache = std::mem::take(&mut cache);
+                let scanner = scanner.clone();
+                move || {
+                    let result = scanner(&mut cache);
+                    (cache, result)
+                }
+            })
+            .await;
+
+            match scan_result {
+                Ok((returned_cache, Ok(snapshot))) => {
+                    cache = returned_cache;
+                    update_tmux_snapshot(&state, snapshot);
+                }
+                Ok((returned_cache, Err(error))) => {
+                    cache = returned_cache;
+                    tracing::warn!("tmux discovery scan failed: {}", error);
+                    update_tmux_snapshot(&state, DiscoverySnapshot::default());
+                }
+                Err(error) => {
+                    tracing::warn!("tmux discovery task failed: {}", error);
+                    update_tmux_snapshot(&state, DiscoverySnapshot::default());
+                }
+            }
+
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                _ = state.tmux_scan_trigger.notified() => {}
+            }
+        }
+    });
+}
+
+fn update_tmux_snapshot(state: &AppState, mut next: DiscoverySnapshot) -> bool {
+    let Ok(mut current) = state.tmux_snapshot.lock() else {
+        return false;
+    };
+    let scanned_at = next.scanned_at;
+    next.scanned_at = current.scanned_at;
+    if *current == next {
+        current.scanned_at = scanned_at;
+        return false;
+    }
+    next.scanned_at = scanned_at;
+    *current = next;
+    true
+}
+
+fn get_tmux_snapshot(state: &AppState) -> DiscoverySnapshot {
+    state
+        .tmux_snapshot
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_default()
+}
+
+fn trigger_tmux_scan(state: &AppState) {
+    state.tmux_scan_trigger.notify_one();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -212,7 +300,11 @@ async fn serve_static(req: Request, static_dir: PathBuf) -> Response {
         if index_exists {
             serve_file(&index).await
         } else {
-            (StatusCode::NOT_FOUND, "Frontend not built. Run: cd frontend && npm run build").into_response()
+            (
+                StatusCode::NOT_FOUND,
+                "Frontend not built. Run: cd frontend && npm run build",
+            )
+                .into_response()
         }
     }
 }
@@ -338,9 +430,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         Ok(Err(msg)) => {
             tracing::error!("{}", msg);
             let _ = ws_sender
-                .send(Message::Binary(
-                    format!("\x30Error: {}\r\n", msg).into(),
-                ))
+                .send(Message::Binary(format!("\x30Error: {}\r\n", msg).into()))
                 .await;
             return;
         }
@@ -367,7 +457,9 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                 let (lock, cvar) = &*paused_reader;
                 let mut is_paused = lock.lock().unwrap();
                 if *is_paused {
-                    let result = cvar.wait_timeout(is_paused, Duration::from_secs(2)).unwrap();
+                    let result = cvar
+                        .wait_timeout(is_paused, Duration::from_secs(2))
+                        .unwrap();
                     is_paused = result.0;
                     if *is_paused {
                         tracing::warn!("Flow control: auto-resuming after 2s timeout");
@@ -378,7 +470,10 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
             match pty_reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if output_tx.blocking_send(bytes::Bytes::copy_from_slice(&buf[..n])).is_err() {
+                    if output_tx
+                        .blocking_send(bytes::Bytes::copy_from_slice(&buf[..n]))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -424,13 +519,13 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                                     let tty = after[..end].trim_end_matches('\x1b');
                                     // Accept both Linux (/dev/pts/N) and macOS (/dev/ttysN) PTY paths
                                     if tty.starts_with("/dev/") {
-                                if let Ok(mut lock) = client_tty_shared.lock() {
-                                    *lock = Some(tty.to_string());
-                                }
-                                if let Ok(mut lock) = connection_tty_sender.lock() {
-                                    *lock = Some(tty.to_string());
-                                }
-                                tty_detected = true;
+                                        if let Ok(mut lock) = client_tty_shared.lock() {
+                                            *lock = Some(tty.to_string());
+                                        }
+                                        if let Ok(mut lock) = connection_tty_sender.lock() {
+                                            *lock = Some(tty.to_string());
+                                        }
+                                        tty_detected = true;
                                     }
                                 }
                             }
@@ -491,7 +586,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                         frame_buf.put_u8(0x30);
                         frame_buf.extend_from_slice(&buffer);
                         buffer.clear();
-                        if ws_sender.send(Message::Binary(frame_buf.split().freeze())).await.is_err() {
+                        if ws_sender
+                            .send(Message::Binary(frame_buf.split().freeze()))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -501,7 +600,9 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                         frame_buf.clear();
                         frame_buf.put_u8(0x30);
                         frame_buf.extend_from_slice(&buffer);
-                        let _ = ws_sender.send(Message::Binary(frame_buf.split().freeze())).await;
+                        let _ = ws_sender
+                            .send(Message::Binary(frame_buf.split().freeze()))
+                            .await;
                     }
                     break;
                 }
@@ -528,9 +629,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                         }
                         0x31 => {
                             if let Ok(text) = std::str::from_utf8(payload) {
-                                if let Ok(resize) =
-                                    serde_json::from_str::<ResizeMessage>(text)
-                                {
+                                if let Ok(resize) = serde_json::from_str::<ResizeMessage>(text) {
                                     if let Ok(m) = master_recv.lock() {
                                         let _ = m.resize(PtySize {
                                             rows: resize.rows,
@@ -664,6 +763,9 @@ fn write_wrapper_script(path: &str, shell: &str, tty_file: &str, cwd_file: &str)
         // Write custom .zshrc
         let zshrc = format!(
             r#"ZDOTDIR="$HOME" source "$HOME/.zshrc" 2>/dev/null
+if [ -n "$RUST_TERMINAL_TMUX_SOCKET" ]; then
+    tmux() {{ command tmux -L "$RUST_TERMINAL_TMUX_SOCKET" "$@"; }}
+fi
 __ttyd_cwd_hook() {{ echo $PWD > {} 2>/dev/null; }}
 precmd_functions+=(__ttyd_cwd_hook)
 "#,
@@ -676,15 +778,18 @@ precmd_functions+=(__ttyd_cwd_hook)
 unset TMUX TMUX_PANE
 tty > {} 2>/dev/null
 printf '\033]7337;%s\033\\' "$(tty)" 2>/dev/null
-if tmux has-session 2>/dev/null; then
-    tmux set -g window-size latest 2>/dev/null
-    tmux set -g history-limit 50000 2>/dev/null
-    tmux set -g extended-keys always 2>/dev/null
-    tmux set -g set-clipboard on 2>/dev/null
-    tmux set -g allow-passthrough on 2>/dev/null
-    tmux bind-key -n S-Enter send-keys -l $'\033[13;2u' 2>/dev/null
-    tmux unbind -T root MouseDrag1Pane 2>/dev/null
-    tmux attach
+tmux_rt() {{
+    if [ -n "$RUST_TERMINAL_TMUX_SOCKET" ]; then command tmux -L "$RUST_TERMINAL_TMUX_SOCKET" "$@"; else command tmux "$@"; fi
+}}
+if tmux_rt has-session 2>/dev/null; then
+    tmux_rt set -g window-size latest 2>/dev/null
+    tmux_rt set -g history-limit 50000 2>/dev/null
+    tmux_rt set -g extended-keys always 2>/dev/null
+    tmux_rt set -g set-clipboard on 2>/dev/null
+    tmux_rt set -g allow-passthrough on 2>/dev/null
+    tmux_rt bind-key -n S-Enter send-keys -l $'\033[13;2u' 2>/dev/null
+    tmux_rt unbind -T root MouseDrag1Pane 2>/dev/null
+    tmux_rt attach
 fi
 ZDOTDIR={} exec {}
 "#,
@@ -694,6 +799,9 @@ ZDOTDIR={} exec {}
     } else if is_bash {
         let bashrc = format!(
             r#"[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
+if [ -n "$RUST_TERMINAL_TMUX_SOCKET" ]; then
+    tmux() {{ command tmux -L "$RUST_TERMINAL_TMUX_SOCKET" "$@"; }}
+fi
 __ttyd_cwd_hook() {{ echo $PWD > {} 2>/dev/null; }}
 PROMPT_COMMAND="__ttyd_cwd_hook${{PROMPT_COMMAND:+;$PROMPT_COMMAND}}"
 "#,
@@ -706,15 +814,18 @@ PROMPT_COMMAND="__ttyd_cwd_hook${{PROMPT_COMMAND:+;$PROMPT_COMMAND}}"
 unset TMUX TMUX_PANE
 tty > {} 2>/dev/null
 printf '\033]7337;%s\033\\' "$(tty)" 2>/dev/null
-if tmux has-session 2>/dev/null; then
-    tmux set -g window-size latest 2>/dev/null
-    tmux set -g history-limit 50000 2>/dev/null
-    tmux set -g extended-keys always 2>/dev/null
-    tmux set -g set-clipboard on 2>/dev/null
-    tmux set -g allow-passthrough on 2>/dev/null
-    tmux bind-key -n S-Enter send-keys -l $'\033[13;2u' 2>/dev/null
-    tmux unbind -T root MouseDrag1Pane 2>/dev/null
-    tmux attach
+tmux_rt() {{
+    if [ -n "$RUST_TERMINAL_TMUX_SOCKET" ]; then command tmux -L "$RUST_TERMINAL_TMUX_SOCKET" "$@"; else command tmux "$@"; fi
+}}
+if tmux_rt has-session 2>/dev/null; then
+    tmux_rt set -g window-size latest 2>/dev/null
+    tmux_rt set -g history-limit 50000 2>/dev/null
+    tmux_rt set -g extended-keys always 2>/dev/null
+    tmux_rt set -g set-clipboard on 2>/dev/null
+    tmux_rt set -g allow-passthrough on 2>/dev/null
+    tmux_rt bind-key -n S-Enter send-keys -l $'\033[13;2u' 2>/dev/null
+    tmux_rt unbind -T root MouseDrag1Pane 2>/dev/null
+    tmux_rt attach
 fi
 exec bash --rcfile /tmp/rust_terminal_bashrc
 "#,
@@ -727,15 +838,18 @@ exec bash --rcfile /tmp/rust_terminal_bashrc
 unset TMUX TMUX_PANE
 tty > {} 2>/dev/null
 printf '\033]7337;%s\033\\' "$(tty)" 2>/dev/null
-if tmux has-session 2>/dev/null; then
-    tmux set -g window-size latest 2>/dev/null
-    tmux set -g history-limit 50000 2>/dev/null
-    tmux set -g extended-keys always 2>/dev/null
-    tmux set -g set-clipboard on 2>/dev/null
-    tmux set -g allow-passthrough on 2>/dev/null
-    tmux bind-key -n S-Enter send-keys -l $'\033[13;2u' 2>/dev/null
-    tmux unbind -T root MouseDrag1Pane 2>/dev/null
-    tmux attach
+tmux_rt() {{
+    if [ -n "$RUST_TERMINAL_TMUX_SOCKET" ]; then command tmux -L "$RUST_TERMINAL_TMUX_SOCKET" "$@"; else command tmux "$@"; fi
+}}
+if tmux_rt has-session 2>/dev/null; then
+    tmux_rt set -g window-size latest 2>/dev/null
+    tmux_rt set -g history-limit 50000 2>/dev/null
+    tmux_rt set -g extended-keys always 2>/dev/null
+    tmux_rt set -g set-clipboard on 2>/dev/null
+    tmux_rt set -g allow-passthrough on 2>/dev/null
+    tmux_rt bind-key -n S-Enter send-keys -l $'\033[13;2u' 2>/dev/null
+    tmux_rt unbind -T root MouseDrag1Pane 2>/dev/null
+    tmux_rt attach
 fi
 exec {}
 "#,
@@ -822,7 +936,11 @@ fn get_client_tty_from_file() -> Option<String> {
 
     // Verify against current tmux clients
     if let Ok(output) = run_cmd("tmux", &["list-clients", "-F", "#{client_tty}"]) {
-        let clients: Vec<&str> = output.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        let clients: Vec<&str> = output
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
 
         if let Some(ref tty) = tty_from_file {
             if clients.contains(&tty.as_str()) {
@@ -854,6 +972,24 @@ async fn api_cwd(
 
 fn get_effective_client_tty(state: &AppState, explicit: Option<String>) -> Option<String> {
     explicit.or_else(|| get_client_tty_from_state(state))
+}
+
+fn register_git_context(state: &AppState, git_root: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    git_root.hash(&mut hasher);
+    let context = format!("{:016x}", hasher.finish());
+    if let Ok(mut contexts) = state.git_contexts.lock() {
+        contexts.insert(context.clone(), git_root.to_string());
+    }
+    context
+}
+
+fn get_git_context(state: &AppState, context: &str) -> Option<String> {
+    state
+        .git_contexts
+        .lock()
+        .ok()
+        .and_then(|contexts| contexts.get(context).cloned())
 }
 
 // ─── CWD Detection (priority chain, like Python) ──────────────────────────
@@ -888,7 +1024,13 @@ fn get_cwd(client_tty: Option<String>) -> String {
 fn get_tmux_pane_path(client_tty: &str) -> Option<String> {
     let path = run_cmd(
         "tmux",
-        &["display-message", "-c", client_tty, "-p", "#{pane_current_path}"],
+        &[
+            "display-message",
+            "-c",
+            client_tty,
+            "-p",
+            "#{pane_current_path}",
+        ],
     )
     .ok()?;
     let path = path.trim().to_string();
@@ -960,18 +1102,14 @@ fn get_all_branches(path: &str) -> BranchesResponse {
         })
         .unwrap_or_default();
 
-    let remote = run_cmd_in(
-        "git",
-        &["branch", "-r", "--format=%(refname:short)"],
-        path,
-    )
-    .map(|s| {
-        s.lines()
-            .map(|l| l.to_string())
-            .filter(|l| !l.is_empty() && !l.ends_with("/HEAD"))
-            .collect()
-    })
-    .unwrap_or_default();
+    let remote = run_cmd_in("git", &["branch", "-r", "--format=%(refname:short)"], path)
+        .map(|s| {
+            s.lines()
+                .map(|l| l.to_string())
+                .filter(|l| !l.is_empty() && !l.ends_with("/HEAD"))
+                .collect()
+        })
+        .unwrap_or_default();
 
     BranchesResponse {
         local,
@@ -1051,9 +1189,7 @@ fn parse_unified_diff(raw: &str, changed_files: &[ChangedFile]) -> DiffResult {
 
     for line in raw.lines() {
         if let Some(name) = line.strip_prefix("+++ b/") {
-            if current_filename.is_empty() {
-                current_filename = name.to_string();
-            }
+            current_filename = name.to_string();
         } else if let Some(rest) = line.strip_prefix("--- a/") {
             flush_file(
                 &current_filename,
@@ -1204,12 +1340,16 @@ fn synthetic_diff_for_new_file(file: &str, git_root: &str) -> String {
 }
 
 fn get_untracked_files(git_root: &str) -> Vec<String> {
-    run_cmd_in("git", &["ls-files", "--others", "--exclude-standard"], git_root)
-        .unwrap_or_default()
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.to_string())
-        .collect()
+    run_cmd_in(
+        "git",
+        &["ls-files", "--others", "--exclude-standard"],
+        git_root,
+    )
+    .unwrap_or_default()
+    .lines()
+    .filter(|l| !l.is_empty())
+    .map(|l| l.to_string())
+    .collect()
 }
 
 fn get_files_diff(git_root: &str) -> DiffResult {
@@ -1233,9 +1373,7 @@ fn get_files_diff(git_root: &str) -> DiffResult {
 
 // ─── GET /api/diff ─────────────────────────────────────────────────────────
 
-async fn api_diff(
-    axum::extract::State(state): axum::extract::State<AppState>,
-) -> Response {
+async fn api_diff(axum::extract::State(state): axum::extract::State<AppState>) -> Response {
     let payload = tokio::task::spawn_blocking(move || {
         let cwd = get_cwd(get_effective_client_tty(&state, None));
         if !is_git_repo(&cwd) {
@@ -1257,18 +1395,18 @@ async fn api_diff(
         })
     })
     .await
-    .unwrap_or_else(|_| serde_json::json!({
-        "error": "internal_error",
-        "message": "Task failed",
-    }));
+    .unwrap_or_else(|_| {
+        serde_json::json!({
+            "error": "internal_error",
+            "message": "Task failed",
+        })
+    });
     Json(payload).into_response()
 }
 
 // ─── GET /api/git/branches ─────────────────────────────────────────────────
 
-async fn api_git_branches(
-    axum::extract::State(state): axum::extract::State<AppState>,
-) -> Response {
+async fn api_git_branches(axum::extract::State(state): axum::extract::State<AppState>) -> Response {
     let outcome = tokio::task::spawn_blocking(move || -> Result<BranchesResponse, ApiError> {
         let cwd = get_cwd(get_effective_client_tty(&state, None));
         if !is_git_repo(&cwd) {
@@ -1286,7 +1424,11 @@ async fn api_git_branches(
     match outcome {
         Ok(Ok(branches)) => json_response(&branches),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1326,15 +1468,27 @@ async fn api_git_checkout(
             let git_root = get_git_root(&cwd);
             run_cmd_in("git", &["checkout", &branch], &git_root)
                 .map(|_| ())
-                .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "checkout_failed".into(), msg))
+                .map_err(|msg| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "checkout_failed".into(),
+                        msg,
+                    )
+                })
         }
     })
     .await;
 
     match outcome {
-        Ok(Ok(())) => Json(serde_json::json!({ "success": true, "branch": branch })).into_response(),
+        Ok(Ok(())) => {
+            Json(serde_json::json!({ "success": true, "branch": branch })).into_response()
+        }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1397,9 +1551,7 @@ fn parse_porcelain_status(output: &str) -> (Vec<StatusFile>, Vec<StatusFile>) {
     (staged, unstaged)
 }
 
-async fn api_git_status(
-    axum::extract::State(state): axum::extract::State<AppState>,
-) -> Response {
+async fn api_git_status(axum::extract::State(state): axum::extract::State<AppState>) -> Response {
     let outcome = tokio::task::spawn_blocking(move || -> Result<GitStatusResponse, ApiError> {
         let cwd = get_cwd(get_effective_client_tty(&state, None));
         if !is_git_repo(&cwd) {
@@ -1411,8 +1563,8 @@ async fn api_git_status(
         }
         let git_root = get_git_root(&cwd);
         let branch = get_branch(&git_root);
-        let output = run_cmd_in("git", &["status", "--porcelain=v1"], &git_root)
-            .unwrap_or_default();
+        let output =
+            run_cmd_in("git", &["status", "--porcelain=v1"], &git_root).unwrap_or_default();
         let (staged, unstaged) = parse_porcelain_status(&output);
         Ok(GitStatusResponse {
             staged,
@@ -1425,7 +1577,11 @@ async fn api_git_status(
     match outcome {
         Ok(Ok(s)) => json_response(&s),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1472,14 +1628,24 @@ async fn api_git_stage(
                 "No files specified".into(),
             ));
         };
-        res.map(|_| ()).map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "stage_failed".into(), msg))
+        res.map(|_| ()).map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stage_failed".into(),
+                msg,
+            )
+        })
     })
     .await;
 
     match outcome {
         Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1521,14 +1687,24 @@ async fn api_git_unstage(
                 "No files specified".into(),
             ));
         };
-        res.map(|_| ()).map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "unstage_failed".into(), msg))
+        res.map(|_| ()).map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "unstage_failed".into(),
+                msg,
+            )
+        })
     })
     .await;
 
     match outcome {
         Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1550,19 +1726,17 @@ async fn api_git_discard(
         let git_root = get_git_root(&cwd);
         let files = match &body.files {
             Some(f) if !f.is_empty() => f,
-            _ => return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "discard_failed".into(),
-                "No files specified".into(),
-            )),
+            _ => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "discard_failed".into(),
+                    "No files specified".into(),
+                ))
+            }
         };
         for file in files {
-            let is_tracked = run_cmd_in(
-                "git",
-                &["ls-files", "--error-unmatch", file],
-                &git_root,
-            )
-            .is_ok();
+            let is_tracked =
+                run_cmd_in("git", &["ls-files", "--error-unmatch", file], &git_root).is_ok();
             if is_tracked {
                 let _ = run_cmd_in("git", &["checkout", "--", file], &git_root);
             } else {
@@ -1579,7 +1753,11 @@ async fn api_git_discard(
     match outcome {
         Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1595,7 +1773,11 @@ async fn api_git_commit(
     Json(body): Json<GitCommitRequest>,
 ) -> Response {
     if body.message.trim().is_empty() {
-        return json_error("empty_message", "Commit message required", StatusCode::BAD_REQUEST);
+        return json_error(
+            "empty_message",
+            "Commit message required",
+            StatusCode::BAD_REQUEST,
+        );
     }
 
     let outcome = tokio::task::spawn_blocking(move || -> Result<String, ApiError> {
@@ -1608,8 +1790,13 @@ async fn api_git_commit(
             ));
         }
         let git_root = get_git_root(&cwd);
-        run_cmd_in("git", &["commit", "-m", &body.message], &git_root)
-            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "commit_failed".into(), msg))
+        run_cmd_in("git", &["commit", "-m", &body.message], &git_root).map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "commit_failed".into(),
+                msg,
+            )
+        })
     })
     .await;
 
@@ -1620,7 +1807,11 @@ async fn api_git_commit(
         }))
         .into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1632,6 +1823,7 @@ struct GitLogEntry {
     message: String,
     author: String,
     date: String,
+    context: String,
 }
 
 #[derive(Deserialize)]
@@ -1654,10 +1846,15 @@ async fn api_git_log(
             ));
         }
         let git_root = get_git_root(&cwd);
+        let context = register_git_context(&state, &git_root);
         let format = "%H\x1f%s\x1f%an\x1f%cr";
         let output = run_cmd_in(
             "git",
-            &["log", &format!("--max-count={}", count), &format!("--format={}", format)],
+            &[
+                "log",
+                &format!("--max-count={}", count),
+                &format!("--format={}", format),
+            ],
             &git_root,
         )
         .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "log_failed".into(), msg))?;
@@ -1671,6 +1868,7 @@ async fn api_git_log(
                         message: parts[1].to_string(),
                         author: parts[2].to_string(),
                         date: parts[3].to_string(),
+                        context: context.clone(),
                     })
                 } else {
                     None
@@ -1683,7 +1881,136 @@ async fn api_git_log(
     match outcome {
         Ok(Ok(entries)) => json_response(&entries),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+    }
+}
+
+// ─── GET /api/git/commit-diff ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CommitDiffQuery {
+    hash: String,
+    context: Option<String>,
+}
+
+async fn api_git_commit_diff(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<CommitDiffQuery>,
+) -> Response {
+    if query.hash.trim().is_empty() {
+        return json_error(
+            "missing_hash",
+            "Commit hash required",
+            StatusCode::BAD_REQUEST,
+        );
+    }
+
+    let outcome = tokio::task::spawn_blocking(move || -> Result<DiffResult, ApiError> {
+        let git_root = if let Some(context) = query.context.as_deref() {
+            get_git_context(&state, context).ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    "git_context_not_found".into(),
+                    "Git context expired; refresh the commit list".into(),
+                )
+            })?
+        } else {
+            let cwd = get_cwd(get_effective_client_tty(&state, None));
+            if !is_git_repo(&cwd) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "not_git_repo".into(),
+                    "Not a git repository".into(),
+                ));
+            }
+            get_git_root(&cwd)
+        };
+        if !is_git_repo(&git_root) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "git_context_not_found".into(),
+                "Git context expired; refresh the commit list".into(),
+            ));
+        }
+        let revision = format!("{}^{{commit}}", query.hash.trim());
+        let commit =
+            run_cmd_in("git", &["rev-parse", "--verify", &revision], &git_root).map_err(|_| {
+                (
+                    StatusCode::NOT_FOUND,
+                    "commit_not_found".into(),
+                    "Commit not found".into(),
+                )
+            })?;
+        let commit = commit.trim();
+
+        let name_status = run_cmd_in(
+            "git",
+            &[
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "--name-status",
+                "-r",
+                "-M",
+                commit,
+            ],
+            &git_root,
+        )
+        .map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "commit_diff_failed".into(),
+                msg,
+            )
+        })?;
+        let changed_files = name_status
+            .lines()
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.split('\t').collect();
+                let status = parts.first()?.chars().next()?.to_string();
+                let filename = parts.last()?.to_string();
+                Some(ChangedFile { status, filename })
+            })
+            .collect::<Vec<_>>();
+
+        let raw = run_cmd_in(
+            "git",
+            &[
+                "show",
+                "--format=",
+                "--no-ext-diff",
+                "--no-color",
+                "--find-renames",
+                "-U3",
+                commit,
+                "--",
+            ],
+            &git_root,
+        )
+        .map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "commit_diff_failed".into(),
+                msg,
+            )
+        })?;
+
+        Ok(parse_unified_diff(&raw, &changed_files))
+    })
+    .await;
+
+    match outcome {
+        Ok(Ok(diff)) => json_response(&diff),
+        Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1700,7 +2027,11 @@ async fn api_git_file_diff(
     Query(query): Query<FileDiffQuery>,
 ) -> Response {
     if query.file.is_empty() {
-        return json_error("missing_file", "File path required", StatusCode::BAD_REQUEST);
+        return json_error(
+            "missing_file",
+            "File path required",
+            StatusCode::BAD_REQUEST,
+        );
     }
 
     let outcome = tokio::task::spawn_blocking(move || -> Result<DiffResult, ApiError> {
@@ -1718,18 +2049,28 @@ async fn api_git_file_diff(
         if is_staged {
             let raw = run_cmd_in("git", &["diff", "--cached", "-U3", "--", &file], &git_root)
                 .unwrap_or_default();
-            let changed = vec![ChangedFile { status: "M".to_string(), filename: file }];
+            let changed = vec![ChangedFile {
+                status: "M".to_string(),
+                filename: file,
+            }];
             Ok(parse_unified_diff(&raw, &changed))
         } else {
-            let is_untracked = run_cmd_in("git", &["ls-files", "--error-unmatch", &file], &git_root).is_err();
+            let is_untracked =
+                run_cmd_in("git", &["ls-files", "--error-unmatch", &file], &git_root).is_err();
             if is_untracked {
                 let raw = synthetic_diff_for_new_file(&file, &git_root);
-                let changed = vec![ChangedFile { status: "A".to_string(), filename: file }];
+                let changed = vec![ChangedFile {
+                    status: "A".to_string(),
+                    filename: file,
+                }];
                 Ok(parse_unified_diff(&raw, &changed))
             } else {
-                let raw = run_cmd_in("git", &["diff", "-U3", "--", &file], &git_root)
-                    .unwrap_or_default();
-                let changed = vec![ChangedFile { status: "M".to_string(), filename: file }];
+                let raw =
+                    run_cmd_in("git", &["diff", "-U3", "--", &file], &git_root).unwrap_or_default();
+                let changed = vec![ChangedFile {
+                    status: "M".to_string(),
+                    filename: file,
+                }];
                 Ok(parse_unified_diff(&raw, &changed))
             }
         }
@@ -1741,11 +2082,16 @@ async fn api_git_file_diff(
             let file_diff = diff.files.into_iter().next();
             match file_diff {
                 Some(f) => json_response(&f),
-                None => Json(serde_json::json!({ "hunks": [], "additions": 0, "deletions": 0 })).into_response(),
+                None => Json(serde_json::json!({ "hunks": [], "additions": 0, "deletions": 0 }))
+                    .into_response(),
             }
         }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1769,27 +2115,49 @@ async fn api_git_batch_file_diff(
     let outcome = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, ApiError> {
         let cwd = get_cwd(get_effective_client_tty(&state, None));
         if !is_git_repo(&cwd) {
-            return Err((StatusCode::BAD_REQUEST, "not_git_repo".into(), "Not a git repository".into()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "not_git_repo".into(),
+                "Not a git repository".into(),
+            ));
         }
         let git_root = get_git_root(&cwd);
 
         let mut results = serde_json::Map::new();
         for entry in &body.files {
             let diff = if entry.staged {
-                let raw = run_cmd_in("git", &["diff", "--cached", "-U3", "--", &entry.file], &git_root)
-                    .unwrap_or_default();
-                let changed = vec![ChangedFile { status: "M".to_string(), filename: entry.file.clone() }];
+                let raw = run_cmd_in(
+                    "git",
+                    &["diff", "--cached", "-U3", "--", &entry.file],
+                    &git_root,
+                )
+                .unwrap_or_default();
+                let changed = vec![ChangedFile {
+                    status: "M".to_string(),
+                    filename: entry.file.clone(),
+                }];
                 parse_unified_diff(&raw, &changed)
             } else {
-                let is_untracked = run_cmd_in("git", &["ls-files", "--error-unmatch", &entry.file], &git_root).is_err();
+                let is_untracked = run_cmd_in(
+                    "git",
+                    &["ls-files", "--error-unmatch", &entry.file],
+                    &git_root,
+                )
+                .is_err();
                 if is_untracked {
                     let raw = synthetic_diff_for_new_file(&entry.file, &git_root);
-                    let changed = vec![ChangedFile { status: "A".to_string(), filename: entry.file.clone() }];
+                    let changed = vec![ChangedFile {
+                        status: "A".to_string(),
+                        filename: entry.file.clone(),
+                    }];
                     parse_unified_diff(&raw, &changed)
                 } else {
                     let raw = run_cmd_in("git", &["diff", "-U3", "--", &entry.file], &git_root)
                         .unwrap_or_default();
-                    let changed = vec![ChangedFile { status: "M".to_string(), filename: entry.file.clone() }];
+                    let changed = vec![ChangedFile {
+                        status: "M".to_string(),
+                        filename: entry.file.clone(),
+                    }];
                     parse_unified_diff(&raw, &changed)
                 }
             };
@@ -1807,7 +2175,11 @@ async fn api_git_batch_file_diff(
     match outcome {
         Ok(Ok(val)) => Json(val).into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1834,14 +2206,24 @@ async fn api_git_stage_hunk(
         let git_root = get_git_root(&cwd);
         apply_patch(&git_root, &body.patch, &["apply", "--cached"])
             .map(|_| ())
-            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "stage_hunk_failed".into(), msg))
+            .map_err(|msg| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "stage_hunk_failed".into(),
+                    msg,
+                )
+            })
     })
     .await;
 
     match outcome {
         Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1863,14 +2245,24 @@ async fn api_git_discard_hunk(
         let git_root = get_git_root(&cwd);
         apply_patch(&git_root, &body.patch, &["apply", "--reverse"])
             .map(|_| ())
-            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "discard_hunk_failed".into(), msg))
+            .map_err(|msg| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "discard_hunk_failed".into(),
+                    msg,
+                )
+            })
     })
     .await;
 
     match outcome {
         Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -1905,35 +2297,14 @@ fn apply_patch(git_root: &str, patch: &str, args: &[&str]) -> Result<String, Str
 
 // ─── Tmux Operations ──────────────────────────────────────────────────────
 
-fn get_tmux_sessions() -> Vec<TmuxSession> {
-    match run_cmd(
-        "tmux",
-        &["ls", "-F", "#{session_name}:#{session_windows}:#{session_attached}:#{session_activity}"],
-    ) {
-        Ok(output) => output
-            .lines()
-            .filter_map(|line| {
-                let parts: Vec<&str> = line.rsplitn(4, ':').collect();
-                if parts.len() >= 4 {
-                    Some(TmuxSession {
-                        name: parts[3].to_string(),
-                        windows: parts[2].parse().unwrap_or(0),
-                        attached: parts[1].parse::<i32>().unwrap_or(0) > 0,
-                        last_activity: parts[0].parse().unwrap_or(0),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect(),
-        Err(_) => vec![],
-    }
-}
-
 fn get_current_tmux_session(client_tty: Option<&str>) -> Option<String> {
     let tty = client_tty?;
 
-    let output = run_cmd("tmux", &["list-clients", "-F", "#{client_tty} #{client_session}"]).ok()?;
+    let output = run_cmd(
+        "tmux",
+        &["list-clients", "-F", "#{client_tty} #{client_session}"],
+    )
+    .ok()?;
 
     for line in output.lines() {
         let parts: Vec<&str> = line.trim().splitn(2, ' ').collect();
@@ -1956,12 +2327,15 @@ async fn api_tmux_list(
     Query(query): Query<TmuxQuery>,
 ) -> Json<serde_json::Value> {
     let payload = tokio::task::spawn_blocking(move || {
-        let sessions = get_tmux_sessions();
+        let snapshot = get_tmux_snapshot(&state);
         let client_tty = get_effective_client_tty(&state, query.client_tty);
         let current = get_current_tmux_session(client_tty.as_deref());
         serde_json::json!({
-            "sessions": sessions,
+            "sessions": snapshot.sessions,
             "currentSession": current,
+            "scannedAt": snapshot.scanned_at,
+            "projectGroups": snapshot.project_groups,
+            "otherSessions": snapshot.other_sessions,
         })
     })
     .await
@@ -1992,8 +2366,9 @@ async fn api_tmux_switch(
         }
     };
 
+    let operation_state = state.clone();
     let outcome: Result<Result<(), ApiError>, _> = tokio::task::spawn_blocking(move || {
-        let client_tty = match get_effective_client_tty(&state, query.client_tty) {
+        let client_tty = match get_effective_client_tty(&operation_state, query.client_tty) {
             Some(t) => t,
             None => {
                 return Err((
@@ -2012,16 +2387,32 @@ async fn api_tmux_switch(
                 ));
             }
         }
-        run_cmd("tmux", &["switch-client", "-c", &client_tty, "-t", &session])
-            .map(|_| ())
-            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "switch_failed".into(), msg))
+        run_cmd(
+            "tmux",
+            &["switch-client", "-c", &client_tty, "-t", &session],
+        )
+        .map(|_| ())
+        .map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "switch_failed".into(),
+                msg,
+            )
+        })
     })
     .await;
 
     match outcome {
-        Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Ok(())) => {
+            trigger_tmux_scan(&state);
+            Json(serde_json::json!({ "success": true })).into_response()
+        }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2031,6 +2422,7 @@ async fn api_tmux_switch(
 struct TmuxCreateQuery {
     name: Option<String>,
     client_tty: Option<String>,
+    cwd: Option<String>,
 }
 
 async fn api_tmux_create(
@@ -2048,8 +2440,9 @@ async fn api_tmux_create(
         }
     };
 
+    let operation_state = state.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<String, ApiError> {
-        let client_tty = match get_effective_client_tty(&state, query.client_tty) {
+        let client_tty = match get_effective_client_tty(&operation_state, query.client_tty) {
             Some(t) => t,
             None => {
                 return Err((
@@ -2059,21 +2452,45 @@ async fn api_tmux_create(
                 ));
             }
         };
-        let _ = run_cmd("tmux", &["new-session", "-d", "-s", &name]);
+        let create_result = if let Some(cwd) = query.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
+            run_cmd("tmux", &["new-session", "-d", "-s", &name, "-c", cwd])
+        } else {
+            run_cmd("tmux", &["new-session", "-d", "-s", &name])
+        };
+        create_result.map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "create_failed".into(),
+                msg,
+            )
+        })?;
         run_cmd("tmux", &["switch-client", "-c", &client_tty, "-t", &name])
             .map(|_| name)
-            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "create_failed".into(), msg))
+            .map_err(|msg| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "create_failed".into(),
+                    msg,
+                )
+            })
     })
     .await;
 
     match outcome {
-        Ok(Ok(name)) => Json(serde_json::json!({
-            "success": true,
-            "message": format!("Session '{}' created", name),
-        }))
-        .into_response(),
+        Ok(Ok(name)) => {
+            trigger_tmux_scan(&state);
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Session '{}' created", name),
+            }))
+            .into_response()
+        }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2084,7 +2501,10 @@ struct TmuxKillQuery {
     name: Option<String>,
 }
 
-async fn api_tmux_kill(Query(query): Query<TmuxKillQuery>) -> Response {
+async fn api_tmux_kill(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<TmuxKillQuery>,
+) -> Response {
     let name = match query.name {
         Some(n) if !n.is_empty() => n,
         _ => {
@@ -2103,17 +2523,24 @@ async fn api_tmux_kill(Query(query): Query<TmuxKillQuery>) -> Response {
     .await;
 
     match result {
-        Ok(Ok(_)) => Json(serde_json::json!({
-            "success": true,
-            "message": format!("Session '{}' killed", name),
-        }))
-        .into_response(),
+        Ok(Ok(_)) => {
+            trigger_tmux_scan(&state);
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Session '{}' killed", name),
+            }))
+            .into_response()
+        }
         Ok(Err(_)) => json_error(
             "kill_failed",
             &format!("Failed to kill session '{}'", name),
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2128,8 +2555,9 @@ async fn api_tmux_detach(
     axum::extract::State(state): axum::extract::State<AppState>,
     Query(query): Query<TmuxDetachQuery>,
 ) -> Response {
+    let operation_state = state.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
-        let client_tty = match get_effective_client_tty(&state, query.client_tty) {
+        let client_tty = match get_effective_client_tty(&operation_state, query.client_tty) {
             Some(t) => t,
             None => {
                 return Err((
@@ -2150,14 +2578,27 @@ async fn api_tmux_detach(
         }
         run_cmd("tmux", &["detach-client", "-t", &client_tty])
             .map(|_| ())
-            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "detach_failed".into(), msg))
+            .map_err(|msg| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "detach_failed".into(),
+                    msg,
+                )
+            })
     })
     .await;
 
     match outcome {
-        Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Ok(())) => {
+            trigger_tmux_scan(&state);
+            Json(serde_json::json!({ "success": true })).into_response()
+        }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2178,6 +2619,7 @@ async fn api_tmux_quick_shell(
         }
     };
 
+    let operation_state = state.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<(String, String), ApiError> {
         if let Ok(clients) = run_cmd("tmux", &["list-clients", "-F", "#{client_tty}"]) {
             if !clients.contains(&client_tty) {
@@ -2193,7 +2635,7 @@ async fn api_tmux_quick_shell(
             .or_else(|| Some(get_cwd(Some(client_tty.clone()))))
             .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
 
-        let shell_command = format!("exec {}", state.shell);
+        let shell_command = format!("exec {}", operation_state.shell);
 
         if tmux_supports_display_popup() {
             let popup_args = [
@@ -2245,19 +2687,32 @@ async fn api_tmux_quick_shell(
             ],
         )
         .map(|_| ("window".to_string(), cwd))
-        .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, "quick_shell_failed".into(), msg))
+        .map_err(|msg| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "quick_shell_failed".into(),
+                msg,
+            )
+        })
     })
     .await;
 
     match outcome {
-        Ok(Ok((mode, cwd))) => Json(serde_json::json!({
-            "success": true,
-            "mode": mode,
-            "cwd": cwd,
-        }))
-        .into_response(),
+        Ok(Ok((mode, cwd))) => {
+            trigger_tmux_scan(&state);
+            Json(serde_json::json!({
+                "success": true,
+                "mode": mode,
+                "cwd": cwd,
+            }))
+            .into_response()
+        }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(_) => json_error("internal_error", "Task failed", StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => json_error(
+            "internal_error",
+            "Task failed",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2269,11 +2724,19 @@ async fn api_tmux_pane_mode(
 ) -> Json<serde_json::Value> {
     let tui_active = tokio::task::spawn_blocking(move || {
         let client_tty = get_effective_client_tty(&state, query.client_tty);
-        let session = client_tty.as_deref().and_then(|t| get_current_tmux_session(Some(t)));
+        let session = client_tty
+            .as_deref()
+            .and_then(|t| get_current_tmux_session(Some(t)));
         match session {
             Some(ref sess) => run_cmd(
                 "tmux",
-                &["display-message", "-t", &format!("{}:", sess), "-p", "#{alternate_on}"],
+                &[
+                    "display-message",
+                    "-t",
+                    &format!("{}:", sess),
+                    "-p",
+                    "#{alternate_on}",
+                ],
             )
             .map(|s| s.trim() == "1")
             .unwrap_or(false),
@@ -2316,8 +2779,13 @@ async fn api_tmux_capture_pane(
             }
         };
         let target = format!("{}:", session);
-        run_cmd("tmux", &["capture-pane", "-t", &target, "-pS", "-"])
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, "capture_failed".into(), e))
+        run_cmd("tmux", &["capture-pane", "-t", &target, "-pS", "-"]).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "capture_failed".into(),
+                e,
+            )
+        })
     })
     .await;
 
@@ -2327,7 +2795,11 @@ async fn api_tmux_capture_pane(
             Json(serde_json::json!({ "lines": lines })).into_response()
         }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(e) => json_error("task_failed", &format!("{}", e), StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => json_error(
+            "task_failed",
+            &format!("{}", e),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2344,63 +2816,99 @@ async fn api_tmux_page_up(
     Query(query): Query<PageUpQuery>,
 ) -> Response {
     let page = query.page.unwrap_or(1).max(1);
-    let outcome = tokio::task::spawn_blocking(move || -> Result<(Vec<String>, i32, i32), ApiError> {
-        let client_tty = match get_effective_client_tty(&state, query.client_tty) {
-            Some(t) => t,
-            None => return Err((
-                StatusCode::BAD_REQUEST,
-                "no_tty".into(),
-                "No client TTY available".into(),
-            )),
-        };
-        let session = match get_current_tmux_session(Some(&client_tty)) {
-            Some(s) => s,
-            None => return Err((
-                StatusCode::BAD_REQUEST,
-                "no_session".into(),
-                "No tmux session found".into(),
-            )),
-        };
-        let target = format!("{}:", session);
-        let info = run_cmd("tmux", &["display-message", "-t", &target, "-p", "#{pane_height} #{history_size}"])
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, "capture_failed".into(), e))?;
-        let parts: Vec<&str> = info.trim().split(' ').collect();
-        let rows: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(40);
-        let history: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let outcome =
+        tokio::task::spawn_blocking(move || -> Result<(Vec<String>, i32, i32), ApiError> {
+            let client_tty = match get_effective_client_tty(&state, query.client_tty) {
+                Some(t) => t,
+                None => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "no_tty".into(),
+                        "No client TTY available".into(),
+                    ))
+                }
+            };
+            let session = match get_current_tmux_session(Some(&client_tty)) {
+                Some(s) => s,
+                None => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "no_session".into(),
+                        "No tmux session found".into(),
+                    ))
+                }
+            };
+            let target = format!("{}:", session);
+            let info = run_cmd(
+                "tmux",
+                &[
+                    "display-message",
+                    "-t",
+                    &target,
+                    "-p",
+                    "#{pane_height} #{history_size}",
+                ],
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "capture_failed".into(),
+                    e,
+                )
+            })?;
+            let parts: Vec<&str> = info.trim().split(' ').collect();
+            let rows: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(40);
+            let history: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-        if history == 0 {
-            return Ok((Vec::new(), 0, 0));
-        }
+            if history == 0 {
+                return Ok((Vec::new(), 0, 0));
+            }
 
-        let end_line = -((page - 1) * rows + 1);
-        let start_line = -(page * rows);
-        let clamped_start = start_line.max(-history);
+            let end_line = -((page - 1) * rows + 1);
+            let start_line = -(page * rows);
+            let clamped_start = start_line.max(-history);
 
-        if clamped_start > end_line {
-            return Ok((Vec::new(), history, rows));
-        }
+            if clamped_start > end_line {
+                return Ok((Vec::new(), history, rows));
+            }
 
-        let content = run_cmd(
-            "tmux",
-            &[
-                "capture-pane", "-t", &target, "-p",
-                "-S", &clamped_start.to_string(),
-                "-E", &end_line.to_string(),
-            ],
-        )
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, "capture_failed".into(), e))?;
+            let content = run_cmd(
+                "tmux",
+                &[
+                    "capture-pane",
+                    "-t",
+                    &target,
+                    "-p",
+                    "-S",
+                    &clamped_start.to_string(),
+                    "-E",
+                    &end_line.to_string(),
+                ],
+            )
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "capture_failed".into(),
+                    e,
+                )
+            })?;
 
-        let lines: Vec<String> = content.lines().map(String::from).collect();
-        Ok((lines, history, rows))
-    })
-    .await;
+            let lines: Vec<String> = content.lines().map(String::from).collect();
+            Ok((lines, history, rows))
+        })
+        .await;
 
     match outcome {
         Ok(Ok((lines, history, rows))) => {
-            Json(serde_json::json!({ "lines": lines, "history": history, "rows": rows })).into_response()
+            Json(serde_json::json!({ "lines": lines, "history": history, "rows": rows }))
+                .into_response()
         }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
-        Err(e) => json_error("task_failed", &format!("{}", e), StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => json_error(
+            "task_failed",
+            &format!("{}", e),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2418,61 +2926,82 @@ async fn api_events(
     let explicit_tty = query.client_tty.clone();
     let shared_state = state.clone();
 
-    let stream = futures_util::stream::unfold((true, String::new()), move |(is_first, prev_json)| {
-        let explicit_tty = explicit_tty.clone();
-        let shared_state = shared_state.clone();
-        async move {
-            if !is_first {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-
-            let payload = tokio::task::spawn_blocking(move || {
-                let client_tty = get_effective_client_tty(&shared_state, explicit_tty);
-                let tty_clone = client_tty.clone();
-                let cwd = get_cwd(tty_clone.clone());
-                let mut branch = String::new();
-                let mut path = cwd.clone();
-
-                if is_git_repo(&cwd) {
-                    let git_root = get_git_root(&cwd);
-                    branch = get_branch(&git_root);
-                    path = git_root;
+    let stream =
+        futures_util::stream::unfold((true, String::new()), move |(is_first, prev_json)| {
+            let explicit_tty = explicit_tty.clone();
+            let shared_state = shared_state.clone();
+            async move {
+                if !is_first {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
 
-                let sessions = get_tmux_sessions();
-                let current_session = get_current_tmux_session(tty_clone.as_deref());
+                let payload = tokio::task::spawn_blocking(move || {
+                    let client_tty = get_effective_client_tty(&shared_state, explicit_tty);
+                    let tty_clone = client_tty.clone();
+                    let cwd = get_cwd(tty_clone.clone());
+                    let mut branch = String::new();
+                    let mut path = cwd.clone();
 
-                let tui_active = match current_session.as_deref() {
-                    Some(sess) => run_cmd(
-                        "tmux",
-                        &["display-message", "-t", &format!("{}:", sess), "-p", "#{alternate_on}"],
-                    )
-                    .map(|s| s.trim() == "1")
-                    .unwrap_or(false),
-                    None => false,
-                };
-
-                serde_json::json!({
-                    "branch": branch,
-                    "path": path,
-                    "tuiActive": tui_active,
-                    "tmux": {
-                        "sessions": sessions,
-                        "currentSession": current_session,
+                    if is_git_repo(&cwd) {
+                        let git_root = get_git_root(&cwd);
+                        branch = get_branch(&git_root);
+                        path = git_root;
                     }
-                })
-            })
-            .await
-            .unwrap_or_else(|_| serde_json::json!({}));
 
-            let json_str = payload.to_string();
-            if !is_first && json_str == prev_json {
-                return Some((Ok(Event::default().comment("no-change")), (false, prev_json)));
+                    let snapshot = get_tmux_snapshot(&shared_state);
+                    let current_session = get_current_tmux_session(tty_clone.as_deref());
+
+                    let tui_active = match current_session.as_deref() {
+                        Some(sess) => run_cmd(
+                            "tmux",
+                            &[
+                                "display-message",
+                                "-t",
+                                &format!("{}:", sess),
+                                "-p",
+                                "#{alternate_on}",
+                            ],
+                        )
+                        .map(|s| s.trim() == "1")
+                        .unwrap_or(false),
+                        None => false,
+                    };
+
+                    serde_json::json!({
+                        "branch": branch,
+                        "path": path,
+                        "tuiActive": tui_active,
+                        "tmux": {
+                            "sessions": snapshot.sessions,
+                            "currentSession": current_session,
+                            "scannedAt": snapshot.scanned_at,
+                            "projectGroups": snapshot.project_groups,
+                            "otherSessions": snapshot.other_sessions,
+                        }
+                    })
+                })
+                .await
+                .unwrap_or_else(|_| serde_json::json!({}));
+
+                let json_str = payload.to_string();
+                let mut comparison_payload = payload;
+                if let Some(tmux) = comparison_payload
+                    .get_mut("tmux")
+                    .and_then(|value| value.as_object_mut())
+                {
+                    tmux.insert("scannedAt".to_string(), serde_json::Value::Null);
+                }
+                let comparison_json = comparison_payload.to_string();
+                if !is_first && comparison_json == prev_json {
+                    return Some((
+                        Ok(Event::default().comment("no-change")),
+                        (false, prev_json),
+                    ));
+                }
+                let event = Event::default().data(json_str.clone());
+                Some((Ok(event), (false, comparison_json)))
             }
-            let event = Event::default().data(json_str.clone());
-            Some((Ok(event), (false, json_str)))
-        }
-    });
+        });
 
     Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -2503,7 +3032,11 @@ async fn api_set_user_config(body: axum::body::Bytes) -> Response {
     }
     match tokio::fs::write(&path, &body).await {
         Ok(_) => Json(serde_json::json!({ "success": true })).into_response(),
-        Err(e) => json_error("write_failed", &e.to_string(), StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => json_error(
+            "write_failed",
+            &e.to_string(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -2527,9 +3060,7 @@ async fn api_upload_file(req: Request) -> Response {
     // Read body (50MB limit)
     let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
         Ok(b) => b,
-        Err(_) => {
-            return json_error("read_error", "Failed to read body", StatusCode::BAD_REQUEST)
-        }
+        Err(_) => return json_error("read_error", "Failed to read body", StatusCode::BAD_REQUEST),
     };
 
     if body_bytes.is_empty() {
@@ -2575,7 +3106,13 @@ async fn api_upload_file(req: Request) -> Response {
         let stem = stem.split('.').next().unwrap_or(stem);
         let clean: String = stem
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         format!("{}_{}.{}", clean, timestamp, ext)
     } else {
@@ -2606,14 +3143,6 @@ struct BranchesResponse {
     local: Vec<String>,
     remote: Vec<String>,
     current: String,
-}
-
-#[derive(Serialize, Clone)]
-struct TmuxSession {
-    name: String,
-    windows: i32,
-    attached: bool,
-    last_activity: u64,
 }
 
 struct ChangedFile {
@@ -2658,6 +3187,7 @@ struct DiffSummary {
     total_deletions: i64,
 }
 
+#[derive(Serialize)]
 struct DiffResult {
     files: Vec<DiffFile>,
     summary: DiffSummary,
@@ -2668,7 +3198,15 @@ struct DiffResult {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
-    match StdCommand::new(cmd)
+    let mut command = StdCommand::new(cmd);
+    if cmd == "tmux" {
+        if let Ok(socket) = std::env::var("RUST_TERMINAL_TMUX_SOCKET") {
+            if !socket.is_empty() {
+                command.args(["-L", &socket]);
+            }
+        }
+    }
+    match command
         .args(args)
         .env_remove("TMUX")
         .env_remove("TMUX_PANE")
@@ -2686,7 +3224,10 @@ fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn find_owned_tmux_clients(wrapper_pid: u32) -> Vec<String> {
-    let output = match run_cmd("tmux", &["list-clients", "-F", "#{client_tty} #{client_pid}"]) {
+    let output = match run_cmd(
+        "tmux",
+        &["list-clients", "-F", "#{client_tty} #{client_pid}"],
+    ) {
         Ok(out) => out,
         Err(_) => return Vec::new(),
     };
@@ -2734,7 +3275,15 @@ fn process_descends_from(pid: u32, ancestor: u32) -> bool {
 }
 
 fn spawn_detached_cmd(cmd: &str, args: &[&str]) -> Result<(), String> {
-    let mut child = StdCommand::new(cmd)
+    let mut command = StdCommand::new(cmd);
+    if cmd == "tmux" {
+        if let Ok(socket) = std::env::var("RUST_TERMINAL_TMUX_SOCKET") {
+            if !socket.is_empty() {
+                command.args(["-L", &socket]);
+            }
+        }
+    }
+    let mut child = command
         .args(args)
         .env_remove("TMUX")
         .env_remove("TMUX_PANE")
@@ -2753,7 +3302,11 @@ fn spawn_detached_cmd(cmd: &str, args: &[&str]) -> Result<(), String> {
 
 fn tmux_supports_display_popup() -> bool {
     run_cmd("tmux", &["list-commands", "display-popup"])
-        .map(|output| output.lines().any(|line| line.starts_with("display-popup ")))
+        .map(|output| {
+            output
+                .lines()
+                .any(|line| line.starts_with("display-popup "))
+        })
         .unwrap_or(false)
 }
 
@@ -2784,6 +3337,11 @@ fn run_cmd_in(cmd: &str, args: &[&str], cwd: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use axum::extract::ws::Message;
+    use axum::{body::Body, http::Request};
+    use http_body_util::BodyExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tmux_discovery::TmuxSession;
+    use tower::ServiceExt;
 
     #[test]
     fn test_parse_init_message_binary_valid() {
@@ -3056,8 +3614,14 @@ mod tests {
                    +inserted\n\
                     end\n";
         let changed = vec![
-            ChangedFile { status: "M".to_string(), filename: "a.txt".to_string() },
-            ChangedFile { status: "M".to_string(), filename: "b.txt".to_string() },
+            ChangedFile {
+                status: "M".to_string(),
+                filename: "a.txt".to_string(),
+            },
+            ChangedFile {
+                status: "M".to_string(),
+                filename: "b.txt".to_string(),
+            },
         ];
         let result = parse_unified_diff(raw, &changed);
         assert_eq!(result.files.len(), 2);
@@ -3075,7 +3639,11 @@ mod tests {
             filename: "img.png".to_string(),
         }];
         let result = parse_unified_diff(raw, &changed);
-        assert_eq!(result.files.len(), 0, "binary-only diff has no --- a/ marker, parser yields no file entry");
+        assert_eq!(
+            result.files.len(),
+            0,
+            "binary-only diff has no --- a/ marker, parser yields no file entry"
+        );
         let raw_with_marker = "diff --git a/img.png b/img.png\n\
                                --- a/img.png\n\
                                +++ b/img.png\n\
@@ -3164,5 +3732,101 @@ mod tests {
         assert_eq!(result.files[0].hunks.len(), 2);
         assert_eq!(result.files[0].additions, 2);
         assert_eq!(result.files[0].deletions, 2);
+    }
+
+    #[test]
+    fn tmux_snapshot_only_reports_semantic_changes() {
+        let state = AppState::new("zsh", PathBuf::from("."));
+        let first = DiscoverySnapshot {
+            sessions: vec![TmuxSession {
+                name: "one".to_string(),
+                windows: 1,
+                attached: false,
+                last_activity: 1,
+            }],
+            scanned_at: 100,
+            ..DiscoverySnapshot::default()
+        };
+        assert!(update_tmux_snapshot(&state, first.clone()));
+        let mut same = first.clone();
+        same.scanned_at = 200;
+        assert!(!update_tmux_snapshot(&state, same));
+        assert_eq!(get_tmux_snapshot(&state).scanned_at, 200);
+
+        let mut command_changed = first;
+        command_changed.sessions[0].last_activity = 2;
+        command_changed.scanned_at = 300;
+        assert!(update_tmux_snapshot(&state, command_changed));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tmux_scanner_runs_immediately_then_every_five_seconds() {
+        let state = AppState::new("zsh", PathBuf::from("."));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let scanner_calls = calls.clone();
+        start_tmux_discovery_with(
+            state.clone(),
+            Arc::new(move |_| {
+                let call = scanner_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                Ok(DiscoverySnapshot {
+                    sessions: vec![TmuxSession {
+                        name: format!("scan-{call}"),
+                        windows: 1,
+                        attached: false,
+                        last_activity: call as u64,
+                    }],
+                    scanned_at: call as u64,
+                    ..DiscoverySnapshot::default()
+                })
+            }),
+        );
+
+        while get_tmux_snapshot(&state).sessions.is_empty() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_millis(4999)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        while calls.load(Ordering::SeqCst) == 1 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn tmux_list_api_keeps_flat_sessions_and_adds_group_fields() {
+        let state = AppState::new("zsh", PathBuf::from("."));
+        update_tmux_snapshot(
+            &state,
+            DiscoverySnapshot {
+                sessions: vec![TmuxSession {
+                    name: "arbitrary name".to_string(),
+                    windows: 2,
+                    attached: true,
+                    last_activity: 42,
+                }],
+                scanned_at: 1234,
+                ..DiscoverySnapshot::default()
+            },
+        );
+        let response = build_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/tmux/list")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["sessions"][0]["name"], "arbitrary name");
+        assert_eq!(value["scannedAt"], 1234);
+        assert!(value["projectGroups"].is_array());
+        assert!(value["otherSessions"].is_array());
+        assert!(value.get("currentSession").is_some());
     }
 }

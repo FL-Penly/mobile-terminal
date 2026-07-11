@@ -181,7 +181,64 @@ async fn git_log_returns_recent_commits() {
     assert!(!entries.is_empty());
     assert!(entries[0]["hash"].is_string());
     assert!(entries[0]["message"].is_string());
+    assert!(entries[0]["context"].is_string());
     assert_eq!(entries[0]["message"], "initial");
+}
+
+#[tokio::test]
+#[serial]
+async fn git_commit_diff_uses_log_repository_context_after_cwd_changes() {
+    let first_repo = TestRepo::new();
+    first_repo.write("first.txt", "from first repo\n");
+    first_repo.git(&["add", "."]);
+    first_repo.git(&["commit", "-q", "-m", "first repo commit"]);
+    let app = test_app();
+
+    let log_resp = send_get(app.clone(), "/api/git/log?count=1").await;
+    assert_status(&log_resp, StatusCode::OK);
+    let log_body = body_json(log_resp).await;
+    let hash = log_body[0]["hash"].as_str().unwrap();
+    let context = log_body[0]["context"].as_str().unwrap();
+
+    let _second_repo = TestRepo::new();
+    let path = format!("/api/git/commit-diff?hash={}&context={}", hash, context);
+    let diff_resp = send_get(app, &path).await;
+    assert_status(&diff_resp, StatusCode::OK);
+    let diff_body = body_json(diff_resp).await;
+    assert!(diff_body["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|file| file["filename"] == "first.txt"));
+}
+
+#[tokio::test]
+#[serial]
+async fn git_commit_diff_returns_files_and_hunks() {
+    let repo = TestRepo::new();
+    repo.write("README.md", "# updated\n");
+    repo.write("added.txt", "new file\n");
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-q", "-m", "update files"]);
+
+    let resp = send_get(test_app(), "/api/git/commit-diff?hash=HEAD").await;
+    assert_status(&resp, StatusCode::OK);
+    let body = body_json(resp).await;
+    let files = body["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    assert!(files.iter().any(|file| file["filename"] == "README.md"));
+    assert!(files.iter().any(|file| file["filename"] == "added.txt"));
+    assert!(body["summary"]["totalAdditions"].as_i64().unwrap() >= 2);
+}
+
+#[tokio::test]
+#[serial]
+async fn git_commit_diff_rejects_unknown_commit() {
+    let _repo = TestRepo::new();
+    let resp = send_get(test_app(), "/api/git/commit-diff?hash=deadbeef").await;
+    assert_status(&resp, StatusCode::NOT_FOUND);
+    let body = body_json(resp).await;
+    assert_eq!(body["error"], "commit_not_found");
 }
 
 #[tokio::test]
@@ -190,22 +247,12 @@ async fn git_stage_and_unstage_round_trip() {
     let repo = TestRepo::new();
     repo.write("a.txt", "hi\n");
 
-    let resp = send_post_json(
-        test_app(),
-        "/api/git/stage",
-        json!({"files": ["a.txt"]}),
-    )
-    .await;
+    let resp = send_post_json(test_app(), "/api/git/stage", json!({"files": ["a.txt"]})).await;
     assert_status(&resp, StatusCode::OK);
     let body = body_json(resp).await;
     assert_eq!(body["success"], true);
 
-    let resp2 = send_post_json(
-        test_app(),
-        "/api/git/unstage",
-        json!({"files": ["a.txt"]}),
-    )
-    .await;
+    let resp2 = send_post_json(test_app(), "/api/git/unstage", json!({"files": ["a.txt"]})).await;
     assert_status(&resp2, StatusCode::OK);
 }
 
@@ -238,7 +285,11 @@ async fn git_file_diff_returns_hunks_for_modified_file() {
     let body = body_json(resp).await;
     assert_eq!(body["filename"], "README.md");
     let hunks = body["hunks"].as_array().unwrap();
-    assert!(!hunks.is_empty(), "expected at least one hunk, got body {:?}", body);
+    assert!(
+        !hunks.is_empty(),
+        "expected at least one hunk, got body {:?}",
+        body
+    );
 }
 
 #[tokio::test]

@@ -10,8 +10,25 @@ fi
 PORT="${PORT:-7682}"
 CMD="${1:-zsh}"
 BINARY="$SCRIPT_DIR/server/target/release/rust-terminal"
+FRONTEND_DIST="$SCRIPT_DIR/frontend/dist/index.html"
 
-if [ ! -f "$BINARY" ]; then
+if [ ! -f "$FRONTEND_DIST" ] || [ -n "$(find \
+    "$SCRIPT_DIR/frontend/src" \
+    "$SCRIPT_DIR/frontend/package.json" \
+    "$SCRIPT_DIR/frontend/package-lock.json" \
+    "$SCRIPT_DIR/frontend/tsconfig.json" \
+    "$SCRIPT_DIR/frontend/vite.config.ts" \
+    "$SCRIPT_DIR/frontend/tailwind.config.js" \
+    -newer "$FRONTEND_DIST" -print -quit 2>/dev/null)" ]; then
+    echo "Building frontend..."
+    cd "$SCRIPT_DIR/frontend" && npm run build
+fi
+
+if [ ! -f "$BINARY" ] || [ -n "$(find \
+    "$SCRIPT_DIR/server/src" \
+    "$SCRIPT_DIR/server/Cargo.toml" \
+    "$SCRIPT_DIR/server/Cargo.lock" \
+    -newer "$BINARY" -print -quit 2>/dev/null)" ]; then
     echo "Building Rust backend..."
     cd "$SCRIPT_DIR/server" && cargo build --release
 fi
