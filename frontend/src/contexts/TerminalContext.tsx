@@ -3,10 +3,22 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 const encoder = new TextEncoder()
 const MAX_EARLY_CHUNKS = 200
 
+export type InputFailureReason = 'disconnected' | 'terminalUnavailable' | 'sendFailed' | 'unsafeMultiline'
+
+export type InputSendResult =
+  | { ok: true; byteLength: number }
+  | { ok: false; reason: InputFailureReason }
+
+export type PasteInputHandler = (text: string) => InputSendResult
+
 export interface TerminalContextValue {
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
   
-  sendInput: (text: string) => void
+  sendInput: (text: string) => InputSendResult
+
+  pasteInput: (text: string) => InputSendResult
+
+  registerPasteHandler: (handler: PasteInputHandler) => () => void
   
   sendKey: (key: 'ESC' | 'TAB' | 'SHIFT_TAB' | 'ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
   
@@ -59,6 +71,7 @@ const TMUX_SESSION_KEY = 'ttyd_last_tmux_session'
 export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const pasteHandlerRef = useRef<PasteInputHandler | null>(null)
   const listenersRef = useRef<Set<(data: string | Uint8Array) => void>>(new Set())
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting')
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
@@ -328,13 +341,35 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [connect])
 
-  const sendInput = useCallback((text: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const payload = encoder.encode(text)
-      const buf = new Uint8Array(payload.length + 1)
-      buf[0] = 0x30
-      buf.set(payload, 1)
-      wsRef.current.send(buf)
+  const sendInput = useCallback((text: string): InputSendResult => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return { ok: false, reason: 'disconnected' }
+    }
+
+    const payload = encoder.encode(text)
+    const buf = new Uint8Array(payload.length + 1)
+    buf[0] = 0x30
+    buf.set(payload, 1)
+    try {
+      ws.send(buf)
+      return { ok: true, byteLength: payload.byteLength }
+    } catch (err) {
+      console.error('[Terminal] Failed to send input:', err)
+      return { ok: false, reason: 'sendFailed' }
+    }
+  }, [])
+
+  const pasteInput = useCallback((text: string): InputSendResult => {
+    const handler = pasteHandlerRef.current
+    if (!handler) return { ok: false, reason: 'terminalUnavailable' }
+    return handler(text)
+  }, [])
+
+  const registerPasteHandler = useCallback((handler: PasteInputHandler) => {
+    pasteHandlerRef.current = handler
+    return () => {
+      if (pasteHandlerRef.current === handler) pasteHandlerRef.current = null
     }
   }, [])
 
@@ -386,6 +421,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const contextValue = useMemo(() => ({
     connectionState,
     sendInput,
+    pasteInput,
+    registerPasteHandler,
     sendKey,
     subscribeOutput,
     sendControl,
@@ -395,7 +432,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     reconnectAttempt,
     clientTty,
     setClientTty: setClientTtyValue,
-  }), [connectionState, sendInput, sendKey, subscribeOutput, sendControl, terminalRef, resize, reconnect, reconnectAttempt, clientTty, setClientTtyValue])
+  }), [connectionState, sendInput, pasteInput, registerPasteHandler, sendKey, subscribeOutput, sendControl, terminalRef, resize, reconnect, reconnectAttempt, clientTty, setClientTtyValue])
 
   return (
     <TerminalContext.Provider value={contextValue}>

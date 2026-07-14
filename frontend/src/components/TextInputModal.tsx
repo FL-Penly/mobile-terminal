@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import type { InputSendResult } from '../contexts/TerminalContext'
 import type { UserPreset, UserPresetGroup } from './SettingsModal'
 
 const DRAFT_KEY = 'ttyd_text_input_draft'
@@ -128,7 +129,7 @@ const applyVariablesToPrompt = (text: string, values: Record<string, string>): s
 interface TextInputBarProps {
   isOpen: boolean
   onClose: () => void
-  onSend: (text: string) => void
+  onSend: (text: string) => InputSendResult
   presetGroups: UserPresetGroup[]
   activePresetGroupId: string
   onActivePresetGroupChange: (groupId: string) => void
@@ -155,6 +156,7 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const [formLabel, setFormLabel] = useState('')
   const [formText, setFormText] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const activeGroup = presetGroups.find(group => group.id === activePresetGroupId) ?? presetGroups[0]
   const activePresets = activeGroup?.presets ?? []
@@ -201,6 +203,7 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
 
   const handleTextChange = useCallback((value: string) => {
     setText(value)
+    setSendError(null)
     sessionStorage.setItem(DRAFT_KEY, value)
   }, [])
 
@@ -214,8 +217,19 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
 
   const handleSend = useCallback(() => {
     if (!text) return
+    const result = onSend(text)
+    if (!result.ok) {
+      const messages: Record<typeof result.reason, string> = {
+        disconnected: '连接已断开，内容已保留，请重连后重试。',
+        terminalUnavailable: '终端尚未就绪，内容已保留，请稍后重试。',
+        sendFailed: '发送失败，内容已保留，请重试。',
+        unsafeMultiline: '当前界面未启用安全多行粘贴，请回到 Codex 输入界面后重试。',
+      }
+      setSendError(messages[result.reason])
+      return
+    }
     pushHistory(text)
-    onSend(text)
+    setSendError(null)
     setText('')
     sessionStorage.removeItem(DRAFT_KEY)
     onClose()
@@ -572,6 +586,12 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
           Send
         </button>
       </div>
+
+      {sendError && (
+        <div role="alert" className="px-3 pb-1.5 text-xs text-accent-red">
+          {sendError}
+        </div>
+      )}
 
       {deleteConfirm !== null && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center px-4" onClick={() => setDeleteConfirm(null)}>

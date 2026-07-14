@@ -11,6 +11,7 @@ import { useServerEvents } from '../contexts/ServerEventsContext'
 import { ZerolagInputAddon } from 'xterm-zerolag-input'
 import { CopyModeOverlay } from './CopyModeOverlay'
 import { AltScreenTranscript } from '../utils/alt-screen-transcript'
+import { createTerminalPasteHandler, type PasteResultCapture } from '../utils/terminal-paste'
 import { observeTerminalResize } from '../utils/terminal-resize'
 
 const MIN_FONT_SIZE = 6
@@ -21,7 +22,7 @@ export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const { subscribeOutput, sendInput, sendControl, resize, setClientTty } = useTerminal()
+  const { subscribeOutput, sendInput, registerPasteHandler, sendControl, resize, setClientTty } = useTerminal()
   const { tuiActive } = useServerEvents()
   const setClientTtyRef = useRef(setClientTty)
   
@@ -38,6 +39,7 @@ export const Terminal = () => {
   const zerolagRef = useRef<ZerolagInputAddon | null>(null)
   const zerolagEnabledRef = useRef(localStorage.getItem('terminal_predictive_echo') !== 'off')
   const sendInputRef = useRef(sendInput)
+  const pasteResultCaptureRef = useRef<PasteResultCapture['current']>(null)
   const mouseStateRef = useRef({ mouseTracking: false, sgrMode: false })
   const selectionPolicyRef = useRef<'local' | 'pty'>('local')
   const clientTtyValueRef = useRef<string | null>(null)
@@ -447,24 +449,27 @@ export const Terminal = () => {
 
     // Handle user input -> send to WebSocket
     const dataDisposable = term.onData((data) => {
+      let result
       if (!zerolagEnabledRef.current) {
-        sendInput(data)
-        return
-      }
-      if (data === '\r' || data === '\n') {
+        result = sendInput(data)
+      } else if (data === '\r' || data === '\n') {
         zerolag.clear()
-        sendInput(data)
+        result = sendInput(data)
       } else if (data === '\x7f' || data === '\b') {
         zerolag.removeChar()
-        sendInput(data)
+        result = sendInput(data)
       } else if (data.length === 1 && data.charCodeAt(0) >= 0x20) {
         zerolag.addChar(data)
-        sendInput(data)
+        result = sendInput(data)
       } else {
         zerolag.clear()
-        sendInput(data)
+        result = sendInput(data)
       }
+      pasteResultCaptureRef.current?.(result)
     })
+    const unregisterPasteHandler = registerPasteHandler(
+      createTerminalPasteHandler(term, pasteResultCaptureRef),
+    )
     const altTranscript = new AltScreenTranscript()
     const readLine = (row: number): string => {
       const line = term.buffer.active.getLine(row)
@@ -606,6 +611,7 @@ export const Terminal = () => {
 
     return () => {
       unsubscribe()
+      unregisterPasteHandler()
       dataDisposable.dispose()
       writeParsedDisposable.dispose()
       oscDisposable.dispose()
@@ -636,7 +642,7 @@ export const Terminal = () => {
       container.removeEventListener('paste', handlePaste, true)
       term.dispose()
     }
-  }, [subscribeOutput, sendInput, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd])
+  }, [subscribeOutput, sendInput, registerPasteHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd])
 
   const zoomPercent = Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)
 
