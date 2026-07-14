@@ -90,4 +90,19 @@ describe('TerminalContext sendInput', () => {
 
     expect(getContext().sendInput('keep me')).toEqual({ ok: false, reason: 'sendFailed' })
   })
+
+  it('sends the CSI-u Shift+Enter sequence', () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    ws.send.mockClear()
+
+    getContext().sendKey('SHIFT_ENTER')
+
+    expect(ws.send).toHaveBeenCalledOnce()
+    const frame = ws.send.mock.calls[0][0]
+    const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength)
+    expect(new TextDecoder().decode(bytes)).toBe(`0\x1b[13;2u`)
+  })
 })

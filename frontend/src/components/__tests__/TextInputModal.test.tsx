@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { InputSendResult } from '../../contexts/TerminalContext'
@@ -62,5 +62,33 @@ describe('TextInputModal reliable send', () => {
     expect(sessionStorage.getItem('ttyd_text_input_draft')).toBeNull()
     expect(JSON.parse(localStorage.getItem('ttyd_input_history') ?? '[]')).toEqual([text])
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('places the caret after appended preset text', async () => {
+    const presetText = 'P3 测试补充信息\nTEST_HINTS = '
+    render(
+      <TextInputModal
+        isOpen
+        onClose={vi.fn()}
+        onSend={() => ({ ok: true, byteLength: 0 })}
+        presetGroups={[{
+          id: 'mobile',
+          label: '移动完整',
+          presets: [{ label: 'TEST_HINTS（末尾填写）', text: presetText }],
+        }]}
+        activePresetGroupId="mobile"
+        onActivePresetGroupChange={vi.fn()}
+        onPresetGroupsChange={vi.fn()}
+      />,
+    )
+    const textarea = screen.getByPlaceholderText('Type or paste text...') as HTMLTextAreaElement
+
+    fireEvent.click(screen.getByRole('button', { name: 'TEST_HINTS（末尾填写）' }))
+
+    await waitFor(() => {
+      expect(textarea).toHaveFocus()
+      expect(textarea.selectionStart).toBe(presetText.length)
+      expect(textarea.selectionEnd).toBe(presetText.length)
+    })
   })
 })

@@ -252,8 +252,14 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const applyPreset = (preset: UserPreset) => {
     hapticTap()
     const sep = text && !text.endsWith('\n') ? '\n' : ''
-    handleTextChange(text + sep + preset.text)
-    setTimeout(() => textareaRef.current?.focus(), 0)
+    const nextText = text + sep + preset.text
+    handleTextChange(nextText)
+    setTimeout(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(nextText.length, nextText.length)
+    }, 0)
   }
 
   const toggleHistory = () => {

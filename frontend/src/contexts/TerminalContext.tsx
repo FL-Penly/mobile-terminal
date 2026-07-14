@@ -20,7 +20,7 @@ export interface TerminalContextValue {
 
   registerPasteHandler: (handler: PasteInputHandler) => () => void
   
-  sendKey: (key: 'ESC' | 'TAB' | 'SHIFT_TAB' | 'ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
+  sendKey: (key: 'ESC' | 'TAB' | 'SHIFT_TAB' | 'ENTER' | 'SHIFT_ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
   
   subscribeOutput: (callback: (data: string | Uint8Array) => void) => () => void
   
@@ -53,6 +53,7 @@ const KEY_SEQUENCES: Record<string, string> = {
   'TAB': '\t',
   'SHIFT_TAB': '\x1b[Z',
   'ENTER': '\r',
+  'SHIFT_ENTER': '\x1b[13;2u',
   'CTRL_C': '\x03',
   'ARROW_UP': '\x1b[A',
   'ARROW_DOWN': '\x1b[B',
