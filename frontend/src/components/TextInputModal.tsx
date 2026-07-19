@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { InputSendResult } from '../contexts/TerminalContext'
 import type { UserPreset, UserPresetGroup } from './SettingsModal'
+import { copyTextToClipboard, dumpTextToFile } from '../utils/dump-file'
 
 const DRAFT_KEY = 'ttyd_text_input_draft'
 const HISTORY_KEY = 'ttyd_input_history'
@@ -34,6 +35,11 @@ interface PromptVariable {
 interface GroupVariables {
   editable: PromptVariable[]
   derived: PromptVariable[]
+}
+
+interface DumpResult {
+  path: string
+  copied: boolean
 }
 
 const getVariableSection = (text: string): { start: number; end: number } | null => {
@@ -157,6 +163,8 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const [formText, setFormText] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [dumpResult, setDumpResult] = useState<DumpResult | null>(null)
+  const [dumpError, setDumpError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const activeGroup = presetGroups.find(group => group.id === activePresetGroupId) ?? presetGroups[0]
   const activePresets = activeGroup?.presets ?? []
@@ -204,6 +212,8 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   const handleTextChange = useCallback((value: string) => {
     setText(value)
     setSendError(null)
+    setDumpResult(null)
+    setDumpError(null)
     sessionStorage.setItem(DRAFT_KEY, value)
   }, [])
 
@@ -234,6 +244,20 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
     sessionStorage.removeItem(DRAFT_KEY)
     onClose()
   }, [text, onSend, onClose, pushHistory])
+
+  const handleDump = useCallback(async () => {
+    if (!text) return
+    setDumpResult(null)
+    setDumpError(null)
+    try {
+      const path = await dumpTextToFile(text)
+      const copied = await copyTextToClipboard(path)
+      setDumpResult({ path, copied })
+    } catch (error) {
+      console.error('[TextInputModal] Failed to dump text:', error)
+      setDumpError(error instanceof Error ? error.message : '落盘失败，请重试。')
+    }
+  }, [text])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -585,6 +609,15 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
           style={{ height: `${SINGLE_LINE}px`, overflowY: 'hidden' }}
         />
         <button
+          onClick={() => { void handleDump() }}
+          disabled={!text}
+          aria-label="落盘并复制路径"
+          title="落盘并复制路径"
+          className="shrink-0 px-2 h-8 bg-bg-tertiary text-text-primary border border-border-subtle text-xs rounded-lg font-medium active:opacity-80 disabled:opacity-40 mb-[1px]"
+        >
+          落盘
+        </button>
+        <button
           onClick={handleSend}
           disabled={!text}
           className="shrink-0 px-3 h-8 bg-accent-blue text-white text-sm rounded-lg font-medium active:opacity-80 disabled:opacity-40 mb-[1px]"
@@ -596,6 +629,19 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
       {sendError && (
         <div role="alert" className="px-3 pb-1.5 text-xs text-accent-red">
           {sendError}
+        </div>
+      )}
+
+      {dumpError && (
+        <div role="alert" className="px-3 pb-1.5 text-xs text-accent-red break-words">
+          {dumpError}
+        </div>
+      )}
+
+      {dumpResult && (
+        <div role="status" className={`px-3 pb-1.5 text-xs break-words ${dumpResult.copied ? 'text-accent-green' : 'text-accent-orange'}`}>
+          <span>{dumpResult.copied ? '已落盘：' : '已落盘，但自动复制失败：'}</span>
+          <span className="font-mono select-text break-all">{dumpResult.path}</span>
         </div>
       )}
 

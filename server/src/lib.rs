@@ -13,6 +13,7 @@ use axum::{
     Json, Router,
 };
 use bytes::{BufMut, BytesMut};
+use chrono::Local;
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     convert::Infallible,
+    fs::OpenOptions,
     hash::{Hash, Hasher},
     io::{Read, Write},
     net::SocketAddr,
@@ -192,6 +194,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tmux/capture-pane", get(api_tmux_capture_pane))
         .route("/api/tmux/page-up", get(api_tmux_page_up))
         .route("/api/events", get(api_events))
+        .route("/api/dump-file", post(api_dump_file))
         .route("/api/upload", post(api_upload_file))
         .route("/api/upload-image", post(api_upload_file))
         .route(
@@ -3040,6 +3043,99 @@ async fn api_set_user_config(body: axum::body::Bytes) -> Response {
     }
 }
 
+// ─── POST /api/dump-file ───────────────────────────────────────────────────
+
+fn promptgoal_dir() -> Result<PathBuf, ApiError> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let home = PathBuf::from(home);
+    if home.is_absolute() {
+        Ok(home.join("promptgoal"))
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(home).join("promptgoal"))
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "directory_create_failed".to_string(),
+                    format!("Failed to resolve promptgoal directory: {error}"),
+                )
+            })
+    }
+}
+
+fn create_dump_file(dir: &Path, body: &[u8], timestamp: &str) -> Result<PathBuf, ApiError> {
+    std::fs::create_dir_all(dir).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "directory_create_failed".to_string(),
+            format!("Failed to create promptgoal directory: {error}"),
+        )
+    })?;
+
+    let mut collision = 0_u64;
+    loop {
+        let filename = if collision == 0 {
+            format!("{timestamp}.md")
+        } else {
+            format!("{timestamp}-{collision}.md")
+        };
+        let path = dir.join(filename);
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                collision += 1;
+                continue;
+            }
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "file_create_failed".to_string(),
+                    format!("Failed to create dump file: {error}"),
+                ));
+            }
+        };
+
+        if let Err(error) = file.write_all(body) {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "write_failed".to_string(),
+                format!("Failed to write dump file: {error}"),
+            ));
+        }
+        return Ok(path);
+    }
+}
+
+async fn api_dump_file(req: Request) -> Response {
+    let body = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
+        Ok(body) => body,
+        Err(_) => return json_error("read_error", "Failed to read body", StatusCode::BAD_REQUEST),
+    };
+    if body.is_empty() {
+        return json_error("empty_body", "No text provided", StatusCode::BAD_REQUEST);
+    }
+
+    let dir = match promptgoal_dir() {
+        Ok(dir) => dir,
+        Err((status, code, message)) => return json_error(&code, &message, status),
+    };
+    let timestamp = Local::now().format("%Y%m%d-%H%M%S-%3f").to_string();
+    match tokio::task::spawn_blocking(move || create_dump_file(&dir, &body, &timestamp)).await {
+        Ok(Ok(path)) => Json(serde_json::json!({
+            "path": path.to_string_lossy(),
+        }))
+        .into_response(),
+        Ok(Err((status, code, message))) => json_error(&code, &message, status),
+        Err(error) => json_error(
+            "write_task_failed",
+            &format!("Dump file task failed: {error}"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+    }
+}
+
 // ─── POST /api/upload ──────────────────────────────────────────────────────
 
 async fn api_upload_file(req: Request) -> Response {
@@ -3342,6 +3438,53 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tmux_discovery::TmuxSession;
     use tower::ServiceExt;
+
+    #[test]
+    fn dump_file_creates_directory_and_preserves_bytes() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let dir = temp.path().join("missing").join("promptgoal");
+        let body = b"  first line\n\xe4\xb8\xad\xe6\x96\x87\n\n";
+
+        let path = create_dump_file(&dir, body, "20260719-013245-123").unwrap();
+
+        assert!(path.is_absolute());
+        assert_eq!(path.file_name().unwrap(), "20260719-013245-123.md");
+        assert_eq!(std::fs::read(path).unwrap(), body);
+    }
+
+    #[test]
+    fn dump_file_never_overwrites_and_is_unique_under_concurrency() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let dir = temp.path().join("promptgoal");
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("20260719-013245-123.md");
+        std::fs::write(&original, b"original").unwrap();
+
+        let dir = Arc::new(dir);
+        let handles: Vec<_> = (0..12)
+            .map(|index| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    let body = format!("concurrent-{index}");
+                    let path =
+                        create_dump_file(&dir, body.as_bytes(), "20260719-013245-123").unwrap();
+                    (path, body)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        let paths: std::collections::HashSet<_> =
+            results.iter().map(|(path, _)| path.clone()).collect();
+
+        assert_eq!(paths.len(), results.len());
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+        for (path, body) in results {
+            assert_eq!(std::fs::read(path).unwrap(), body.as_bytes());
+        }
+    }
 
     #[test]
     fn test_parse_init_message_binary_valid() {

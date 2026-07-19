@@ -181,6 +181,58 @@ async fn upload_with_empty_body_returns_400() {
 }
 
 #[tokio::test]
+#[serial]
+async fn dump_file_creates_promptgoal_and_preserves_body() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let home = tmp.path().to_string_lossy().to_string();
+    let _env = EnvGuard::set(&[("HOME", home.as_str())]);
+    let content = "  \u{4e2d}\u{6587}\n\nfinal line\n";
+
+    let resp = send_post_bytes(
+        test_app(),
+        "/api/dump-file",
+        "text/plain; charset=utf-8",
+        content.as_bytes().to_vec(),
+    )
+    .await;
+    assert_status(&resp, StatusCode::OK);
+    let body = body_json(resp).await;
+    let path = std::path::PathBuf::from(body["path"].as_str().unwrap());
+
+    assert!(path.is_absolute());
+    assert_eq!(path.parent().unwrap(), tmp.path().join("promptgoal"));
+    assert_eq!(path.extension().unwrap(), "md");
+    assert_eq!(std::fs::read(path).unwrap(), content.as_bytes());
+}
+
+#[tokio::test]
+#[serial]
+async fn dump_file_rejects_only_a_zero_length_body() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let home = tmp.path().to_string_lossy().to_string();
+    let _env = EnvGuard::set(&[("HOME", home.as_str())]);
+
+    let empty = send_post_bytes(
+        test_app(),
+        "/api/dump-file",
+        "text/plain; charset=utf-8",
+        vec![],
+    )
+    .await;
+    assert_status(&empty, StatusCode::BAD_REQUEST);
+    assert_eq!(body_json(empty).await["error"], "empty_body");
+
+    let whitespace = send_post_bytes(
+        test_app(),
+        "/api/dump-file",
+        "text/plain; charset=utf-8",
+        b"  \n\t".to_vec(),
+    )
+    .await;
+    assert_status(&whitespace, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn file_diff_with_empty_filename_returns_400() {
     let resp = send_get(test_app(), "/api/git/file-diff?file=").await;
     assert_status(&resp, StatusCode::BAD_REQUEST);

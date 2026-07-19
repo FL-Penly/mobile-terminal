@@ -301,6 +301,14 @@
     flex-wrap: wrap;
   }
   .actions .spacer { flex: 1; }
+  .dump-result {
+    min-height: 20px;
+    color: var(--ok);
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .dump-result.err { color: var(--danger); }
   select {
     height: 34px;
     color: var(--text);
@@ -373,6 +381,7 @@
 
 <script>
 const API = '/api/user-config';
+const DUMP_API = '/api/dump-file';
 const DEFAULT_GROUP_ID = 'default';
 const VARIABLE_START = '【变量区】';
 const VARIABLE_END = '【执行区】';
@@ -902,6 +911,9 @@ function renderDetail() {
   ta.placeholder = 'prompt 内容...';
   ta.addEventListener('input', () => {
     preset.text = ta.value;
+    dumpBtn.disabled = !ta.value;
+    dumpResult.textContent = '';
+    dumpResult.className = 'dump-result';
   });
   ta.addEventListener('change', () => {
     renderPromptPane();
@@ -914,7 +926,16 @@ function renderDetail() {
   const copyBtn = document.createElement('button');
   copyBtn.className = 'primary';
   copyBtn.textContent = '复制内容';
-  copyBtn.addEventListener('click', () => copy(preset.text));
+  copyBtn.addEventListener('click', () => { void copy(ta.value); });
+
+  const dumpBtn = document.createElement('button');
+  dumpBtn.textContent = '落盘并复制路径';
+  dumpBtn.disabled = !ta.value;
+
+  const dumpResult = document.createElement('div');
+  dumpResult.className = 'dump-result';
+  dumpResult.setAttribute('role', 'status');
+  dumpBtn.addEventListener('click', () => { void dumpText(ta.value, dumpResult); });
 
   const moveSelect = document.createElement('select');
   config.presetGroups.forEach(target => {
@@ -950,11 +971,11 @@ function renderDetail() {
   delBtn.textContent = '删除';
   delBtn.addEventListener('click', () => removePreset(selectedPrompt));
 
-  actions.append(copyBtn);
+  actions.append(copyBtn, dumpBtn);
   if (moveSelect.options.length > 0) actions.append(moveSelect, moveBtn);
   if (copyToSelect.options.length > 0) actions.append(copyToSelect, copyToBtn);
   actions.append(spacer, delBtn);
-  d.append(title, ta, actions);
+  d.append(title, ta, actions, dumpResult);
 }
 
 function makeGroupId(label) {
@@ -1042,18 +1063,67 @@ function copyPresetToGroup(targetGroupId) {
   toast(`已复制到 ${target.label || '目标分组'}`);
 }
 
-async function copy(text) {
+async function copy(text, notify = true) {
+  let copied = false;
   try {
-    await navigator.clipboard.writeText(text || '');
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text || '');
+      copied = true;
+    }
   } catch (e) {
+    // Fall through to the selection-based fallback below.
+  }
+  if (!copied) {
     const ta = document.createElement('textarea');
     ta.value = text || '';
+    ta.readOnly = true;
+    ta.setAttribute('aria-hidden', 'true');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none';
     document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
+    try {
+      ta.focus();
+      ta.select();
+      copied = document.execCommand('copy');
+    } catch (e) {
+      copied = false;
+    } finally {
+      ta.remove();
+    }
   }
-  toast('已复制');
+  if (notify) toast(copied ? '已复制' : '复制失败，请手动复制');
+  return copied;
+}
+
+async function dumpText(text, resultEl) {
+  try {
+    const res = await fetch(DUMP_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: text,
+      signal: AbortSignal.timeout(3000),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      throw new Error('落盘接口返回了无效响应');
+    }
+    if (!res.ok) throw new Error(data?.message || '落盘失败');
+    if (!data || typeof data.path !== 'string' || !data.path) {
+      throw new Error('落盘接口未返回文件路径');
+    }
+    const copied = await copy(data.path, false);
+    resultEl.className = 'dump-result' + (copied ? '' : ' err');
+    resultEl.textContent = copied
+      ? `已落盘：${data.path}`
+      : `已落盘，但自动复制失败：${data.path}`;
+    toast(copied ? '已落盘并复制路径' : '已落盘，请手动复制路径');
+  } catch (e) {
+    console.error('[PromptBoard] Failed to dump text:', e);
+    resultEl.className = 'dump-result err';
+    resultEl.textContent = e instanceof Error ? e.message : '落盘失败';
+    toast('落盘失败');
+  }
 }
 
 $('reload').addEventListener('click', load);
