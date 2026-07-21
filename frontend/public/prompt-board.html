@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Prompt Board</title>
+<title>Prompt 库</title>
 <style>
   :root {
     --bg: #1b1d22;
@@ -344,11 +344,34 @@
     }
     .hint { display: none; }
   }
+
+  .mode-switch {
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, .18);
+  }
+  .mode-switch a {
+    padding: 4px 10px;
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .mode-switch a:hover { color: var(--text); }
+  .mode-switch a.active { background: var(--panel-3); color: var(--text); }
 </style>
 </head>
 <body>
   <header>
-    <h1>Prompt Board</h1>
+    <nav class="mode-switch" aria-label="Prompt Board 模式">
+      <a href="/prompt-board.html" class="active" aria-current="page">Prompt 库</a>
+      <a href="/goal-board.html">Goal 工作台</a>
+    </nav>
     <span class="hint">与 rust-terminal 共享 ~/.vibeterm.json，支持 prompt 分组</span>
     <div class="spacer"></div>
     <span id="status" class="status">加载中...</span>

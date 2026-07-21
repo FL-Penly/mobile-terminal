@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Goal 工作台</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #17191e;
+    --panel: #20232a;
+    --panel-2: #282c35;
+    --panel-3: #303642;
+    --border: #373d48;
+    --text: #e8eaed;
+    --muted: #929aa7;
+    --accent: #4a9eff;
+    --accent-soft: rgba(74, 158, 255, .14);
+    --danger: #ff6868;
+    --ok: #50c878;
+    --warning: #f0b35b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  }
+  button, input, textarea { font: inherit; }
+  button {
+    min-height: 34px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    background: var(--panel-2);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .42; cursor: not-allowed; }
+  button:disabled:hover { border-color: var(--border); }
+  button.primary { border-color: var(--accent); background: var(--accent); color: white; }
+  button.danger { color: var(--danger); }
+  button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  input, textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+    background: #191c22;
+    color: var(--text);
+    padding: 8px 10px;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  textarea { resize: vertical; }
+  header {
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, .1);
+  }
+  header h1 { margin: 0; font-size: 16px; }
+  .header-hint { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  .status { min-width: 82px; text-align: right; color: var(--muted); font-size: 12px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--danger); }
+  .layout {
+    height: calc(100vh - 52px);
+    display: grid;
+    grid-template-columns: 290px minmax(0, 1fr);
+    min-height: 0;
+  }
+  aside {
+    min-height: 0;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: rgba(0, 0, 0, .06);
+  }
+  .side-section + .side-section { border-top: 1px solid var(--border); }
+  .side-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: var(--bg);
+    border-bottom: 1px solid rgba(255, 255, 255, .04);
+  }
+  .side-title {
+    flex: 1;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .count { color: var(--muted); font-size: 11px; }
+  .icon-button { min-width: 30px; width: 30px; min-height: 30px; padding: 0; font-size: 18px; }
+  .item {
+    width: 100%;
+    min-height: 54px;
+    padding: 9px 12px;
+    display: block;
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .04);
+    border-radius: 0;
+    background: transparent;
+  }
+  .item:hover { background: var(--panel); border-color: rgba(255, 255, 255, .04); }
+  .item.active { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
+  .item-title { display: block; overflow: hidden; color: var(--text); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .item.active .item-title { color: var(--accent); }
+  .item-meta { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .family-item {
+    width: 100%;
+    min-height: 46px;
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .04);
+    border-radius: 0;
+    background: transparent;
+    text-align: left;
+  }
+  .family-item:hover, .family-item.open { background: var(--panel); border-color: rgba(255, 255, 255, .04); }
+  .family-item.active-family .item-title { color: var(--accent); }
+  .family-caret { width: 14px; color: var(--muted); font-size: 11px; text-align: center; }
+  .family-count { color: var(--muted); font-size: 11px; }
+  .scenario-list { background: rgba(0, 0, 0, .12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025); }
+  .item.scenario-item { min-height: 48px; padding-left: 34px; }
+  .side-empty { padding: 18px 12px; color: var(--muted); font-size: 12px; }
+  main { min-width: 0; min-height: 0; overflow-y: auto; padding: 22px; }
+  .card {
+    width: min(100%, 980px);
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .16);
+  }
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-heading { min-width: 0; flex: 1; }
+  .card-heading h2 { margin: 0; overflow-wrap: anywhere; font-size: 20px; }
+  .eyebrow { margin-bottom: 4px; color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+  .meta { margin-top: 5px; color: var(--muted); font-size: 12px; }
+  .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .card-body { padding: 20px; }
+  .section + .section { margin-top: 22px; }
+  .section-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+  .readonly-body {
+    min-height: 220px;
+    margin: 0;
+    padding: 14px;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #191c22;
+    color: var(--text);
+    font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+  }
+  .variable-list { display: grid; gap: 10px; }
+  .variable-readonly, .variable-edit {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+  .variable-name {
+    padding-top: 8px;
+    overflow-wrap: anywhere;
+    color: var(--accent);
+    font: 650 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .variable-value {
+    min-height: 38px;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: #191c22;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+  }
+  .variable-edit { grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) auto; }
+  .variable-edit textarea { min-height: 58px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .row-actions { display: flex; gap: 5px; }
+  .row-actions button { min-width: 32px; padding: 4px 8px; }
+  .body-editor { min-height: 48vh; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .field-label { display: block; margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+  .title-field { font-size: 18px; font-weight: 700; }
+  .notice {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border: 1px solid rgba(74, 158, 255, .35);
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: #cfe5ff;
+    font-size: 12px;
+  }
+  .notice.error { border-color: rgba(255, 104, 104, .4); background: rgba(255, 104, 104, .1); color: #ffc3c3; }
+  .notice.success { border-color: rgba(80, 200, 120, .35); background: rgba(80, 200, 120, .1); color: #bff0cf; }
+  .notice-row { display: flex; align-items: center; gap: 10px; }
+  .notice-row span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .empty-state {
+    width: min(100%, 620px);
+    margin: 14vh auto 0;
+    padding: 42px 24px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .empty-state h2 { margin: 0 0 8px; color: var(--text); }
+  .validation { min-height: 20px; margin-top: 8px; color: var(--danger); font-size: 12px; }
+  .toast {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 20;
+    max-width: min(420px, calc(100vw - 36px));
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel-3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: .18s ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .selection-menu {
+    position: fixed;
+    z-index: 40;
+    display: none;
+    min-width: 178px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--panel-3);
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .42);
+  }
+  .selection-menu.show { display: block; }
+  .selection-menu button {
+    width: 100%;
+    min-height: 36px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+  }
+  .selection-menu button:hover { background: var(--accent-soft); }
+  .selection-menu-hint { padding: 2px 10px 5px; color: var(--muted); font-size: 10px; }
+  @media (max-width: 780px) {
+    .header-hint { display: none; }
+    header { padding-inline: 10px; }
+    header .ghost { display: none; }
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(180px, 35vh) minmax(0, 1fr);
+    }
+    aside { border-right: 0; border-bottom: 1px solid var(--border); }
+    main { padding: 10px; }
+    .card-head { display: block; padding: 14px; }
+    .actions { justify-content: flex-start; margin-top: 12px; }
+    .card-body { padding: 14px; }
+    .variable-readonly, .variable-edit { grid-template-columns: 1fr; gap: 5px; }
+    .variable-name { padding-top: 0; }
+    .variable-edit .row-actions { justify-content: flex-end; }
+    .body-editor { min-height: 42vh; }
+  }
+
+  .mode-switch {
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, .18);
+  }
+  .mode-switch a {
+    padding: 4px 10px;
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .mode-switch a:hover { color: var(--text); }
+  .mode-switch a.active { background: var(--panel-3); color: var(--text); }
+</style>
+</head>
+<body>
+  <header>
+    <nav class="mode-switch" aria-label="Prompt Board 模式">
+      <a href="/prompt-board.html">Prompt 库</a>
+      <a href="/goal-board.html" class="active" aria-current="page">Goal 工作台</a>
+    </nav>
+    <span class="header-hint">Goal 母版与持久化工作副本</span>
+    <div class="spacer"></div>
+    <span id="status" class="status">加载中...</span>
+    <button id="reload" class="ghost">刷新</button>
+  </header>
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <main id="detail"></main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <div id="selection-menu" class="selection-menu" role="menu"></div>
+
+<script>
+const WORKSPACE_API = '/api/goal-workspace';
+const DUMP_API = '/api/goal-dump';
+const VARIABLE_START = '【变量区】';
+const EXECUTION_START = '【执行区】';
+
+let workspace = { version: 1, templates: [], workingCopies: [], activeItem: null };
+let templateDraft = null;
+let editingTemplateId = null;
+let saveTimer = null;
+let saveChain = Promise.resolve();
+let savedSelection = { copyId: null, start: 0, end: 0 };
+let undoReplacement = null;
+let lastDumpPath = '';
+let lastDumpMessage = '';
+let lastDumpError = false;
+let expandedTemplateFamily = null;
+
+const byId = (id) => document.getElementById(id);
+const statusEl = byId('status');
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeWorkspace(value) {
+  if (!isRecord(value)) throw new Error('工作台数据格式无效');
+  const templates = Array.isArray(value.templates) ? value.templates : [];
+  const workingCopies = Array.isArray(value.workingCopies) ? value.workingCopies : [];
+  const activeItem = isRecord(value.activeItem) ? value.activeItem : null;
+  return { version: 1, templates, workingCopies, activeItem };
+}
+
+function setStatus(text, className) {
+  statusEl.textContent = text;
+  statusEl.className = 'status' + (className ? ' ' + className : '');
+}
+
+function toast(message) {
+  const element = byId('toast');
+  element.textContent = message;
+  element.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => element.classList.remove('show'), 1800);
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function makeId(prefix) {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return prefix + '-' + globalThis.crypto.randomUUID();
+  }
+  return prefix + '-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function localDateTime() {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date());
+}
+
+function formatUpdated(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function currentTemplate() {
+  if (workspace.activeItem?.kind !== 'template') return null;
+  return workspace.templates.find((item) => item.id === workspace.activeItem.id) ?? null;
+}
+
+function currentCopy() {
+  if (workspace.activeItem?.kind !== 'copy') return null;
+  return workspace.workingCopies.find((item) => item.id === workspace.activeItem.id) ?? null;
+}
+
+function snapshotWorkspace() {
+  return JSON.stringify(workspace);
+}
+
+function enqueueSave(snapshot) {
+  saveChain = saveChain.catch(() => undefined).then(async () => {
+    setStatus('保存中...');
+    const response = await fetch(WORKSPACE_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: snapshot,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || '保存失败（' + response.status + '）');
+    }
+    setStatus('已保存', 'ok');
+  }).catch((error) => {
+    console.error('[PromptBoard] Failed to save workspace:', error);
+    setStatus('保存失败', 'err');
+    throw error;
+  });
+  return saveChain;
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setStatus('待保存');
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    enqueueSave(snapshotWorkspace()).catch(() => undefined);
+  }, 450);
+}
+
+function persistNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  return enqueueSave(snapshotWorkspace());
+}
+
+async function loadWorkspace() {
+  clearTimeout(saveTimer);
+  setStatus('加载中...');
+  try {
+    const response = await fetch(WORKSPACE_API);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || '加载失败（' + response.status + '）');
+    }
+    workspace = normalizeWorkspace(await response.json());
+    templateDraft = null;
+    editingTemplateId = null;
+    undoReplacement = null;
+    lastDumpPath = '';
+    lastDumpMessage = '';
+    lastDumpError = false;
+    if (!resolveActiveItem()) {
+      workspace.activeItem = workspace.templates[0]
+        ? { kind: 'template', id: workspace.templates[0].id }
+        : (sortedCopies()[0] ? { kind: 'copy', id: sortedCopies()[0].id } : null);
+    }
+    render();
+    setStatus('已加载', 'ok');
+  } catch (error) {
+    console.error('[PromptBoard] Failed to load workspace:', error);
+    setStatus('加载失败', 'err');
+    byId('detail').innerHTML = '<div class="empty-state"><h2>无法加载 Goal 工作台</h2><p>' +
+      escapeHtml(error instanceof Error ? error.message : String(error)) +
+      '</p><button id="retry-load">重试</button></div>';
+    byId('retry-load')?.addEventListener('click', loadWorkspace);
+  }
+}
+
+function resolveActiveItem() {
+  if (workspace.activeItem?.kind === 'template') {
+    return workspace.templates.some((item) => item.id === workspace.activeItem.id);
+  }
+  if (workspace.activeItem?.kind === 'copy') {
+    return workspace.workingCopies.some((item) => item.id === workspace.activeItem.id);
+  }
+  return false;
+}
+
+function sortedCopies() {
+  return [...workspace.workingCopies].sort((a, b) => {
+    return String(b.updatedAt).localeCompare(String(a.updatedAt));
+  });
+}
+
+const GOAL_SCENARIOS = ['BOE 飞书', 'BOE Nexus', '非 IM', 'PPE'];
+
+function templateFamily(template) {
+  const title = String(template.title || '未命名母版');
+  for (const scenario of GOAL_SCENARIOS) {
+    const suffix = '｜' + scenario;
+    if (title.endsWith(suffix)) {
+      return { name: title.slice(0, -suffix.length), scenario };
+    }
+  }
+  return { name: title, scenario: '完整 Goal' };
+}
+
+function groupedTemplates() {
+  const groups = new Map();
+  workspace.templates.forEach((template) => {
+    const family = templateFamily(template);
+    if (!groups.has(family.name)) groups.set(family.name, []);
+    groups.get(family.name).push({ template, scenario: family.scenario });
+  });
+  return Array.from(groups, ([name, items]) => ({ name, items }));
+}
+
+function selectItem(kind, id) {
+  if (templateDraft && !confirm('当前母版编辑尚未保存，确定放弃更改吗？')) return;
+  templateDraft = null;
+  editingTemplateId = null;
+  workspace.activeItem = { kind, id };
+  if (kind === 'template') {
+    const template = workspace.templates.find((item) => item.id === id);
+    if (template) expandedTemplateFamily = templateFamily(template).name;
+  }
+  savedSelection = { copyId: null, start: 0, end: 0 };
+  undoReplacement = null;
+  lastDumpPath = '';
+  lastDumpMessage = '';
+  lastDumpError = false;
+  render();
+  scheduleSave();
+}
+
+function render() {
+  renderSidebar();
+  renderDetail();
+}
+
+function renderSidebar() {
+  const active = workspace.activeItem;
+  const families = groupedTemplates();
+  const activeTemplate = active?.kind === 'template'
+    ? workspace.templates.find((template) => template.id === active.id)
+    : null;
+  const activeFamily = activeTemplate ? templateFamily(activeTemplate).name : null;
+  if (!expandedTemplateFamily && activeFamily) expandedTemplateFamily = activeFamily;
+  if (!expandedTemplateFamily && families[0]) expandedTemplateFamily = families[0].name;
+  const templateRows = families.map((family) => {
+    const open = expandedTemplateFamily === family.name;
+    const familyClass = (open ? ' open' : '') + (activeFamily === family.name ? ' active-family' : '');
+    const scenarios = open ? '<div class="scenario-list">' + family.items.map(({ template, scenario }) => {
+      const activeClass = active?.kind === 'template' && active.id === template.id ? ' active' : '';
+      return '<button class="item scenario-item' + activeClass + '" data-kind="template" data-id="' +
+        escapeHtml(template.id) + '"><span class="item-title">' + escapeHtml(scenario) +
+        '</span><span class="item-meta">' + template.variables.length + ' 个变量 · ' +
+        escapeHtml(formatUpdated(template.updatedAt)) + '</span></button>';
+    }).join('') + '</div>' : '';
+    return '<button class="family-item' + familyClass + '" data-template-family="' + escapeHtml(family.name) + '">' +
+      '<span class="family-caret">' + (open ? '▼' : '▶') + '</span><span class="item-title">' +
+      escapeHtml(family.name) + '</span><span class="family-count">' + family.items.length + '</span></button>' + scenarios;
+  }).join('');
+  const copyRows = sortedCopies().map((copy) => {
+    const activeClass = active?.kind === 'copy' && active.id === copy.id ? ' active' : '';
+    return '<button class="item' + activeClass + '" data-kind="copy" data-id="' +
+      escapeHtml(copy.id) + '"><span class="item-title">' + escapeHtml(copy.title || '未命名副本') +
+      '</span><span class="item-meta">' + escapeHtml(copy.sourceTemplateTitle || '独立副本') + ' · ' +
+      escapeHtml(formatUpdated(copy.updatedAt)) + '</span></button>';
+  }).join('');
+  byId('sidebar').innerHTML =
+    '<section class="side-section"><div class="side-head"><span class="side-title">Goal 母版</span>' +
+    '<span class="count">' + families.length + ' 组 · ' + workspace.templates.length + '</span></div>' +
+    (templateRows || '<div class="side-empty">Prompt 库中暂无名称或 ID 包含 Goal 的分组</div>') + '</section>' +
+    '<section class="side-section"><div class="side-head"><span class="side-title">工作副本</span>' +
+    '<span class="count">' + workspace.workingCopies.length + '</span></div>' +
+    (copyRows || '<div class="side-empty">从母版创建独立工作副本</div>') + '</section>';
+  byId('sidebar').querySelectorAll('[data-template-family]').forEach((element) => {
+    element.addEventListener('click', () => {
+      expandedTemplateFamily = element.dataset.templateFamily;
+      renderSidebar();
+    });
+  });
+  byId('sidebar').querySelectorAll('[data-kind]').forEach((element) => {
+    element.addEventListener('click', () => selectItem(element.dataset.kind, element.dataset.id));
+  });
+}
+
+function renderDetail() {
+  if (templateDraft) {
+    renderTemplateEditor();
+    return;
+  }
+  const template = currentTemplate();
+  if (template) {
+    renderTemplateView(template);
+    return;
+  }
+  const copy = currentCopy();
+  if (copy) {
+    renderCopyView(copy);
+    return;
+  }
+  byId('detail').innerHTML =
+    '<div class="empty-state"><h2>暂无 Goal 分组</h2>' +
+    '<p>请先在 Prompt 库创建名称或 ID 包含 Goal 的分组；其中的块会按顺序自动合成一份完整母版。</p>' +
+    '<a href="/prompt-board.html"><button class="primary">前往 Prompt 库</button></a></div>';
+}
+
+function startNewTemplate() {
+  if (templateDraft && !confirm('当前母版编辑尚未保存，确定放弃更改吗？')) return;
+  const timestamp = nowIso();
+  editingTemplateId = null;
+  templateDraft = {
+    id: makeId('template'),
+    title: '新 Goal 母版',
+    variables: [],
+    body: '',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  render();
+  requestAnimationFrame(() => byId('template-title')?.select());
+}
+
+function startEditTemplate(template) {
+  editingTemplateId = template.id;
+  templateDraft = clone(template);
+  renderDetail();
+}
+
+function cancelTemplateEdit() {
+  templateDraft = null;
+  editingTemplateId = null;
+  render();
+}
+
+function validateTemplateDraft() {
+  if (!templateDraft.title.trim()) return '母版名称不能为空';
+  const seen = new Set();
+  for (const variable of templateDraft.variables) {
+    const name = variable.name.trim();
+    if (!name) return '变量名不能为空';
+    if (/[\r\n=]/.test(name)) return '变量名不能包含换行或 =';
+    const normalized = name.toLocaleLowerCase();
+    if (seen.has(normalized)) return '变量名不能重复（忽略大小写）：' + name;
+    seen.add(normalized);
+  }
+  return '';
+}
+
+function saveTemplateDraft() {
+  const error = validateTemplateDraft();
+  const validation = byId('template-validation');
+  if (validation) validation.textContent = error;
+  if (error) return;
+  templateDraft.title = templateDraft.title.trim();
+  templateDraft.variables.forEach((variable) => {
+    variable.name = variable.name.trim();
+  });
+  templateDraft.updatedAt = nowIso();
+  if (editingTemplateId) {
+    const index = workspace.templates.findIndex((item) => item.id === editingTemplateId);
+    if (index >= 0) workspace.templates[index] = clone(templateDraft);
+  } else {
+    workspace.templates.push(clone(templateDraft));
+  }
+  workspace.activeItem = { kind: 'template', id: templateDraft.id };
+  templateDraft = null;
+  editingTemplateId = null;
+  render();
+  persistNow().catch(() => toast('母版保存失败，可继续编辑后重试'));
+}
+
+function renderTemplateEditor() {
+  const variableRows = templateDraft.variables.map((variable, index) => {
+    return '<div class="variable-edit" data-variable-index="' + index + '">' +
+      '<input class="draft-variable-name" value="' + escapeHtml(variable.name) + '" aria-label="变量名" placeholder="VARIABLE_NAME" />' +
+      '<textarea class="draft-variable-value" aria-label="变量默认值" placeholder="默认值，可多行">' +
+      escapeHtml(variable.defaultValue) + '</textarea>' +
+      '<div class="row-actions"><button data-move="-1" title="上移">↑</button><button data-move="1" title="下移">↓</button>' +
+      '<button data-remove title="删除变量" class="danger">×</button></div></div>';
+  }).join('');
+  byId('detail').innerHTML =
+    '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">' +
+    (editingTemplateId ? '编辑 Goal 母版' : '新建 Goal 母版') +
+    '</div><h2>变量定义与完整正文</h2><div class="meta">更改只有在显式保存后才会写入母版</div></div>' +
+    '<div class="actions"><button id="cancel-template">取消</button><button id="save-template" class="primary">保存母版</button></div></div>' +
+    '<div class="card-body"><section class="section"><label class="field-label" for="template-title">母版名称</label>' +
+    '<input id="template-title" class="title-field" value="' + escapeHtml(templateDraft.title) + '" /></section>' +
+    '<section class="section"><span class="section-label">顶部变量区（有序）</span><div id="draft-variables" class="variable-list">' +
+    (variableRows || '<div class="notice">尚未定义变量。变量会始终出现在最终 Goal 的最前面。</div>') +
+    '</div><div style="margin-top:10px"><button id="add-variable">+ 添加变量</button></div></section>' +
+    '<section class="section"><label class="section-label" for="template-body">完整 Goal 正文</label>' +
+    '<textarea id="template-body" class="body-editor" placeholder="在这里编写完整 Goal 正文...">' +
+    escapeHtml(templateDraft.body) + '</textarea></section>' +
+    '<div id="template-validation" class="validation"></div></div></article>';
+
+  byId('template-title').addEventListener('input', (event) => { templateDraft.title = event.target.value; });
+  byId('template-body').addEventListener('input', (event) => { templateDraft.body = event.target.value; });
+  byId('cancel-template').addEventListener('click', cancelTemplateEdit);
+  byId('save-template').addEventListener('click', saveTemplateDraft);
+  byId('add-variable').addEventListener('click', () => {
+    templateDraft.variables.push({ name: '', defaultValue: '' });
+    renderTemplateEditor();
+    const names = byId('draft-variables').querySelectorAll('.draft-variable-name');
+    names[names.length - 1]?.focus();
+  });
+  byId('draft-variables').querySelectorAll('[data-variable-index]').forEach((row) => {
+    const index = Number(row.dataset.variableIndex);
+    row.querySelector('.draft-variable-name').addEventListener('input', (event) => {
+      templateDraft.variables[index].name = event.target.value;
+    });
+    row.querySelector('.draft-variable-value').addEventListener('input', (event) => {
+      templateDraft.variables[index].defaultValue = event.target.value;
+    });
+    row.querySelector('[data-remove]').addEventListener('click', () => {
+      templateDraft.variables.splice(index, 1);
+      renderTemplateEditor();
+    });
+    row.querySelectorAll('[data-move]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = index + Number(button.dataset.move);
+        if (target < 0 || target >= templateDraft.variables.length) return;
+        const moved = templateDraft.variables.splice(index, 1)[0];
+        templateDraft.variables.splice(target, 0, moved);
+        renderTemplateEditor();
+      });
+    });
+  });
+}
+
+function renderTemplateView(template) {
+  const variables = template.variables.map((variable) => {
+    return '<div class="variable-readonly"><div class="variable-name">' + escapeHtml(variable.name) +
+      '</div><pre class="variable-value">' + escapeHtml(variable.defaultValue) + '</pre></div>';
+  }).join('');
+  byId('detail').innerHTML =
+    '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">Goal 分组自动合并 · 只读</div>' +
+    '<h2>' + escapeHtml(template.title || '未命名母版') + '</h2><div class="meta">更新于 ' +
+    escapeHtml(formatUpdated(template.updatedAt)) + ' · 已按 Prompt 库中的块顺序拼成完整内容</div></div>' +
+    '<div class="actions"><button id="create-copy" class="primary">新建工作副本</button>' +
+    '<button id="copy-template">复制完整 Goal</button></div></div>' +
+    '<div class="card-body"><section class="section"><span class="section-label">变量默认值</span>' +
+    '<div class="variable-list">' + (variables || '<div class="notice">此母版没有变量。</div>') + '</div></section>' +
+    '<section class="section"><span class="section-label">完整 Goal 正文</span><pre class="readonly-body">' +
+    escapeHtml(template.body) + '</pre></section></div></article>';
+  byId('create-copy').addEventListener('click', () => createWorkingCopy(template));
+  byId('copy-template').addEventListener('click', () => copyCompleteGoal(
+    template.variables.map((variable) => ({ name: variable.name, value: variable.defaultValue })),
+    template.body
+  ));
+}
+
+function createWorkingCopy(template) {
+  const timestamp = nowIso();
+  const copy = {
+    id: makeId('copy'),
+    sourceTemplateId: template.id,
+    sourceTemplateTitle: template.title,
+    title: template.title + ' · ' + localDateTime(),
+    variables: template.variables.map((variable) => ({
+      name: variable.name,
+      value: variable.defaultValue,
+    })),
+    body: template.body,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  workspace.workingCopies.push(copy);
+  workspace.activeItem = { kind: 'copy', id: copy.id };
+  undoReplacement = null;
+  lastDumpPath = '';
+  lastDumpMessage = '';
+  lastDumpError = false;
+  render();
+  persistNow().catch(() => toast('工作副本保存失败，可继续编辑后重试'));
+}
+
+function deleteTemplate(template) {
+  if (!confirm('删除母版“' + template.title + '”？已有工作副本和附件会保留。')) return;
+  workspace.templates = workspace.templates.filter((item) => item.id !== template.id);
+  workspace.activeItem = sortedCopies()[0]
+    ? { kind: 'copy', id: sortedCopies()[0].id }
+    : (workspace.templates[0] ? { kind: 'template', id: workspace.templates[0].id } : null);
+  render();
+  persistNow().catch(() => toast('删除保存失败'));
+}
+
+function deleteCopy(copy) {
+  if (!confirm('删除工作副本“' + copy.title + '”？已经落盘的附件会继续保留。')) return;
+  workspace.workingCopies = workspace.workingCopies.filter((item) => item.id !== copy.id);
+  workspace.activeItem = sortedCopies()[0]
+    ? { kind: 'copy', id: sortedCopies()[0].id }
+    : (workspace.templates[0] ? { kind: 'template', id: workspace.templates[0].id } : null);
+  undoReplacement = null;
+  render();
+  persistNow().catch(() => toast('删除保存失败'));
+}
+
+function touchCopy(copy) {
+  copy.updatedAt = nowIso();
+  scheduleSave();
+}
+
+function rememberSelection(textarea, copy) {
+  if (!textarea || document.activeElement !== textarea && textarea.selectionStart === null) return;
+  savedSelection = {
+    copyId: copy.id,
+    start: textarea.selectionStart ?? 0,
+    end: textarea.selectionEnd ?? 0,
+  };
+  updateDumpButton(copy);
+}
+
+function hasSelection(copy) {
+  return savedSelection.copyId === copy.id && savedSelection.end > savedSelection.start;
+}
+
+function updateDumpButton(copy) {
+  const button = byId('dump-selection');
+  if (button) button.disabled = !hasSelection(copy) || button.dataset.loading === 'true';
+}
+
+function hideSelectionMenu() {
+  const menu = byId('selection-menu');
+  menu.classList.remove('show');
+  menu.innerHTML = '';
+}
+
+function showSelectionMenu(event, copy, textarea) {
+  rememberSelection(textarea, copy);
+  if (!hasSelection(copy)) return;
+  event.preventDefault();
+  const menu = byId('selection-menu');
+  menu.innerHTML = '<button id="context-dump-selection" role="menuitem">落盘选中内容</button>' +
+    '<div class="selection-menu-hint">Ctrl/Cmd + Alt + S</div>';
+  menu.classList.add('show');
+  menu.style.left = Math.max(8, event.clientX) + 'px';
+  menu.style.top = Math.max(8, event.clientY) + 'px';
+  const bounds = menu.getBoundingClientRect();
+  if (bounds.right > window.innerWidth - 8) {
+    menu.style.left = Math.max(8, window.innerWidth - bounds.width - 8) + 'px';
+  }
+  if (bounds.bottom > window.innerHeight - 8) {
+    menu.style.top = Math.max(8, window.innerHeight - bounds.height - 8) + 'px';
+  }
+  byId('context-dump-selection').addEventListener('click', () => {
+    hideSelectionMenu();
+    dumpSelection(copy, textarea);
+  });
+}
+
+function renderDumpFeedback(copy) {
+  const container = byId('dump-feedback');
+  if (!container) return;
+  if (!lastDumpMessage && !lastDumpPath) {
+    container.innerHTML = '';
+    return;
+  }
+  const className = lastDumpError ? 'notice error' : 'notice success';
+  const path = lastDumpPath ? '<div style="margin-top:4px">' + escapeHtml(lastDumpPath) + '</div>' : '';
+  const undo = undoReplacement?.copyId === copy.id
+    ? '<button id="undo-replacement">撤销替换</button>'
+    : '';
+  container.innerHTML = '<div class="' + className + ' notice-row"><span>' +
+    escapeHtml(lastDumpMessage) + path + '</span>' + undo + '</div>';
+  byId('undo-replacement')?.addEventListener('click', () => undoDumpReplacement(copy));
+}
+
+function renderCopyView(copy) {
+  const variables = copy.variables.map((variable, index) => {
+    return '<div class="variable-readonly" data-copy-variable-index="' + index + '">' +
+      '<div class="variable-name">' + escapeHtml(variable.name) + '</div>' +
+      '<textarea class="copy-variable-value" aria-label="' + escapeHtml(variable.name) +
+      ' 的值" placeholder="本次变量值，可多行">' + escapeHtml(variable.value) + '</textarea></div>';
+  }).join('');
+  byId('detail').innerHTML =
+    '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">工作副本 · 自动保存</div>' +
+    '<input id="copy-title" class="title-field" aria-label="工作副本名称" value="' + escapeHtml(copy.title) + '" />' +
+    '<div class="meta">源母版：' + escapeHtml(copy.sourceTemplateTitle || '已删除的母版') +
+    ' · 更新于 ' + escapeHtml(formatUpdated(copy.updatedAt)) + '</div></div>' +
+    '<div class="actions"><button id="dump-selection" disabled>落盘选中</button>' +
+    '<button id="copy-goal" class="primary">复制完整 Goal</button><button id="delete-copy" class="danger">删除</button></div></div>' +
+    '<div class="card-body"><div id="dump-feedback"></div>' +
+    '<section class="section"><span class="section-label">本次变量值（变量定义请在母版维护）</span>' +
+    '<div class="variable-list">' + (variables || '<div class="notice">此副本没有变量。</div>') + '</div></section>' +
+    '<section class="section"><label class="section-label" for="copy-body">完整 Goal 正文 · 选中文字后右键可落盘</label>' +
+    '<textarea id="copy-body" class="body-editor" placeholder="在这里编辑本次完整 Goal...">' +
+    escapeHtml(copy.body) + '</textarea></section></div></article>';
+
+  const bodyEditor = byId('copy-body');
+  const titleEditor = byId('copy-title');
+  const dumpButton = byId('dump-selection');
+  titleEditor.addEventListener('input', (event) => {
+    copy.title = event.target.value;
+    touchCopy(copy);
+    const sideTitle = byId('sidebar').querySelector('[data-kind="copy"][data-id="' + CSS.escape(copy.id) + '"] .item-title');
+    if (sideTitle) sideTitle.textContent = copy.title || '未命名副本';
+  });
+  byId('detail').querySelectorAll('[data-copy-variable-index]').forEach((row) => {
+    const index = Number(row.dataset.copyVariableIndex);
+    row.querySelector('textarea').addEventListener('input', (event) => {
+      copy.variables[index].value = event.target.value;
+      touchCopy(copy);
+    });
+  });
+  bodyEditor.addEventListener('input', (event) => {
+    copy.body = event.target.value;
+    if (undoReplacement?.copyId === copy.id && copy.body !== undoReplacement.afterBody) {
+      undoReplacement = null;
+      lastDumpMessage = lastDumpPath ? '附件已保留；正文继续编辑后不可再撤销替换。' : '';
+      renderDumpFeedback(copy);
+    }
+    touchCopy(copy);
+    rememberSelection(bodyEditor, copy);
+  });
+  ['select', 'keyup', 'pointerup', 'touchend', 'blur'].forEach((eventName) => {
+    bodyEditor.addEventListener(eventName, () => rememberSelection(bodyEditor, copy));
+  });
+  bodyEditor.addEventListener('contextmenu', (event) => showSelectionMenu(event, copy, bodyEditor));
+  dumpButton.addEventListener('pointerdown', () => rememberSelection(bodyEditor, copy));
+  dumpButton.addEventListener('click', () => dumpSelection(copy, bodyEditor));
+  byId('copy-goal').addEventListener('click', () => copyCompleteGoal(copy.variables, copy.body));
+  byId('delete-copy').addEventListener('click', () => deleteCopy(copy));
+  renderDumpFeedback(copy);
+  updateDumpButton(copy);
+}
+
+function formatVariable(name, value) {
+  const lines = String(value ?? '').split(/\r?\n/);
+  const first = lines.shift() ?? '';
+  return name + ' = ' + first + lines.map((line) => '\n  ' + line).join('');
+}
+
+function completeGoalText(variables, body) {
+  const variableBlock = variables.map((variable) => {
+    return formatVariable(variable.name, variable.value);
+  }).join('\n');
+  return VARIABLE_START + '\n' + variableBlock + '\n\n' + EXECUTION_START + '\n' + String(body ?? '');
+}
+
+async function writeClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    const fallback = document.createElement('textarea');
+    fallback.value = text;
+    fallback.style.position = 'fixed';
+    fallback.style.opacity = '0';
+    document.body.appendChild(fallback);
+    fallback.select();
+    const copied = document.execCommand('copy');
+    fallback.remove();
+    if (!copied) throw error;
+  }
+}
+
+function copyCompleteGoal(variables, body) {
+  writeClipboard(completeGoalText(variables, body))
+    .then(() => toast('完整 Goal 已复制'))
+    .catch((error) => {
+      console.error('[PromptBoard] Failed to copy goal:', error);
+      toast('复制失败，请重试');
+    });
+}
+
+async function dumpSelection(copy, textarea) {
+  rememberSelection(textarea, copy);
+  if (!hasSelection(copy)) return;
+  const start = savedSelection.start;
+  const end = savedSelection.end;
+  const beforeBody = copy.body;
+  const selectedText = beforeBody.slice(start, end);
+  if (!selectedText) return;
+  const textareaScrollTop = textarea.scrollTop;
+  const textareaScrollLeft = textarea.scrollLeft;
+  const pageScrollX = window.scrollX;
+  const pageScrollY = window.scrollY;
+  const button = byId('dump-selection');
+  button.dataset.loading = 'true';
+  button.disabled = true;
+  button.textContent = '落盘中...';
+  lastDumpError = false;
+  lastDumpMessage = '';
+  renderDumpFeedback(copy);
+  try {
+    // Goal dump validation reads the persisted workspace. Keep this request
+    // behind all queued saves so a newly-created copy always exists first.
+    await persistNow();
+    const response = await fetch(DUMP_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workingCopyId: copy.id, text: selectedText }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || typeof payload.path !== 'string') {
+      throw new Error(payload.message || '落盘失败（' + response.status + '）');
+    }
+    const replacement = payload.path;
+    const afterBody = beforeBody.slice(0, start) + replacement + beforeBody.slice(end);
+    copy.body = afterBody;
+    copy.updatedAt = nowIso();
+    undoReplacement = { copyId: copy.id, beforeBody, afterBody };
+    lastDumpPath = payload.path;
+    lastDumpMessage = '选区已落盘并在原位置替换。';
+    lastDumpError = false;
+    textarea.value = afterBody;
+    const cursor = start + replacement.length;
+    savedSelection = { copyId: copy.id, start: cursor, end: cursor };
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(cursor, cursor);
+    textarea.scrollTop = textareaScrollTop;
+    textarea.scrollLeft = textareaScrollLeft;
+    window.scrollTo(pageScrollX, pageScrollY);
+    requestAnimationFrame(() => {
+      textarea.scrollTop = textareaScrollTop;
+      textarea.scrollLeft = textareaScrollLeft;
+      window.scrollTo(pageScrollX, pageScrollY);
+    });
+    renderDumpFeedback(copy);
+    try {
+      await persistNow();
+    } catch (error) {
+      lastDumpError = true;
+      lastDumpMessage = '附件已生成，但副本保存失败；请继续编辑以重试自动保存。';
+      renderDumpFeedback(copy);
+    }
+  } catch (error) {
+    console.error('[PromptBoard] Failed to dump selection:', error);
+    lastDumpPath = '';
+    lastDumpError = true;
+    lastDumpMessage = (error instanceof Error ? error.message : String(error)) + '，正文未改变，可重试。';
+    renderDumpFeedback(copy);
+  } finally {
+    button.dataset.loading = 'false';
+    button.textContent = '落盘选中';
+    updateDumpButton(copy);
+  }
+}
+
+function undoDumpReplacement(copy) {
+  if (!undoReplacement || undoReplacement.copyId !== copy.id) return;
+  copy.body = undoReplacement.beforeBody;
+  copy.updatedAt = nowIso();
+  const textarea = byId('copy-body');
+  if (textarea) {
+    textarea.value = copy.body;
+    textarea.focus();
+  }
+  undoReplacement = null;
+  savedSelection = { copyId: copy.id, start: 0, end: 0 };
+  lastDumpError = false;
+  lastDumpMessage = '引用替换已撤销；已经生成的附件继续保留。';
+  renderDumpFeedback(copy);
+  updateDumpButton(copy);
+  persistNow().catch(() => {
+    lastDumpError = true;
+    lastDumpMessage = '正文已恢复，但保存失败；请继续编辑以重试自动保存。';
+    renderDumpFeedback(copy);
+  });
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') hideSelectionMenu();
+  if (!event.altKey || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+  const copy = currentCopy();
+  const textarea = byId('copy-body');
+  if (!copy || !textarea) return;
+  rememberSelection(textarea, copy);
+  if (!hasSelection(copy)) return;
+  event.preventDefault();
+  dumpSelection(copy, textarea);
+});
+
+document.addEventListener('pointerdown', (event) => {
+  const menu = byId('selection-menu');
+  if (!menu.contains(event.target)) hideSelectionMenu();
+});
+window.addEventListener('blur', hideSelectionMenu);
+window.addEventListener('resize', hideSelectionMenu);
+
+byId('reload').addEventListener('click', () => {
+  if (templateDraft && !confirm('当前母版编辑尚未保存，确定重新加载吗？')) return;
+  loadWorkspace();
+});
+
+loadWorkspace();
+</script>
+</body>
+</html>

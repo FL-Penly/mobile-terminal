@@ -14,6 +14,7 @@ FRONTEND_DIST="$SCRIPT_DIR/frontend/dist/index.html"
 
 if [ ! -f "$FRONTEND_DIST" ] || [ -n "$(find \
     "$SCRIPT_DIR/frontend/src" \
+    "$SCRIPT_DIR/frontend/public" \
     "$SCRIPT_DIR/frontend/package.json" \
     "$SCRIPT_DIR/frontend/package-lock.json" \
     "$SCRIPT_DIR/frontend/tsconfig.json" \

@@ -19,7 +19,7 @@ use futures_util::{SinkExt, StreamExt};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     convert::Infallible,
     fs::OpenOptions,
     hash::{Hash, Hasher},
@@ -195,6 +195,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tmux/page-up", get(api_tmux_page_up))
         .route("/api/events", get(api_events))
         .route("/api/dump-file", post(api_dump_file))
+        .route(
+            "/api/goal-workspace",
+            get(api_get_goal_workspace).post(api_set_goal_workspace),
+        )
+        .route("/api/goal-dump", post(api_goal_dump))
         .route("/api/upload", post(api_upload_file))
         .route("/api/upload-image", post(api_upload_file))
         .route(
@@ -3038,6 +3043,825 @@ async fn api_set_user_config(body: axum::body::Bytes) -> Response {
         Err(e) => json_error(
             "write_failed",
             &e.to_string(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+    }
+}
+
+// ─── GET/POST /api/goal-workspace ─────────────────────────────────────────
+
+const GOAL_WORKSPACE_VERSION: u8 = 1;
+const MAX_GOAL_BODY_BYTES: usize = 50 * 1024 * 1024;
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoalVariableDefinition {
+    name: String,
+    default_value: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoalVariableValue {
+    name: String,
+    value: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoalTemplate {
+    id: String,
+    title: String,
+    variables: Vec<GoalVariableDefinition>,
+    body: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoalWorkingCopy {
+    id: String,
+    source_template_id: Option<String>,
+    source_template_title: String,
+    title: String,
+    variables: Vec<GoalVariableValue>,
+    body: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum GoalActiveItem {
+    Template { id: String },
+    Copy { id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoalWorkspace {
+    version: u8,
+    templates: Vec<GoalTemplate>,
+    working_copies: Vec<GoalWorkingCopy>,
+    active_item: Option<GoalActiveItem>,
+}
+
+impl GoalWorkspace {
+    fn empty() -> Self {
+        Self {
+            version: GOAL_WORKSPACE_VERSION,
+            templates: Vec::new(),
+            working_copies: Vec::new(),
+            active_item: None,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GoalDumpRequest {
+    working_copy_id: String,
+    text: String,
+}
+
+fn goal_workspace_path() -> Result<PathBuf, ApiError> {
+    Ok(promptgoal_dir()?.join("workspace.json"))
+}
+
+fn valid_goal_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn validate_variable_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for name in names {
+        if name.trim().is_empty()
+            || name
+                .chars()
+                .any(|character| matches!(character, '\r' | '\n' | '='))
+        {
+            return Err(format!("Invalid variable name: {name:?}"));
+        }
+        if !seen.insert(name.to_lowercase()) {
+            return Err(format!("Duplicate variable name: {name}"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_goal_workspace(workspace: &GoalWorkspace) -> Result<(), String> {
+    if workspace.version != GOAL_WORKSPACE_VERSION {
+        return Err(format!(
+            "Unsupported workspace version: {}",
+            workspace.version
+        ));
+    }
+
+    let mut template_ids = HashSet::new();
+    for template in &workspace.templates {
+        if !valid_goal_id(&template.id) || !template_ids.insert(template.id.as_str()) {
+            return Err(format!("Invalid or duplicate template ID: {}", template.id));
+        }
+        validate_variable_names(
+            template
+                .variables
+                .iter()
+                .map(|variable| variable.name.as_str()),
+        )?;
+    }
+
+    let mut copy_ids = HashSet::new();
+    for copy in &workspace.working_copies {
+        if !valid_goal_id(&copy.id) || !copy_ids.insert(copy.id.as_str()) {
+            return Err(format!("Invalid or duplicate working copy ID: {}", copy.id));
+        }
+        if copy
+            .source_template_id
+            .as_deref()
+            .is_some_and(|id| !valid_goal_id(id))
+        {
+            return Err(format!(
+                "Invalid source template ID: {:?}",
+                copy.source_template_id
+            ));
+        }
+        validate_variable_names(copy.variables.iter().map(|variable| variable.name.as_str()))?;
+    }
+
+    match &workspace.active_item {
+        Some(GoalActiveItem::Template { id }) if !template_ids.contains(id.as_str()) => {
+            return Err(format!("Active template does not exist: {id}"));
+        }
+        Some(GoalActiveItem::Copy { id }) if !copy_ids.contains(id.as_str()) => {
+            return Err(format!("Active working copy does not exist: {id}"));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn atomic_write(path: &Path, body: &[u8]) -> Result<(), ApiError> {
+    let parent = path.parent().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "directory_create_failed".to_string(),
+            "Workspace path has no parent directory".to_string(),
+        )
+    })?;
+    std::fs::create_dir_all(parent).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "directory_create_failed".to_string(),
+            format!("Failed to create workspace directory: {error}"),
+        )
+    })?;
+
+    let timestamp = Local::now().format("%Y%m%d%H%M%S%3f");
+    let mut collision = 0_u64;
+    let (temp_path, mut file) = loop {
+        let temp_path = parent.join(format!(
+            ".workspace.json.{}.{}.{collision}.tmp",
+            std::process::id(),
+            timestamp
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(file) => break (temp_path, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => collision += 1,
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "file_create_failed".to_string(),
+                    format!("Failed to create workspace temp file: {error}"),
+                ));
+            }
+        }
+    };
+
+    if let Err(error) = file.write_all(body).and_then(|_| file.sync_all()) {
+        drop(file);
+        let _ = std::fs::remove_file(&temp_path);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "write_failed".to_string(),
+            format!("Failed to write workspace temp file: {error}"),
+        ));
+    }
+    drop(file);
+
+    if let Err(error) = std::fs::rename(&temp_path, path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "rename_failed".to_string(),
+            format!("Failed to atomically replace workspace: {error}"),
+        ));
+    }
+    Ok(())
+}
+
+fn legacy_variable_assignment(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim_start();
+    let (raw_name, raw_value) = trimmed.split_once('=')?;
+    let name = raw_name.trim();
+    if name.is_empty()
+        || !name.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_uppercase() || (index > 0 && byte.is_ascii_digit())
+        })
+    {
+        return None;
+    }
+    Some((name.to_string(), raw_value.trim().to_string()))
+}
+
+fn migrate_legacy_prompt(text: &str) -> (Vec<GoalVariableDefinition>, String) {
+    const VARIABLE_START: &str = "【变量区】";
+    const VARIABLE_END: &str = "【执行区】";
+    let Some(start_marker) = text.find(VARIABLE_START) else {
+        return (Vec::new(), text.to_string());
+    };
+    let section_start = start_marker + VARIABLE_START.len();
+    let (section_end, suffix_start) = match text[section_start..].find(VARIABLE_END) {
+        Some(relative_end) => {
+            let section_end = section_start + relative_end;
+            (section_end, section_end + VARIABLE_END.len())
+        }
+        None => (text.len(), text.len()),
+    };
+
+    let mut variables = Vec::new();
+    let mut seen = HashSet::new();
+    let mut remaining_lines = Vec::new();
+    for line in text[section_start..section_end].lines() {
+        if let Some((name, default_value)) = legacy_variable_assignment(line) {
+            if seen.insert(name.to_lowercase()) {
+                variables.push(GoalVariableDefinition {
+                    name,
+                    default_value,
+                });
+            }
+        } else {
+            remaining_lines.push(line);
+        }
+    }
+
+    let remaining_section = remaining_lines.join("\n");
+    let body = [
+        text[..start_marker].trim(),
+        remaining_section.trim(),
+        text[suffix_start..].trim(),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    (variables, body)
+}
+
+fn normalize_goal_body(text: &str) -> String {
+    let mut normalized = String::with_capacity(text.len());
+    let mut previous_blank = false;
+    for line in text.trim().lines() {
+        let blank = line.trim().is_empty();
+        if blank && previous_blank {
+            continue;
+        }
+        if !normalized.is_empty() {
+            normalized.push('\n');
+        }
+        normalized.push_str(line.trim_end_matches('\r'));
+        previous_blank = blank;
+    }
+    normalized
+}
+
+fn is_goal_group(id: &str, title: &str) -> bool {
+    id.to_ascii_lowercase().contains("goal") || title.to_ascii_lowercase().contains("goal")
+}
+
+#[derive(Clone)]
+struct LegacyGoalBlock {
+    label: String,
+    text: String,
+}
+
+#[derive(Clone, Copy)]
+enum GoalScenario {
+    BoeLark,
+    BoeNexus,
+    NonIm,
+    Ppe,
+}
+
+impl GoalScenario {
+    const ALL: [Self; 4] = [Self::BoeLark, Self::BoeNexus, Self::NonIm, Self::Ppe];
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::BoeLark => "BOE 飞书",
+            Self::BoeNexus => "BOE Nexus",
+            Self::NonIm => "非 IM",
+            Self::Ppe => "PPE",
+        }
+    }
+
+    fn bit(self) -> u8 {
+        match self {
+            Self::BoeLark => 1,
+            Self::BoeNexus => 2,
+            Self::NonIm => 4,
+            Self::Ppe => 8,
+        }
+    }
+}
+
+const ALL_GOAL_SCENARIOS: u8 = 1 | 2 | 4 | 8;
+
+fn is_numbered_goal_block(label: &str) -> bool {
+    let Some((prefix, _)) = label.split_once('｜') else {
+        return false;
+    };
+    let prefix = prefix.trim().trim_end_matches(|character: char| {
+        matches!(character.to_ascii_uppercase(), 'A' | 'B' | 'C' | 'D')
+    });
+    !prefix.is_empty() && prefix.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn goal_block_scenarios(label: &str) -> u8 {
+    let normalized = label.to_ascii_lowercase().replace(' ', "");
+    if normalized.contains("ppe") {
+        return GoalScenario::Ppe.bit();
+    }
+    if normalized.contains("nexus") {
+        return GoalScenario::BoeNexus.bit();
+    }
+    if normalized.contains("非im") {
+        return GoalScenario::NonIm.bit();
+    }
+    if normalized.contains("boe") {
+        if normalized.contains("飞书") {
+            return GoalScenario::BoeLark.bit();
+        }
+        return GoalScenario::BoeLark.bit()
+            | GoalScenario::BoeNexus.bit()
+            | GoalScenario::NonIm.bit();
+    }
+    ALL_GOAL_SCENARIOS
+}
+
+fn legacy_goal_groups(value: &serde_json::Value) -> Vec<(String, String, Vec<LegacyGoalBlock>)> {
+    let Some(groups) = value
+        .get("presetGroups")
+        .and_then(|groups| groups.as_array())
+    else {
+        return Vec::new();
+    };
+
+    groups
+        .iter()
+        .enumerate()
+        .filter_map(|(group_index, group)| {
+            let id = group
+                .get("id")
+                .and_then(|id| id.as_str())
+                .unwrap_or_default();
+            let title = group
+                .get("label")
+                .and_then(|label| label.as_str())
+                .filter(|label| !label.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("Goal 分组 {}", group_index + 1));
+            if !is_goal_group(id, &title) {
+                return None;
+            }
+            let blocks: Vec<_> = group
+                .get("presets")
+                .and_then(|presets| presets.as_array())
+                .map(|presets| {
+                    presets
+                        .iter()
+                        .map(|preset| {
+                            let label = preset
+                                .get("label")
+                                .and_then(|label| label.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            let text = preset
+                                .get("text")
+                                .and_then(|text| text.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            LegacyGoalBlock { label, text }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !blocks
+                .iter()
+                .any(|block| is_numbered_goal_block(&block.label))
+            {
+                return None;
+            }
+            Some((id.to_string(), title, blocks))
+        })
+        .collect()
+}
+
+fn goal_group_template_id(group_id: &str, title: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in group_id.bytes().chain([0]).chain(title.bytes()) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("template-goal-{hash:016x}")
+}
+
+fn merge_legacy_goal_blocks<'a>(
+    blocks: impl IntoIterator<Item = &'a LegacyGoalBlock>,
+) -> (Vec<GoalVariableDefinition>, String) {
+    let mut variables = Vec::new();
+    let mut variable_names = HashSet::new();
+    let mut bodies = Vec::new();
+    for block in blocks {
+        let (block_variables, body) = migrate_legacy_prompt(&block.text);
+        for variable in block_variables {
+            if variable_names.insert(variable.name.to_lowercase()) {
+                variables.push(variable);
+            }
+        }
+        let body = body.trim();
+        if !body.is_empty() {
+            bodies.push(body.to_string());
+        }
+    }
+    (variables, normalize_goal_body(&bodies.join("\n\n")))
+}
+
+fn expand_legacy_goal_group(
+    group_id: &str,
+    group_title: &str,
+    blocks: &[LegacyGoalBlock],
+    now: &str,
+) -> Vec<GoalTemplate> {
+    // Structured Goal groups may also contain scratch or reference presets. Only
+    // the explicitly numbered blocks belong to the ordered, runnable template.
+    let ordered_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| is_numbered_goal_block(&block.label))
+        .cloned()
+        .collect();
+    let has_scenario_blocks = ordered_blocks
+        .iter()
+        .any(|block| goal_block_scenarios(&block.label) != ALL_GOAL_SCENARIOS);
+    if !has_scenario_blocks {
+        let (variables, body) = merge_legacy_goal_blocks(&ordered_blocks);
+        return vec![GoalTemplate {
+            id: goal_group_template_id(group_id, group_title),
+            title: group_title.to_string(),
+            variables,
+            body,
+            created_at: now.to_string(),
+            updated_at: now.to_string(),
+        }];
+    }
+
+    GoalScenario::ALL
+        .into_iter()
+        .map(|scenario| {
+            let selected = blocks
+                .iter()
+                .filter(|block| is_numbered_goal_block(&block.label))
+                .filter(|block| goal_block_scenarios(&block.label) & scenario.bit() != 0);
+            let (variables, body) = merge_legacy_goal_blocks(selected);
+            let title = format!("{group_title}｜{}", scenario.title());
+            GoalTemplate {
+                id: goal_group_template_id(group_id, &title),
+                title,
+                variables,
+                body,
+                created_at: now.to_string(),
+                updated_at: now.to_string(),
+            }
+        })
+        .collect()
+}
+
+fn migrate_legacy_workspace(path: &Path) -> Result<GoalWorkspace, ApiError> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(GoalWorkspace::empty());
+        }
+        Err(error) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "legacy_read_failed".to_string(),
+                format!("Failed to read legacy config: {error}"),
+            ));
+        }
+    };
+    let legacy: serde_json::Value = serde_json::from_str(&content).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_legacy_config".to_string(),
+            format!("Failed to parse legacy config: {error}"),
+        )
+    })?;
+    let now = Local::now().to_rfc3339();
+    let templates: Vec<_> = legacy_goal_groups(&legacy)
+        .into_iter()
+        .flat_map(|(group_id, group_title, blocks)| {
+            expand_legacy_goal_group(&group_id, &group_title, &blocks, &now)
+        })
+        .collect();
+    let active_item = templates.first().map(|template| GoalActiveItem::Template {
+        id: template.id.clone(),
+    });
+    Ok(GoalWorkspace {
+        version: GOAL_WORKSPACE_VERSION,
+        templates,
+        working_copies: Vec::new(),
+        active_item,
+    })
+}
+
+fn goal_workspace_needs_legacy_repair(workspace: &GoalWorkspace) -> bool {
+    if !workspace.working_copies.is_empty()
+        || workspace
+            .templates
+            .iter()
+            .any(|template| template.created_at != template.updated_at)
+    {
+        return false;
+    }
+
+    workspace.templates.iter().any(|template| {
+        template.id.starts_with("template-migrated-")
+            || template.body.contains("\n\n\n")
+            || (template.title.starts_with("CC Goal｜移动无Review｜")
+                && template
+                    .body
+                    .contains("【怎么用｜先读这段】这是一份\"测试技法库\""))
+    })
+}
+
+fn load_or_create_goal_workspace(
+    workspace_path: &Path,
+    legacy_path: &Path,
+) -> Result<GoalWorkspace, ApiError> {
+    match std::fs::read(workspace_path) {
+        Ok(content) => {
+            let workspace: GoalWorkspace = serde_json::from_slice(&content).map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "invalid_workspace".to_string(),
+                    format!("Failed to parse goal workspace: {error}"),
+                )
+            })?;
+            validate_goal_workspace(&workspace).map_err(|message| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "invalid_workspace".to_string(),
+                    message,
+                )
+            })?;
+            // Earlier Goal Workbench builds migrated every prompt block separately,
+            // preserved large holes left by extracted variables, or included an
+            // unnumbered scratch preset. Repair only those known, untouched
+            // workspaces. A clean workspace is independent from the legacy prompt
+            // library and must never be overwritten during an ordinary GET.
+            if legacy_path.is_file() && goal_workspace_needs_legacy_repair(&workspace) {
+                let mut synced = workspace.clone();
+                let mut source_templates = migrate_legacy_workspace(legacy_path)?.templates;
+                for template in &mut source_templates {
+                    if let Some(existing) = workspace
+                        .templates
+                        .iter()
+                        .find(|existing| existing.id == template.id)
+                    {
+                        template.created_at = existing.created_at.clone();
+                        if existing.title == template.title
+                            && existing.variables == template.variables
+                            && existing.body == template.body
+                        {
+                            template.updated_at = existing.updated_at.clone();
+                        }
+                    }
+                }
+                synced.templates = source_templates;
+                if matches!(
+                    &synced.active_item,
+                    Some(GoalActiveItem::Template { id })
+                        if !synced.templates.iter().any(|template| template.id == *id)
+                ) {
+                    synced.active_item = synced
+                        .templates
+                        .first()
+                        .map(|template| GoalActiveItem::Template {
+                            id: template.id.clone(),
+                        })
+                        .or_else(|| {
+                            synced
+                                .working_copies
+                                .first()
+                                .map(|copy| GoalActiveItem::Copy {
+                                    id: copy.id.clone(),
+                                })
+                        });
+                }
+                if synced == workspace {
+                    return Ok(workspace);
+                }
+                let serialized = serde_json::to_vec_pretty(&synced).map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "serialize_failed".to_string(),
+                        format!("Failed to serialize synced goal workspace: {error}"),
+                    )
+                })?;
+                atomic_write(workspace_path, &serialized)?;
+                return Ok(synced);
+            }
+            Ok(workspace)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let workspace = migrate_legacy_workspace(legacy_path)?;
+            let serialized = serde_json::to_vec_pretty(&workspace).map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "serialize_failed".to_string(),
+                    format!("Failed to serialize goal workspace: {error}"),
+                )
+            })?;
+            atomic_write(workspace_path, &serialized)?;
+            Ok(workspace)
+        }
+        Err(error) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "workspace_read_failed".to_string(),
+            format!("Failed to read goal workspace: {error}"),
+        )),
+    }
+}
+
+async fn api_get_goal_workspace() -> Response {
+    let workspace_path = match goal_workspace_path() {
+        Ok(path) => path,
+        Err((status, code, message)) => return json_error(&code, &message, status),
+    };
+    let legacy_path = user_config_path();
+    match tokio::task::spawn_blocking(move || {
+        load_or_create_goal_workspace(&workspace_path, &legacy_path)
+    })
+    .await
+    {
+        Ok(Ok(workspace)) => Json(workspace).into_response(),
+        Ok(Err((status, code, message))) => json_error(&code, &message, status),
+        Err(error) => json_error(
+            "read_task_failed",
+            &format!("Workspace read task failed: {error}"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+    }
+}
+
+async fn api_set_goal_workspace(req: Request) -> Response {
+    let body = match axum::body::to_bytes(req.into_body(), MAX_GOAL_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return json_error(
+                "body_too_large",
+                "Workspace exceeds the 50 MB limit",
+                StatusCode::PAYLOAD_TOO_LARGE,
+            );
+        }
+    };
+    let workspace: GoalWorkspace = match serde_json::from_slice(&body) {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            return json_error(
+                "invalid_json",
+                &format!("Invalid workspace JSON: {error}"),
+                StatusCode::BAD_REQUEST,
+            );
+        }
+    };
+    if let Err(message) = validate_goal_workspace(&workspace) {
+        return json_error("invalid_workspace", &message, StatusCode::BAD_REQUEST);
+    }
+    let body = match serde_json::to_vec_pretty(&workspace) {
+        Ok(body) => body,
+        Err(error) => {
+            return json_error(
+                "serialize_failed",
+                &error.to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            );
+        }
+    };
+    let path = match goal_workspace_path() {
+        Ok(path) => path,
+        Err((status, code, message)) => return json_error(&code, &message, status),
+    };
+    match tokio::task::spawn_blocking(move || atomic_write(&path, &body)).await {
+        Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err((status, code, message))) => json_error(&code, &message, status),
+        Err(error) => json_error(
+            "write_task_failed",
+            &format!("Workspace write task failed: {error}"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+    }
+}
+
+// ─── POST /api/goal-dump ──────────────────────────────────────────────────
+
+async fn api_goal_dump(req: Request) -> Response {
+    let body = match axum::body::to_bytes(req.into_body(), MAX_GOAL_BODY_BYTES + 64 * 1024).await {
+        Ok(body) => body,
+        Err(_) => {
+            return json_error(
+                "body_too_large",
+                "Selected text exceeds the 50 MB limit",
+                StatusCode::PAYLOAD_TOO_LARGE,
+            );
+        }
+    };
+    let request: GoalDumpRequest = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(error) => {
+            return json_error(
+                "invalid_json",
+                &format!("Invalid goal dump JSON: {error}"),
+                StatusCode::BAD_REQUEST,
+            );
+        }
+    };
+    if !valid_goal_id(&request.working_copy_id) {
+        return json_error(
+            "invalid_working_copy_id",
+            "Working copy ID is invalid",
+            StatusCode::BAD_REQUEST,
+        );
+    }
+    if request.text.is_empty() {
+        return json_error(
+            "empty_text",
+            "No selected text provided",
+            StatusCode::BAD_REQUEST,
+        );
+    }
+    if request.text.len() > MAX_GOAL_BODY_BYTES {
+        return json_error(
+            "body_too_large",
+            "Selected text exceeds the 50 MB limit",
+            StatusCode::PAYLOAD_TOO_LARGE,
+        );
+    }
+
+    let workspace_path = match goal_workspace_path() {
+        Ok(path) => path,
+        Err((status, code, message)) => return json_error(&code, &message, status),
+    };
+    let legacy_path = user_config_path();
+    let copy_id = request.working_copy_id;
+    let text = request.text.into_bytes();
+    let timestamp = Local::now().format("%Y%m%d-%H%M%S-%3f").to_string();
+    match tokio::task::spawn_blocking(move || {
+        let workspace = load_or_create_goal_workspace(&workspace_path, &legacy_path)?;
+        if !workspace
+            .working_copies
+            .iter()
+            .any(|copy| copy.id == copy_id)
+        {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "working_copy_not_found".to_string(),
+                "Working copy does not exist".to_string(),
+            ));
+        }
+        let dir = workspace_path
+            .parent()
+            .expect("workspace path has a parent")
+            .join("attachments")
+            .join(&copy_id);
+        create_dump_file(&dir, &text, &timestamp)
+    })
+    .await
+    {
+        Ok(Ok(path)) => Json(serde_json::json!({ "path": path.to_string_lossy() })).into_response(),
+        Ok(Err((status, code, message))) => json_error(&code, &message, status),
+        Err(error) => json_error(
+            "write_task_failed",
+            &format!("Goal dump task failed: {error}"),
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
     }
