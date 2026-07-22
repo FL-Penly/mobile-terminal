@@ -389,10 +389,10 @@
   <div id="editor-modal" class="editor-modal" aria-hidden="true">
     <div class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title">
       <div class="editor-dialog-head">
-        <div id="editor-dialog-title" class="editor-dialog-title">放大编辑</div>
+        <div id="editor-dialog-title" class="editor-dialog-title">打开编辑</div>
         <button id="close-expanded-editor">完成</button>
       </div>
-      <textarea id="expanded-editor" class="expanded-editor" aria-label="放大编辑内容"></textarea>
+      <textarea id="expanded-editor" class="expanded-editor" aria-label="编辑内容"></textarea>
     </div>
   </div>
 
@@ -1000,13 +1000,12 @@ function renderCopyView(copy) {
   const variables = copy.variables.map((variable, index) => {
     const isTestHints = variable.name.toLocaleUpperCase() === 'TEST_HINTS';
     const largeClass = isTestHints ? ' large-variable' : '';
-    const expandLabel = isTestHints ? '打开编辑' : '放大';
     return '<div class="variable-readonly' + largeClass + '" data-copy-variable-index="' + index + '">' +
       '<div class="variable-name">' + escapeHtml(variable.name) + '</div>' +
       '<div class="editable-field">' +
       '<textarea class="copy-variable-value" aria-label="' + escapeHtml(variable.name) +
       ' 的值" placeholder="本次变量值，可多行">' + escapeHtml(variable.value) + '</textarea>' +
-      '<button class="expand-editor" data-expand-variable="' + index + '">' + expandLabel + '</button></div></div>';
+      '<button class="expand-editor" data-expand-variable="' + index + '">打开编辑</button></div></div>';
   }).join('');
   byId('detail').innerHTML =
     '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">工作副本 · 自动保存</div>' +
@@ -1020,7 +1019,7 @@ function renderCopyView(copy) {
     '<div class="variable-list">' + (variables || '<div class="notice">此副本没有变量。</div>') + '</div></section>' +
     '<section class="section"><label class="section-label" for="copy-body">完整 Goal 正文 · 选中文字后右键可落盘</label>' +
     '<div class="editable-field"><textarea id="copy-body" class="body-editor" placeholder="在这里编辑本次完整 Goal...">' +
-    escapeHtml(copy.body) + '</textarea><button id="expand-copy-body" class="expand-editor">放大</button></div>' +
+    escapeHtml(copy.body) + '</textarea><button id="expand-copy-body" class="expand-editor">打开编辑</button></div>' +
     '</section></div></article>';
 
   const bodyEditor = byId('copy-body');
@@ -1045,11 +1044,6 @@ function renderCopyView(copy) {
       textarea.addEventListener(eventName, () => rememberSelection(textarea, copy, target));
     });
     textarea.addEventListener('contextmenu', (event) => showSelectionMenu(event, copy, textarea, target));
-    if (copy.variables[index].name.toLocaleUpperCase() === 'TEST_HINTS') {
-      textarea.addEventListener('click', () => {
-        openExpandedEditor(copy, target, copy.variables[index].name);
-      });
-    }
     row.querySelector('[data-expand-variable]').addEventListener('click', () => {
       openExpandedEditor(copy, target, copy.variables[index].name);
     });
@@ -1096,7 +1090,7 @@ function openExpandedEditor(copy, target, label) {
     sourceScrollTop: sourceTextarea.scrollTop,
     sourceScrollLeft: sourceTextarea.scrollLeft,
   };
-  byId('editor-dialog-title').textContent = '放大编辑 · ' + label + ' · 选中文字后右键可落盘';
+  byId('editor-dialog-title').textContent = '编辑 · ' + label + ' · 选中文字后右键可落盘';
   editor.value = editTargetValue(copy, target);
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
