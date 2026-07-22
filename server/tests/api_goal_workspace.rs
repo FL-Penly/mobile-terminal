@@ -182,6 +182,7 @@ async fn first_get_merges_each_goal_group_without_modifying_source() {
         "label": "Codex Goal｜移动完整",
         "presets": [
           {"label": "01｜总目标", "text": "before\n【变量区】\n\n\nTEST_HINT = fast\n\n\n【执行区】\n\n\ncommon start"},
+          {"label": "02｜TEST_HINTS", "text": "P3 测试补充信息\nTEST_HINTS = test library first line\nsecond line"},
           {"label": "02A｜BOE 部署", "text": "boe deploy"},
           {"label": "02B｜PPE 部署", "text": "ppe deploy"},
           {"label": "03A｜BOE 飞书测试", "text": "boe lark test"},
@@ -224,6 +225,11 @@ async fn first_get_merges_each_goal_group_without_modifying_source() {
     assert_eq!(body["templates"][0]["variables"][0]["name"], "TEST_HINT");
     assert_eq!(body["templates"][0]["variables"][0]["defaultValue"], "fast");
     assert_eq!(body["templates"][0]["variables"][1]["name"], "OTHER");
+    assert_eq!(body["templates"][0]["variables"][2]["name"], "TEST_HINTS");
+    assert_eq!(
+        body["templates"][0]["variables"][2]["defaultValue"],
+        "test library first line\nsecond line"
+    );
     let boe_lark = body["templates"][0]["body"].as_str().unwrap();
     assert!(boe_lark.contains("common start"));
     assert!(boe_lark.contains("boe deploy"));
@@ -235,6 +241,8 @@ async fn first_get_merges_each_goal_group_without_modifying_source() {
     assert!(!boe_lark.contains("non im test"));
     assert!(!boe_lark.contains("ppe test"));
     assert!(!boe_lark.contains("temporary scratch content"));
+    assert!(!boe_lark.contains("P3 测试补充信息"));
+    assert!(!boe_lark.contains("test library first line"));
     let boe_nexus = body["templates"][1]["body"].as_str().unwrap();
     assert!(boe_nexus.contains("boe deploy"));
     assert!(boe_nexus.contains("boe nexus test"));
@@ -256,6 +264,59 @@ async fn first_get_merges_each_goal_group_without_modifying_source() {
         legacy
     );
     assert!(temp.path().join("promptgoal/workspace.json").is_file());
+}
+
+#[tokio::test]
+#[serial]
+async fn get_moves_existing_test_hints_into_templates_and_working_copies() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let home = temp.path().to_string_lossy().to_string();
+    let _env = EnvGuard::set(&[("HOME", home.as_str())]);
+    let promptgoal = temp.path().join("promptgoal");
+    std::fs::create_dir_all(&promptgoal).unwrap();
+    let mut saved = workspace();
+    saved["templates"][0]["variables"] = json!([]);
+    saved["templates"][0]["body"] = json!(
+        "before\n\nP3 测试补充信息\nTEST_HINTS = template first\ntemplate second\n\nP3 测试（BOE / 飞书 IM）\nafter"
+    );
+    saved["workingCopies"][0]["variables"] = json!([]);
+    saved["workingCopies"][0]["body"] = json!(
+        "before copy\n\nP3 测试补充信息\nTEST_HINTS = pasted content\nwith another line\n\nP3 测试（BOE / 飞书 IM）\nafter copy"
+    );
+    std::fs::write(
+        promptgoal.join("workspace.json"),
+        serde_json::to_vec_pretty(&saved).unwrap(),
+    )
+    .unwrap();
+
+    let response = send_get(test_app(), "/api/goal-workspace").await;
+    assert_status(&response, StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["templates"][0]["variables"][0]["name"], "TEST_HINTS");
+    assert_eq!(
+        body["templates"][0]["variables"][0]["defaultValue"],
+        "template first\ntemplate second"
+    );
+    assert_eq!(
+        body["templates"][0]["body"],
+        "before\n\nP3 测试（BOE / 飞书 IM）\nafter"
+    );
+    assert_eq!(
+        body["workingCopies"][0]["variables"][0]["name"],
+        "TEST_HINTS"
+    );
+    assert_eq!(
+        body["workingCopies"][0]["variables"][0]["value"],
+        "pasted content\nwith another line"
+    );
+    assert_eq!(
+        body["workingCopies"][0]["body"],
+        "before copy\n\nP3 测试（BOE / 飞书 IM）\nafter copy"
+    );
+
+    let persisted: Value =
+        serde_json::from_slice(&std::fs::read(promptgoal.join("workspace.json")).unwrap()).unwrap();
+    assert_eq!(persisted, body);
 }
 
 #[tokio::test]

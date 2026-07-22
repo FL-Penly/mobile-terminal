@@ -3343,6 +3343,87 @@ fn normalize_goal_body(text: &str) -> String {
     normalized
 }
 
+fn extract_goal_test_hints(text: &str) -> Option<(String, String)> {
+    const HEADING: &str = "P3 测试补充信息";
+    const ASSIGNMENT: &str = "TEST_HINTS";
+    let lines: Vec<_> = text.lines().collect();
+    let heading_index = lines
+        .iter()
+        .position(|line| line.trim_end_matches('\r').trim() == HEADING)?;
+    let assignment_index = heading_index + 1;
+    let assignment = lines.get(assignment_index)?.trim_end_matches('\r');
+    let (name, first_value) = assignment.split_once('=')?;
+    if name.trim() != ASSIGNMENT {
+        return None;
+    }
+
+    let section_end = lines[assignment_index + 1..]
+        .iter()
+        .position(|line| {
+            let line = line.trim_end_matches('\r').trim();
+            line.starts_with("P3 测试（") || line.starts_with("测试（")
+        })
+        .map(|relative| assignment_index + 1 + relative)
+        .unwrap_or(lines.len());
+    let mut value_lines = vec![first_value.trim_start().to_string()];
+    value_lines.extend(
+        lines[assignment_index + 1..section_end]
+            .iter()
+            .map(|line| line.trim_end_matches('\r').to_string()),
+    );
+    while value_lines.last().is_some_and(|line| line.is_empty()) {
+        value_lines.pop();
+    }
+
+    let before = lines[..heading_index].join("\n");
+    let after = lines[section_end..].join("\n");
+    let body = [before.trim_end(), after.trim_start()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    Some((value_lines.join("\n"), body))
+}
+
+fn migrate_workspace_test_hints(workspace: &mut GoalWorkspace) -> bool {
+    let mut changed = false;
+    for template in &mut workspace.templates {
+        let Some((value, body)) = extract_goal_test_hints(&template.body) else {
+            continue;
+        };
+        if !template
+            .variables
+            .iter()
+            .any(|variable| variable.name.eq_ignore_ascii_case("TEST_HINTS"))
+        {
+            template.variables.push(GoalVariableDefinition {
+                name: "TEST_HINTS".to_string(),
+                default_value: value,
+            });
+        }
+        template.body = body;
+        changed = true;
+    }
+    for copy in &mut workspace.working_copies {
+        let Some((value, body)) = extract_goal_test_hints(&copy.body) else {
+            continue;
+        };
+        if !copy
+            .variables
+            .iter()
+            .any(|variable| variable.name.eq_ignore_ascii_case("TEST_HINTS"))
+        {
+            copy.variables.push(GoalVariableValue {
+                name: "TEST_HINTS".to_string(),
+                value,
+            });
+        }
+        copy.body = body;
+        changed = true;
+    }
+    changed
+}
+
 fn is_goal_group(id: &str, title: &str) -> bool {
     id.to_ascii_lowercase().contains("goal") || title.to_ascii_lowercase().contains("goal")
 }
@@ -3491,7 +3572,14 @@ fn merge_legacy_goal_blocks<'a>(
     let mut variable_names = HashSet::new();
     let mut bodies = Vec::new();
     for block in blocks {
-        let (block_variables, body) = migrate_legacy_prompt(&block.text);
+        let (mut block_variables, mut body) = migrate_legacy_prompt(&block.text);
+        if let Some((value, remaining_body)) = extract_goal_test_hints(&body) {
+            block_variables.push(GoalVariableDefinition {
+                name: "TEST_HINTS".to_string(),
+                default_value: value,
+            });
+            body = remaining_body;
+        }
         for variable in block_variables {
             if variable_names.insert(variable.name.to_lowercase()) {
                 variables.push(variable);
@@ -3501,6 +3589,13 @@ fn merge_legacy_goal_blocks<'a>(
         if !body.is_empty() {
             bodies.push(body.to_string());
         }
+    }
+    if let Some(index) = variables
+        .iter()
+        .position(|variable| variable.name.eq_ignore_ascii_case("TEST_HINTS"))
+    {
+        let test_hints = variables.remove(index);
+        variables.push(test_hints);
     }
     (variables, normalize_goal_body(&bodies.join("\n\n")))
 }
@@ -3619,13 +3714,14 @@ fn load_or_create_goal_workspace(
 ) -> Result<GoalWorkspace, ApiError> {
     match std::fs::read(workspace_path) {
         Ok(content) => {
-            let workspace: GoalWorkspace = serde_json::from_slice(&content).map_err(|error| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "invalid_workspace".to_string(),
-                    format!("Failed to parse goal workspace: {error}"),
-                )
-            })?;
+            let mut workspace: GoalWorkspace =
+                serde_json::from_slice(&content).map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "invalid_workspace".to_string(),
+                        format!("Failed to parse goal workspace: {error}"),
+                    )
+                })?;
             validate_goal_workspace(&workspace).map_err(|message| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -3633,6 +3729,7 @@ fn load_or_create_goal_workspace(
                     message,
                 )
             })?;
+            let moved_test_hints = migrate_workspace_test_hints(&mut workspace);
             // Earlier Goal Workbench builds migrated every prompt block separately,
             // preserved large holes left by extracted variables, or included an
             // unnumbered scratch preset. Repair only those known, untouched
@@ -3677,18 +3774,27 @@ fn load_or_create_goal_workspace(
                                 })
                         });
                 }
-                if synced == workspace {
-                    return Ok(workspace);
+                if synced != workspace {
+                    let serialized = serde_json::to_vec_pretty(&synced).map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "serialize_failed".to_string(),
+                            format!("Failed to serialize synced goal workspace: {error}"),
+                        )
+                    })?;
+                    atomic_write(workspace_path, &serialized)?;
+                    return Ok(synced);
                 }
-                let serialized = serde_json::to_vec_pretty(&synced).map_err(|error| {
+            }
+            if moved_test_hints {
+                let serialized = serde_json::to_vec_pretty(&workspace).map_err(|error| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "serialize_failed".to_string(),
-                        format!("Failed to serialize synced goal workspace: {error}"),
+                        format!("Failed to serialize migrated goal workspace: {error}"),
                     )
                 })?;
                 atomic_write(workspace_path, &serialized)?;
-                return Ok(synced);
             }
             Ok(workspace)
         }

@@ -203,6 +203,22 @@
   }
   .variable-edit { grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) auto; }
   .variable-edit textarea { min-height: 58px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .editable-field { position: relative; min-width: 0; }
+  .editable-field textarea { padding-right: 66px; }
+  .copy-variable-value { min-height: 72px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .large-variable .copy-variable-value { min-height: 220px; }
+  .large-variable .variable-value { max-height: 220px; overflow: auto; }
+  .expand-editor {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    min-height: 28px;
+    padding: 3px 8px;
+    border-color: rgba(255, 255, 255, .12);
+    background: var(--panel-3);
+    color: var(--muted);
+    font-size: 11px;
+  }
   .row-actions { display: flex; gap: 5px; }
   .row-actions button { min-width: 32px; padding: 4px 8px; }
   .body-editor { min-height: 48vh; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -251,7 +267,7 @@
   .toast.show { opacity: 1; transform: translateY(0); }
   .selection-menu {
     position: fixed;
-    z-index: 40;
+    z-index: 80;
     display: none;
     min-width: 178px;
     padding: 5px;
@@ -270,6 +286,46 @@
   }
   .selection-menu button:hover { background: var(--accent-soft); }
   .selection-menu-hint { padding: 2px 10px 5px; color: var(--muted); font-size: 10px; }
+  .editor-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    padding: 24px;
+    background: rgba(7, 9, 13, .82);
+    backdrop-filter: blur(4px);
+  }
+  .editor-modal.show { display: flex; }
+  .editor-dialog {
+    width: min(1180px, 100%);
+    height: min(900px, 100%);
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+    box-shadow: 0 22px 70px rgba(0, 0, 0, .48);
+  }
+  .editor-dialog-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .editor-dialog-title { min-width: 0; flex: 1; font-weight: 700; overflow-wrap: anywhere; }
+  .expanded-editor {
+    min-height: 0;
+    flex: 1;
+    resize: none;
+    border: 0;
+    border-radius: 0;
+    padding: 18px;
+    font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  body.editor-open { overflow: hidden; }
   @media (max-width: 780px) {
     .header-hint { display: none; }
     header { padding-inline: 10px; }
@@ -287,6 +343,9 @@
     .variable-name { padding-top: 0; }
     .variable-edit .row-actions { justify-content: flex-end; }
     .body-editor { min-height: 42vh; }
+    .large-variable .copy-variable-value { min-height: 180px; }
+    .editor-modal { padding: 0; }
+    .editor-dialog { width: 100%; height: 100%; border: 0; border-radius: 0; }
   }
 
   .mode-switch {
@@ -327,6 +386,15 @@
   </div>
   <div id="toast" class="toast"></div>
   <div id="selection-menu" class="selection-menu" role="menu"></div>
+  <div id="editor-modal" class="editor-modal" aria-hidden="true">
+    <div class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title">
+      <div class="editor-dialog-head">
+        <div id="editor-dialog-title" class="editor-dialog-title">放大编辑</div>
+        <button id="close-expanded-editor">完成</button>
+      </div>
+      <textarea id="expanded-editor" class="expanded-editor" aria-label="放大编辑内容"></textarea>
+    </div>
+  </div>
 
 <script>
 const WORKSPACE_API = '/api/goal-workspace';
@@ -339,8 +407,9 @@ let templateDraft = null;
 let editingTemplateId = null;
 let saveTimer = null;
 let saveChain = Promise.resolve();
-let savedSelection = { copyId: null, start: 0, end: 0 };
+let savedSelection = { copyId: null, targetKey: null, target: null, textarea: null, start: 0, end: 0 };
 let undoReplacement = null;
+let expandedEditorState = null;
 let lastDumpPath = '';
 let lastDumpMessage = '';
 let lastDumpError = false;
@@ -472,6 +541,7 @@ function persistNow() {
 
 async function loadWorkspace() {
   clearTimeout(saveTimer);
+  closeExpandedEditor();
   setStatus('加载中...');
   try {
     const response = await fetch(WORKSPACE_API);
@@ -544,6 +614,7 @@ function groupedTemplates() {
 
 function selectItem(kind, id) {
   if (templateDraft && !confirm('当前母版编辑尚未保存，确定放弃更改吗？')) return;
+  closeExpandedEditor();
   templateDraft = null;
   editingTemplateId = null;
   workspace.activeItem = { kind, id };
@@ -551,7 +622,7 @@ function selectItem(kind, id) {
     const template = workspace.templates.find((item) => item.id === id);
     if (template) expandedTemplateFamily = templateFamily(template).name;
   }
-  savedSelection = { copyId: null, start: 0, end: 0 };
+  clearSavedSelection();
   undoReplacement = null;
   lastDumpPath = '';
   lastDumpMessage = '';
@@ -759,7 +830,8 @@ function renderTemplateEditor() {
 
 function renderTemplateView(template) {
   const variables = template.variables.map((variable) => {
-    return '<div class="variable-readonly"><div class="variable-name">' + escapeHtml(variable.name) +
+    const largeClass = variable.name.toLocaleUpperCase() === 'TEST_HINTS' ? ' large-variable' : '';
+    return '<div class="variable-readonly' + largeClass + '"><div class="variable-name">' + escapeHtml(variable.name) +
       '</div><pre class="variable-value">' + escapeHtml(variable.defaultValue) + '</pre></div>';
   }).join('');
   byId('detail').innerHTML =
@@ -830,23 +902,52 @@ function touchCopy(copy) {
   scheduleSave();
 }
 
-function rememberSelection(textarea, copy) {
+function editTargetKey(target) {
+  return target.kind === 'body' ? 'body' : 'variable:' + target.index;
+}
+
+function editTargetValue(copy, target) {
+  return target.kind === 'body' ? copy.body : copy.variables[target.index]?.value ?? '';
+}
+
+function setEditTargetValue(copy, target, value) {
+  if (target.kind === 'body') copy.body = value;
+  else if (copy.variables[target.index]) copy.variables[target.index].value = value;
+}
+
+function targetTextarea(target) {
+  if (expandedEditorState?.targetKey === editTargetKey(target)) return byId('expanded-editor');
+  if (target.kind === 'body') return byId('copy-body');
+  return byId('detail').querySelector('[data-copy-variable-index="' + target.index + '"] textarea');
+}
+
+function clearSavedSelection() {
+  savedSelection = { copyId: null, targetKey: null, target: null, textarea: null, start: 0, end: 0 };
+}
+
+function rememberSelection(textarea, copy, target) {
   if (!textarea || document.activeElement !== textarea && textarea.selectionStart === null) return;
   savedSelection = {
     copyId: copy.id,
+    targetKey: editTargetKey(target),
+    target,
+    textarea,
     start: textarea.selectionStart ?? 0,
     end: textarea.selectionEnd ?? 0,
   };
   updateDumpButton(copy);
 }
 
-function hasSelection(copy) {
-  return savedSelection.copyId === copy.id && savedSelection.end > savedSelection.start;
+function hasSelection(copy, target) {
+  return savedSelection.copyId === copy.id &&
+    (!target || savedSelection.targetKey === editTargetKey(target)) &&
+    savedSelection.end > savedSelection.start;
 }
 
 function updateDumpButton(copy) {
   const button = byId('dump-selection');
-  if (button) button.disabled = !hasSelection(copy) || button.dataset.loading === 'true';
+  const bodyTarget = { kind: 'body' };
+  if (button) button.disabled = !hasSelection(copy, bodyTarget) || button.dataset.loading === 'true';
 }
 
 function hideSelectionMenu() {
@@ -855,9 +956,9 @@ function hideSelectionMenu() {
   menu.innerHTML = '';
 }
 
-function showSelectionMenu(event, copy, textarea) {
-  rememberSelection(textarea, copy);
-  if (!hasSelection(copy)) return;
+function showSelectionMenu(event, copy, textarea, target) {
+  rememberSelection(textarea, copy, target);
+  if (!hasSelection(copy, target)) return;
   event.preventDefault();
   const menu = byId('selection-menu');
   menu.innerHTML = '<button id="context-dump-selection" role="menuitem">落盘选中内容</button>' +
@@ -874,7 +975,7 @@ function showSelectionMenu(event, copy, textarea) {
   }
   byId('context-dump-selection').addEventListener('click', () => {
     hideSelectionMenu();
-    dumpSelection(copy, textarea);
+    dumpSelection(copy, textarea, target);
   });
 }
 
@@ -897,10 +998,15 @@ function renderDumpFeedback(copy) {
 
 function renderCopyView(copy) {
   const variables = copy.variables.map((variable, index) => {
-    return '<div class="variable-readonly" data-copy-variable-index="' + index + '">' +
+    const isTestHints = variable.name.toLocaleUpperCase() === 'TEST_HINTS';
+    const largeClass = isTestHints ? ' large-variable' : '';
+    const expandLabel = isTestHints ? '打开编辑' : '放大';
+    return '<div class="variable-readonly' + largeClass + '" data-copy-variable-index="' + index + '">' +
       '<div class="variable-name">' + escapeHtml(variable.name) + '</div>' +
+      '<div class="editable-field">' +
       '<textarea class="copy-variable-value" aria-label="' + escapeHtml(variable.name) +
-      ' 的值" placeholder="本次变量值，可多行">' + escapeHtml(variable.value) + '</textarea></div>';
+      ' 的值" placeholder="本次变量值，可多行">' + escapeHtml(variable.value) + '</textarea>' +
+      '<button class="expand-editor" data-expand-variable="' + index + '">' + expandLabel + '</button></div></div>';
   }).join('');
   byId('detail').innerHTML =
     '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">工作副本 · 自动保存</div>' +
@@ -910,11 +1016,12 @@ function renderCopyView(copy) {
     '<div class="actions"><button id="dump-selection" disabled>落盘选中</button>' +
     '<button id="copy-goal" class="primary">复制完整 Goal</button><button id="delete-copy" class="danger">删除</button></div></div>' +
     '<div class="card-body"><div id="dump-feedback"></div>' +
-    '<section class="section"><span class="section-label">本次变量值（变量定义请在母版维护）</span>' +
+    '<section class="section"><span class="section-label">本次变量值 · 选中文字后右键可落盘（变量定义请在母版维护）</span>' +
     '<div class="variable-list">' + (variables || '<div class="notice">此副本没有变量。</div>') + '</div></section>' +
     '<section class="section"><label class="section-label" for="copy-body">完整 Goal 正文 · 选中文字后右键可落盘</label>' +
-    '<textarea id="copy-body" class="body-editor" placeholder="在这里编辑本次完整 Goal...">' +
-    escapeHtml(copy.body) + '</textarea></section></div></article>';
+    '<div class="editable-field"><textarea id="copy-body" class="body-editor" placeholder="在这里编辑本次完整 Goal...">' +
+    escapeHtml(copy.body) + '</textarea><button id="expand-copy-body" class="expand-editor">放大</button></div>' +
+    '</section></div></article>';
 
   const bodyEditor = byId('copy-body');
   const titleEditor = byId('copy-title');
@@ -927,31 +1034,109 @@ function renderCopyView(copy) {
   });
   byId('detail').querySelectorAll('[data-copy-variable-index]').forEach((row) => {
     const index = Number(row.dataset.copyVariableIndex);
-    row.querySelector('textarea').addEventListener('input', (event) => {
-      copy.variables[index].value = event.target.value;
+    const textarea = row.querySelector('textarea');
+    const target = { kind: 'variable', index };
+    textarea.addEventListener('input', (event) => {
+      setEditTargetValue(copy, target, event.target.value);
+      invalidateUndoForTarget(copy, target);
       touchCopy(copy);
     });
-  });
-  bodyEditor.addEventListener('input', (event) => {
-    copy.body = event.target.value;
-    if (undoReplacement?.copyId === copy.id && copy.body !== undoReplacement.afterBody) {
-      undoReplacement = null;
-      lastDumpMessage = lastDumpPath ? '附件已保留；正文继续编辑后不可再撤销替换。' : '';
-      renderDumpFeedback(copy);
+    ['select', 'keyup', 'pointerup', 'touchend', 'blur'].forEach((eventName) => {
+      textarea.addEventListener(eventName, () => rememberSelection(textarea, copy, target));
+    });
+    textarea.addEventListener('contextmenu', (event) => showSelectionMenu(event, copy, textarea, target));
+    if (copy.variables[index].name.toLocaleUpperCase() === 'TEST_HINTS') {
+      textarea.addEventListener('click', () => {
+        openExpandedEditor(copy, target, copy.variables[index].name);
+      });
     }
+    row.querySelector('[data-expand-variable]').addEventListener('click', () => {
+      openExpandedEditor(copy, target, copy.variables[index].name);
+    });
+  });
+  const bodyTarget = { kind: 'body' };
+  bodyEditor.addEventListener('input', (event) => {
+    setEditTargetValue(copy, bodyTarget, event.target.value);
+    invalidateUndoForTarget(copy, bodyTarget);
     touchCopy(copy);
-    rememberSelection(bodyEditor, copy);
+    rememberSelection(bodyEditor, copy, bodyTarget);
   });
   ['select', 'keyup', 'pointerup', 'touchend', 'blur'].forEach((eventName) => {
-    bodyEditor.addEventListener(eventName, () => rememberSelection(bodyEditor, copy));
+    bodyEditor.addEventListener(eventName, () => rememberSelection(bodyEditor, copy, bodyTarget));
   });
-  bodyEditor.addEventListener('contextmenu', (event) => showSelectionMenu(event, copy, bodyEditor));
-  dumpButton.addEventListener('pointerdown', () => rememberSelection(bodyEditor, copy));
-  dumpButton.addEventListener('click', () => dumpSelection(copy, bodyEditor));
+  bodyEditor.addEventListener('contextmenu', (event) => showSelectionMenu(event, copy, bodyEditor, bodyTarget));
+  dumpButton.addEventListener('pointerdown', () => rememberSelection(bodyEditor, copy, bodyTarget));
+  dumpButton.addEventListener('click', () => dumpSelection(copy, bodyEditor, bodyTarget));
+  byId('expand-copy-body').addEventListener('click', () => openExpandedEditor(copy, bodyTarget, '完整 Goal 正文'));
   byId('copy-goal').addEventListener('click', () => copyCompleteGoal(copy.variables, copy.body));
   byId('delete-copy').addEventListener('click', () => deleteCopy(copy));
   renderDumpFeedback(copy);
   updateDumpButton(copy);
+}
+
+function invalidateUndoForTarget(copy, target) {
+  if (!undoReplacement || undoReplacement.copyId !== copy.id ||
+      undoReplacement.targetKey !== editTargetKey(target)) return;
+  if (editTargetValue(copy, target) === undoReplacement.afterValue) return;
+  undoReplacement = null;
+  lastDumpMessage = lastDumpPath ? '附件已保留；内容继续编辑后不可再撤销替换。' : '';
+  renderDumpFeedback(copy);
+}
+
+function openExpandedEditor(copy, target, label) {
+  const sourceTextarea = targetTextarea(target);
+  if (!sourceTextarea) return;
+  const editor = byId('expanded-editor');
+  const modal = byId('editor-modal');
+  expandedEditorState = {
+    copyId: copy.id,
+    target,
+    targetKey: editTargetKey(target),
+    sourceTextarea,
+    sourceScrollTop: sourceTextarea.scrollTop,
+    sourceScrollLeft: sourceTextarea.scrollLeft,
+  };
+  byId('editor-dialog-title').textContent = '放大编辑 · ' + label + ' · 选中文字后右键可落盘';
+  editor.value = editTargetValue(copy, target);
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('editor-open');
+  const start = sourceTextarea.selectionStart ?? editor.value.length;
+  const end = sourceTextarea.selectionEnd ?? start;
+  editor.focus({ preventScroll: true });
+  editor.setSelectionRange(start, end);
+  editor.scrollTop = sourceTextarea.scrollTop;
+  editor.scrollLeft = sourceTextarea.scrollLeft;
+  editor.oninput = (event) => {
+    setEditTargetValue(copy, target, event.target.value);
+    sourceTextarea.value = event.target.value;
+    invalidateUndoForTarget(copy, target);
+    touchCopy(copy);
+    rememberSelection(editor, copy, target);
+  };
+  ['select', 'keyup', 'pointerup', 'touchend', 'blur'].forEach((eventName) => {
+    editor['on' + eventName] = () => rememberSelection(editor, copy, target);
+  });
+  editor.oncontextmenu = (event) => showSelectionMenu(event, copy, editor, target);
+}
+
+function closeExpandedEditor() {
+  if (!expandedEditorState) return;
+  const state = expandedEditorState;
+  const editor = byId('expanded-editor');
+  const copy = currentCopy();
+  if (copy?.id === state.copyId) {
+    state.sourceTextarea.value = editTargetValue(copy, state.target);
+    state.sourceTextarea.focus({ preventScroll: true });
+    state.sourceTextarea.setSelectionRange(editor.selectionStart ?? 0, editor.selectionEnd ?? 0);
+    state.sourceTextarea.scrollTop = state.sourceScrollTop;
+    state.sourceTextarea.scrollLeft = state.sourceScrollLeft;
+    rememberSelection(state.sourceTextarea, copy, state.target);
+  }
+  expandedEditorState = null;
+  byId('editor-modal').classList.remove('show');
+  byId('editor-modal').setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('editor-open');
 }
 
 function formatVariable(name, value) {
@@ -992,22 +1177,24 @@ function copyCompleteGoal(variables, body) {
     });
 }
 
-async function dumpSelection(copy, textarea) {
-  rememberSelection(textarea, copy);
-  if (!hasSelection(copy)) return;
+async function dumpSelection(copy, textarea, target) {
+  rememberSelection(textarea, copy, target);
+  if (!hasSelection(copy, target)) return;
   const start = savedSelection.start;
   const end = savedSelection.end;
-  const beforeBody = copy.body;
-  const selectedText = beforeBody.slice(start, end);
+  const beforeValue = editTargetValue(copy, target);
+  const selectedText = beforeValue.slice(start, end);
   if (!selectedText) return;
   const textareaScrollTop = textarea.scrollTop;
   const textareaScrollLeft = textarea.scrollLeft;
   const pageScrollX = window.scrollX;
   const pageScrollY = window.scrollY;
   const button = byId('dump-selection');
-  button.dataset.loading = 'true';
-  button.disabled = true;
-  button.textContent = '落盘中...';
+  if (button) {
+    button.dataset.loading = 'true';
+    button.disabled = true;
+    button.textContent = '落盘中...';
+  }
   lastDumpError = false;
   lastDumpMessage = '';
   renderDumpFeedback(copy);
@@ -1025,16 +1212,32 @@ async function dumpSelection(copy, textarea) {
       throw new Error(payload.message || '落盘失败（' + response.status + '）');
     }
     const replacement = payload.path;
-    const afterBody = beforeBody.slice(0, start) + replacement + beforeBody.slice(end);
-    copy.body = afterBody;
+    const afterValue = beforeValue.slice(0, start) + replacement + beforeValue.slice(end);
+    setEditTargetValue(copy, target, afterValue);
     copy.updatedAt = nowIso();
-    undoReplacement = { copyId: copy.id, beforeBody, afterBody };
+    undoReplacement = {
+      copyId: copy.id,
+      target,
+      targetKey: editTargetKey(target),
+      beforeValue,
+      afterValue,
+    };
     lastDumpPath = payload.path;
     lastDumpMessage = '选区已落盘并在原位置替换。';
     lastDumpError = false;
-    textarea.value = afterBody;
+    textarea.value = afterValue;
+    if (expandedEditorState?.targetKey === editTargetKey(target)) {
+      expandedEditorState.sourceTextarea.value = afterValue;
+    }
     const cursor = start + replacement.length;
-    savedSelection = { copyId: copy.id, start: cursor, end: cursor };
+    savedSelection = {
+      copyId: copy.id,
+      targetKey: editTargetKey(target),
+      target,
+      textarea,
+      start: cursor,
+      end: cursor,
+    };
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(cursor, cursor);
     textarea.scrollTop = textareaScrollTop;
@@ -1057,47 +1260,57 @@ async function dumpSelection(copy, textarea) {
     console.error('[PromptBoard] Failed to dump selection:', error);
     lastDumpPath = '';
     lastDumpError = true;
-    lastDumpMessage = (error instanceof Error ? error.message : String(error)) + '，正文未改变，可重试。';
+    lastDumpMessage = (error instanceof Error ? error.message : String(error)) + '，内容未改变，可重试。';
     renderDumpFeedback(copy);
   } finally {
-    button.dataset.loading = 'false';
-    button.textContent = '落盘选中';
+    if (button) {
+      button.dataset.loading = 'false';
+      button.textContent = '落盘选中';
+    }
     updateDumpButton(copy);
   }
 }
 
 function undoDumpReplacement(copy) {
   if (!undoReplacement || undoReplacement.copyId !== copy.id) return;
-  copy.body = undoReplacement.beforeBody;
+  const target = undoReplacement.target;
+  setEditTargetValue(copy, target, undoReplacement.beforeValue);
   copy.updatedAt = nowIso();
-  const textarea = byId('copy-body');
+  const textarea = targetTextarea(target);
   if (textarea) {
-    textarea.value = copy.body;
+    textarea.value = undoReplacement.beforeValue;
     textarea.focus();
   }
+  if (expandedEditorState?.targetKey === editTargetKey(target)) {
+    expandedEditorState.sourceTextarea.value = undoReplacement.beforeValue;
+  }
   undoReplacement = null;
-  savedSelection = { copyId: copy.id, start: 0, end: 0 };
+  clearSavedSelection();
   lastDumpError = false;
   lastDumpMessage = '引用替换已撤销；已经生成的附件继续保留。';
   renderDumpFeedback(copy);
   updateDumpButton(copy);
   persistNow().catch(() => {
     lastDumpError = true;
-    lastDumpMessage = '正文已恢复，但保存失败；请继续编辑以重试自动保存。';
+    lastDumpMessage = '内容已恢复，但保存失败；请继续编辑以重试自动保存。';
     renderDumpFeedback(copy);
   });
 }
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') hideSelectionMenu();
+  if (event.key === 'Escape') {
+    hideSelectionMenu();
+    closeExpandedEditor();
+  }
   if (!event.altKey || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
   const copy = currentCopy();
-  const textarea = byId('copy-body');
-  if (!copy || !textarea) return;
-  rememberSelection(textarea, copy);
-  if (!hasSelection(copy)) return;
+  const textarea = savedSelection.textarea;
+  const target = savedSelection.target;
+  if (!copy || !textarea || !target || !textarea.isConnected) return;
+  rememberSelection(textarea, copy, target);
+  if (!hasSelection(copy, target)) return;
   event.preventDefault();
-  dumpSelection(copy, textarea);
+  dumpSelection(copy, textarea, target);
 });
 
 document.addEventListener('pointerdown', (event) => {
@@ -1106,6 +1319,11 @@ document.addEventListener('pointerdown', (event) => {
 });
 window.addEventListener('blur', hideSelectionMenu);
 window.addEventListener('resize', hideSelectionMenu);
+
+byId('close-expanded-editor').addEventListener('click', closeExpandedEditor);
+byId('editor-modal').addEventListener('pointerdown', (event) => {
+  if (event.target === byId('editor-modal')) closeExpandedEditor();
+});
 
 byId('reload').addEventListener('click', () => {
   if (templateDraft && !confirm('当前母版编辑尚未保存，确定重新加载吗？')) return;
