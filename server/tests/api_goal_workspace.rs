@@ -394,3 +394,45 @@ async fn get_repairs_old_per_prompt_migration_when_no_working_copies_exist() {
         .unwrap()
         .starts_with("template-goal-"));
 }
+
+#[tokio::test]
+#[serial]
+async fn goal_file_history_round_trips_with_real_dump_and_legacy_workspace() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let home = temp.path().to_string_lossy().to_string();
+    let _env = EnvGuard::set(&[("HOME", home.as_str())]);
+    let mut saved = workspace();
+    assert_status(
+        &send_post_json(test_app(), "/api/goal-workspace", saved.clone()).await,
+        StatusCode::OK,
+    );
+    let text = "【变量区】\nTEST_HINT = 原样保留\n\n【执行区】\n第一行\n第二行\n";
+    let response = send_post_json(
+        test_app(),
+        "/api/goal-dump",
+        json!({"workingCopyId": "copy-1", "text": text}),
+    )
+    .await;
+    assert_status(&response, StatusCode::OK);
+    let payload = body_json(response).await;
+    let path = payload["path"].as_str().unwrap();
+    assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+    saved["workingCopies"][0]["contentRevision"] = json!(3);
+    saved["workingCopies"][0]["files"] = json!([
+        {"id": "file-1", "path": path, "kind": "goal", "label": "完整 Goal", "createdAt": "2026-09-11T00:00:00Z", "revision": 2},
+        {"id": "file-2", "path": path, "kind": "attachment", "label": "测试参考", "createdAt": "2026-09-11T00:01:00Z", "revision": 3}
+    ]);
+    assert_status(
+        &send_post_json(test_app(), "/api/goal-workspace", saved.clone()).await,
+        StatusCode::OK,
+    );
+    assert_eq!(
+        body_json(send_get(test_app(), "/api/goal-workspace").await).await,
+        saved
+    );
+    let disk: Value = serde_json::from_slice(
+        &std::fs::read(temp.path().join("promptgoal/workspace.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(disk, saved);
+}

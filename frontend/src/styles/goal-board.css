@@ -1,0 +1,2 @@
+/* The standalone Goal page keeps its desktop styles; new UI uses Tailwind utilities. */
+@tailwind utilities;

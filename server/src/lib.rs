@@ -3955,6 +3955,28 @@ struct GoalWorkingCopy {
     body: String,
     created_at: String,
     updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    content_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    files: Vec<GoalFile>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GoalFile {
+    id: String,
+    path: String,
+    kind: GoalFileKind,
+    label: String,
+    created_at: String,
+    revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum GoalFileKind {
+    Goal,
+    Attachment,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

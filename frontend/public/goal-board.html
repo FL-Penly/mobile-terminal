@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Goal 工作台</title>
 <style>
   :root {
@@ -348,36 +348,53 @@
   .mode-switch a:hover { color: var(--text); }
   .mode-switch a.active { background: var(--panel-3); color: var(--text); }
 </style>
+<link rel="stylesheet" href="/goal-board-mobile.css" />
+<link rel="icon" href="data:," />
 </head>
-<body>
-  <header>
+<body class="max-[780px]:!h-[var(--app-height,100dvh)] max-[780px]:[&_button]:min-h-11 max-[780px]:[&_input]:!text-base max-[780px]:[&_textarea]:!text-base max-[780px]:[&_.mode-switch_a]:!px-2 max-[780px]:[&_.mode-switch_a]:!text-[11px]">
+  <header class="max-[780px]:!gap-2">
+    <button id="open-picker" class="min-[781px]:!hidden !px-2 shrink-0" aria-expanded="false" aria-controls="sidebar">切换 Goal</button>
     <nav class="mode-switch" aria-label="Prompt Board 模式">
-      <a href="/prompt-board.html">Prompt 库</a>
+      <a href="/prompt-board.html" class="max-[780px]:!hidden">Prompt 库</a>
       <a href="/goal-board.html" class="active" aria-current="page">Goal 工作台</a>
     </nav>
     <span class="header-hint">Goal 母版与持久化工作副本</span>
     <div class="spacer"></div>
-    <span id="status" class="status">加载中...</span>
+    <span id="status" class="status max-[780px]:!min-w-0 shrink-0 cursor-pointer">加载中...</span>
     <button id="reload" class="ghost">刷新</button>
   </header>
-  <div class="layout">
-    <aside id="sidebar"></aside>
-    <main id="detail"></main>
+  <div class="layout max-[780px]:!h-[calc(var(--app-height,100dvh)-52px)] max-[780px]:!flex max-[780px]:!flex-col">
+    <button id="picker-backdrop" class="!hidden fixed inset-x-0 bottom-0 top-[52px] z-30 !rounded-none !border-0 !bg-black/60" aria-label="关闭 Goal 列表"></button>
+    <aside id="sidebar" class="max-[780px]:!hidden max-[780px]:fixed max-[780px]:inset-x-0 max-[780px]:top-[52px] max-[780px]:z-40 max-[780px]:max-h-[75dvh] max-[780px]:!bg-[var(--bg)] max-[780px]:rounded-b-2xl"></aside>
+    <main id="detail" class="max-[780px]:flex-1 max-[780px]:!p-4 max-[780px]:[&_.card]:!border-0 max-[780px]:[&_.card]:!bg-transparent max-[780px]:[&_.card]:!shadow-none max-[780px]:[&_.card-head]:!px-0 max-[780px]:[&_.card-head]:!pt-0 max-[780px]:[&_.card-body]:!px-0 max-[780px]:[&_.card-body]:!pt-4"></main>
+    <div id="mobile-actions" class="!hidden shrink-0 border-0 border-t border-solid border-[var(--border)] bg-[var(--panel)] px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      <div class="grid grid-cols-[1fr_1.4fr] gap-2"><button id="mobile-copy">复制全文</button><button id="mobile-dump" class="primary">落盘并复制路径</button></div>
+    </div>
   </div>
-  <div id="toast" class="toast"></div>
-  <div id="editor-modal" class="editor-modal" aria-hidden="true">
+  <div id="toast" role="status" class="toast !z-[90] max-[780px]:!bottom-24"></div>
+  <div id="editor-modal" class="editor-modal max-[780px]:!top-[var(--app-top,0px)] max-[780px]:!h-[var(--app-height,100dvh)] max-[780px]:!bottom-auto" aria-hidden="true">
     <div class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title">
-      <div class="editor-dialog-head">
+      <div class="editor-dialog-head shrink-0">
         <div id="editor-dialog-title" class="editor-dialog-title">打开编辑</div>
         <button id="close-expanded-editor">完成</button>
       </div>
-      <textarea id="expanded-editor" class="expanded-editor" aria-label="编辑内容"></textarea>
+      <div class="flex shrink-0 items-center gap-2 border-0 border-b border-solid border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)]"><span id="editor-count" class="flex-1"></span><button id="editor-select-all" class="!text-xs">全选</button></div>
+      <textarea id="expanded-editor" class="expanded-editor" aria-label="编辑内容" spellcheck="false"></textarea>
+      <div class="shrink-0 border-0 border-t border-solid border-[var(--border)] p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div id="editor-feedback" class="max-h-28 overflow-auto text-xs break-all" role="status"></div>
+        <div class="grid grid-cols-3 gap-2"><button id="editor-dump-selection" disabled>提取选区</button><button id="editor-dump-all">提取全文</button><button id="editor-undo" disabled>撤销替换</button></div>
+      </div>
     </div>
   </div>
 
+  <div id="result-modal" class="!hidden fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-4 max-[780px]:!p-0 max-[780px]:!top-[var(--app-top,0px)] max-[780px]:!h-[var(--app-height,100dvh)] max-[780px]:!bottom-auto" aria-hidden="true">
+    <div role="dialog" aria-modal="true" aria-labelledby="result-title" class="flex max-h-[90%] w-full max-w-2xl flex-col rounded-t-2xl border border-solid border-[var(--border)] bg-[var(--panel)] p-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+      <div class="mb-3 flex shrink-0 items-center gap-3"><h2 id="result-title" class="m-0 flex-1 text-lg"></h2><button id="close-result">关闭</button></div>
+      <div id="result-content" class="min-h-0 overflow-y-auto"></div>
+    </div>
+  </div>
 <script>
 const WORKSPACE_API = '/api/goal-workspace';
-const DUMP_API = '/api/dump-file';
 const GOAL_DUMP_API = '/api/goal-dump';
 const VARIABLE_START = '【变量区】';
 const EXECUTION_START = '【执行区】';
@@ -394,6 +411,12 @@ let lastDumpPath = '';
 let lastDumpMessage = '';
 let lastDumpError = false;
 let expandedTemplateFamily = null;
+let activeTab = 'parameters';
+let operationCopyId = null;
+let resultReturnFocus = null;
+let editorReturnFocus = null;
+let workspaceLoaded = false;
+let moreParameters = false;
 
 const byId = (id) => document.getElementById(id);
 const statusEl = byId('status');
@@ -412,7 +435,7 @@ function normalizeWorkspace(value) {
 
 function setStatus(text, className) {
   statusEl.textContent = text;
-  statusEl.className = 'status' + (className ? ' ' + className : '');
+  statusEl.className = 'status max-[780px]:!min-w-0 shrink-0 cursor-pointer' + (className ? ' ' + className : '');
 }
 
 function toast(message) {
@@ -495,12 +518,14 @@ function enqueueSave(snapshot) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: snapshot,
+      signal: AbortSignal.timeout(3000),
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.message || '保存失败（' + response.status + '）');
     }
-    setStatus('已保存', 'ok');
+    if (snapshot === snapshotWorkspace() && !saveTimer) setStatus('已保存', 'ok');
+    else setStatus('待保存');
   }).catch((error) => {
     console.error('[PromptBoard] Failed to save workspace:', error);
     setStatus('保存失败', 'err');
@@ -525,16 +550,18 @@ function persistNow() {
 }
 
 async function loadWorkspace() {
+  if (operationCopyId) return toast('正在落盘，请稍候');
   clearTimeout(saveTimer);
   closeExpandedEditor();
   setStatus('加载中...');
   try {
-    const response = await fetch(WORKSPACE_API);
+    const response = await fetch(WORKSPACE_API, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.message || '加载失败（' + response.status + '）');
     }
     workspace = normalizeWorkspace(await response.json());
+    workspaceLoaded = true;
     templateDraft = null;
     editingTemplateId = null;
     undoReplacement = null;
@@ -598,6 +625,10 @@ function groupedTemplates() {
 }
 
 function selectItem(kind, id) {
+  if (operationCopyId) return toast('正在落盘，请稍候');
+  closePicker();
+  activeTab = 'parameters';
+  moreParameters = false;
   if (templateDraft && !confirm('当前母版编辑尚未保存，确定放弃更改吗？')) return;
   closeExpandedEditor();
   templateDraft = null;
@@ -619,6 +650,7 @@ function selectItem(kind, id) {
 function render() {
   renderSidebar();
   renderDetail();
+  updateMobileActions();
 }
 
 function renderSidebar() {
@@ -657,7 +689,7 @@ function renderSidebar() {
     (templateRows || '<div class="side-empty">Prompt 库中暂无名称或 ID 包含 Goal 的分组</div>') + '</section>' +
     '<section class="side-section"><div class="side-head"><span class="side-title">工作副本</span>' +
     '<span class="count">' + workspace.workingCopies.length + '</span></div>' +
-    (copyRows || '<div class="side-empty">从母版创建独立工作副本</div>') + '</section>';
+    (copyRows || '<div class="side-empty">从母版创建独立工作副本</div>') + '</section><a href="/prompt-board.html" class="min-[781px]:!hidden block p-4 text-[var(--accent)]">前往 Prompt 库 →</a>';
   byId('sidebar').querySelectorAll('[data-template-family]').forEach((element) => {
     element.addEventListener('click', () => {
       expandedTemplateFamily = element.dataset.templateFamily;
@@ -851,6 +883,8 @@ function createWorkingCopy(template) {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
+  activeTab = 'parameters';
+  moreParameters = false;
   workspace.workingCopies.push(copy);
   workspace.activeItem = { kind: 'copy', id: copy.id };
   undoReplacement = null;
@@ -872,6 +906,7 @@ function deleteTemplate(template) {
 }
 
 function deleteCopy(copy) {
+  if (operationCopyId) return toast('正在落盘，请稍候');
   if (!confirm('删除工作副本“' + copy.title + '”？已经落盘的附件会继续保留。')) return;
   workspace.workingCopies = workspace.workingCopies.filter((item) => item.id !== copy.id);
   workspace.activeItem = sortedCopies()[0]
@@ -884,6 +919,7 @@ function deleteCopy(copy) {
 
 function touchCopy(copy) {
   copy.updatedAt = nowIso();
+  renderFiles(copy);
   scheduleSave();
 }
 
@@ -896,6 +932,7 @@ function editTargetValue(copy, target) {
 }
 
 function setEditTargetValue(copy, target, value) {
+  if (editTargetValue(copy, target) !== value) copy.contentRevision = (copy.contentRevision ?? 0) + 1;
   if (target.kind === 'body') copy.body = value;
   else if (copy.variables[target.index]) copy.variables[target.index].value = value;
 }
@@ -931,18 +968,26 @@ function hasSelection(copy, target) {
 
 function updateDumpButton(copy) {
   const button = byId('dump-selection');
-  if (button) button.disabled = !hasSelection(copy) || button.dataset.loading === 'true';
+  if (button) button.disabled = !hasSelection(copy) || Boolean(operationCopyId);
+  const editorSelected = expandedEditorState?.copyId === copy.id && hasSelection(copy, expandedEditorState.target);
+  byId('editor-dump-selection').disabled = !editorSelected || Boolean(operationCopyId);
+  byId('editor-dump-all').disabled = Boolean(operationCopyId) || !byId('expanded-editor').value;
+  byId('editor-undo').disabled = Boolean(operationCopyId) || undoReplacement?.copyId !== copy.id;
+  byId('editor-count').textContent = byId('expanded-editor').value.length.toLocaleString() + ' 字' +
+    (editorSelected ? ' · 已选 ' + (savedSelection.end - savedSelection.start).toLocaleString() + ' 字' : ' · 长按文字选择选区');
 }
 
 function renderDumpFeedback(copy) {
   const container = byId('dump-feedback');
-  if (!container) return;
+  if (!container || currentCopy()?.id !== copy.id) return;
+  byId('editor-feedback').textContent = expandedEditorState?.copyId === copy.id ? lastDumpMessage : '';
+  updateDumpButton(copy);
   if (!lastDumpMessage && !lastDumpPath) {
     container.innerHTML = '';
     return;
   }
   const className = lastDumpError ? 'notice error' : 'notice success';
-  const path = lastDumpPath ? '<div style="margin-top:4px">' + escapeHtml(lastDumpPath) + '</div>' : '';
+  const path = lastDumpPath ? '<div class="mt-1 break-all">' + escapeHtml(lastDumpPath) + '</div>' : '';
   const undo = undoReplacement?.copyId === copy.id
     ? '<button id="undo-replacement">撤销替换</button>'
     : '';
@@ -954,28 +999,31 @@ function renderDumpFeedback(copy) {
 function renderCopyView(copy) {
   const variables = copy.variables.map((variable, index) => {
     const largeClass = isLargeVariableValue(variable.value) ? ' large-variable' : '';
-    return '<div class="variable-readonly' + largeClass + '" data-copy-variable-index="' + index + '">' +
+    return '<div class="variable-readonly max-[780px]:rounded-xl max-[780px]:bg-[var(--panel)] max-[780px]:p-3' + largeClass + '" data-copy-variable-index="' + index + '">' +
       '<div class="variable-name">' + escapeHtml(variable.name) + '</div>' +
       '<div class="editable-field">' +
-      '<textarea class="copy-variable-value" aria-label="' + escapeHtml(variable.name) +
+      '<textarea rows="1" class="copy-variable-value max-[780px]:!min-h-11 max-[780px]:!h-11 max-[780px]:!pr-3" aria-label="' + escapeHtml(variable.name) +
       ' 的值" placeholder="本次变量值，可多行">' + escapeHtml(variable.value) + '</textarea>' +
-      '<button class="expand-editor" data-expand-variable="' + index + '">打开编辑</button></div></div>';
+      '<button class="expand-editor max-[780px]:!static max-[780px]:mt-2 max-[780px]:!text-xs max-[780px]:!w-full" data-expand-variable="' + index + '">打开编辑</button></div></div>';
   }).join('');
   byId('detail').innerHTML =
     '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">工作副本 · 自动保存</div>' +
     '<input id="copy-title" class="title-field" aria-label="工作副本名称" value="' + escapeHtml(copy.title) + '" />' +
     '<div class="meta">源母版：' + escapeHtml(copy.sourceTemplateTitle || '已删除的母版') +
     ' · 更新于 ' + escapeHtml(formatUpdated(copy.updatedAt)) + '</div></div>' +
-    '<div class="actions"><button id="dump-selection" disabled>落盘选中</button>' +
+    '<div class="actions max-[780px]:!hidden"><button id="dump-selection" disabled>落盘选中</button>' +
     '<button id="dump-goal">落盘完整 Goal 并复制路径</button>' +
     '<button id="copy-goal" class="primary">复制完整 Goal</button><button id="delete-copy" class="danger">删除</button></div></div>' +
-    '<div class="card-body"><div id="dump-feedback"></div>' +
-    '<section class="section"><span class="section-label">本次变量值 · 选中文字后点「落盘选中」（变量定义请在母版维护）</span>' +
-    '<div class="variable-list">' + (variables || '<div class="notice">此副本没有变量。</div>') + '</div></section>' +
-    '<section class="section"><label class="section-label" for="copy-body">完整 Goal 正文 · 选中文字后点「落盘选中」</label>' +
-    '<div class="editable-field"><textarea id="copy-body" class="body-editor" placeholder="在这里编辑本次完整 Goal...">' +
-    escapeHtml(copy.body) + '</textarea><button id="expand-copy-body" class="expand-editor">打开编辑</button></div>' +
-    '</section></div></article>';
+    '<div class="min-[781px]:!hidden mt-3 flex items-center gap-2"><span class="flex-1 text-xs text-[var(--muted)]">本次配置</span><button id="preview-goal" class="!text-xs">预览全文</button><button id="mobile-delete" class="danger !text-xs">删除副本</button></div>' +
+    '<div class="min-[781px]:!hidden mt-4 grid grid-cols-3 gap-1 rounded-xl bg-[var(--panel)] p-1" role="tablist" aria-label="工作副本内容">' +
+    [['parameters', '参数'], ['body', '正文'], ['files', '附件']].map(([key, label]) => '<button role="tab" id="tab-' + key + '" aria-controls="panel-' + key + '" data-tab="' + key + '" class="!border-0 !bg-transparent aria-selected:!bg-[var(--panel-3)] aria-selected:!text-[var(--accent)]">' + label + '</button>').join('') + '</div>' +
+    '<div class="card-body"><div id="dump-feedback" role="status"></div>' +
+    '<section id="panel-parameters" data-panel="parameters" class="section"><span class="section-label">本次参数 <span class="max-[780px]:!hidden">· 选中文字可提取为附件</span></span>' +
+    '<div class="variable-list">' + (variables || '<div class="notice">此副本没有变量。</div>') + '</div><button id="more-parameters" class="!hidden min-[781px]:!hidden mt-3 w-full !text-xs"></button></section>' +
+    '<section id="panel-body" data-panel="body" class="section max-[780px]:!mt-0"><label class="section-label" for="copy-body">执行正文 · 可打开全屏编辑</label>' +
+    '<div class="editable-field"><textarea id="copy-body" class="body-editor max-[780px]:!pr-3" placeholder="在这里编辑本次完整 Goal...">' +
+    escapeHtml(copy.body) + '</textarea><button id="expand-copy-body" class="expand-editor max-[780px]:!static max-[780px]:mt-3 max-[780px]:!w-full">打开编辑</button></div>' +
+    '</section><section id="panel-files" data-panel="files" class="section max-[780px]:!mt-0"><div id="file-list"></div></section></div></article>';
 
   const bodyEditor = byId('copy-body');
   const titleEditor = byId('copy-title');
@@ -1020,6 +1068,13 @@ function renderCopyView(copy) {
   byId('dump-goal').addEventListener('click', () => dumpCompleteGoal(copy));
   byId('copy-goal').addEventListener('click', () => copyCompleteGoal(copy.variables, copy.body));
   byId('delete-copy').addEventListener('click', () => deleteCopy(copy));
+  byId('preview-goal').addEventListener('click', () => previewGoal(copy));
+  byId('mobile-delete').addEventListener('click', () => deleteCopy(copy));
+  byId('detail').querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => setTab(button.dataset.tab)));
+  byId('more-parameters').addEventListener('click', () => { moreParameters = !moreParameters; updateMobileFields(); });
+  renderFiles(copy);
+  setTab(activeTab);
+  updateMobileFields();
   renderDumpFeedback(copy);
   updateDumpButton(copy);
 }
@@ -1046,7 +1101,8 @@ function openExpandedEditor(copy, target, label) {
     sourceScrollTop: sourceTextarea.scrollTop,
     sourceScrollLeft: sourceTextarea.scrollLeft,
   };
-  byId('editor-dialog-title').textContent = '编辑 · ' + label + ' · 选中文字后点「落盘选中」';
+  editorReturnFocus = document.activeElement;
+  byId('editor-dialog-title').textContent = label;
   editor.value = editTargetValue(copy, target);
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
@@ -1057,6 +1113,9 @@ function openExpandedEditor(copy, target, label) {
   editor.setSelectionRange(start, end);
   editor.scrollTop = sourceTextarea.scrollTop;
   editor.scrollLeft = sourceTextarea.scrollLeft;
+  rememberSelection(editor, copy, target);
+  renderDumpFeedback(copy);
+  syncModalInert();
   editor.oninput = (event) => {
     setEditTargetValue(copy, target, event.target.value);
     sourceTextarea.value = event.target.value;
@@ -1086,6 +1145,9 @@ function closeExpandedEditor() {
   byId('editor-modal').classList.remove('show');
   byId('editor-modal').setAttribute('aria-hidden', 'true');
   document.body.classList.remove('editor-open');
+  syncModalInert();
+  updateMobileFields();
+  editorReturnFocus?.focus({ preventScroll: true });
 }
 
 function formatVariable(name, value) {
@@ -1107,8 +1169,7 @@ async function writeClipboard(text) {
   } catch (error) {
     const fallback = document.createElement('textarea');
     fallback.value = text;
-    fallback.style.position = 'fixed';
-    fallback.style.opacity = '0';
+    fallback.className = 'fixed opacity-0';
     document.body.appendChild(fallback);
     fallback.select();
     const copied = document.execCommand('copy');
@@ -1122,143 +1183,140 @@ function copyCompleteGoal(variables, body) {
     .then(() => toast('完整 Goal 已复制'))
     .catch((error) => {
       console.error('[PromptBoard] Failed to copy goal:', error);
-      toast('复制失败，请重试');
+      showCopySheet('复制完整 Goal', completeGoalText(variables, body), '自动复制不可用，可全选后手动复制。');
     });
 }
 
+async function writeGoalFile(copy, text) {
+  // The server validates copy ownership; flush newly created copies before writing.
+  await persistNow();
+  const response = await fetch(GOAL_DUMP_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workingCopyId: copy.id, text }),
+    signal: AbortSignal.timeout(3000),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || typeof payload.path !== 'string') {
+    throw new Error(payload.message || '落盘失败（' + response.status + '）');
+  }
+  return payload.path;
+}
+
+function addFile(copy, path, kind, label, revision) {
+  copy.files ??= [];
+  copy.files.push({ id: makeId('file'), path, kind, label, createdAt: nowIso(), revision });
+  renderFiles(copy);
+}
+
+function setOperation(copy, busy) {
+  operationCopyId = busy ? copy.id : null;
+  ['dump-goal', 'mobile-dump'].forEach(id => {
+    const button = byId(id);
+    if (!button) return;
+    button.disabled = busy;
+    button.textContent = busy ? '落盘中…' : (id === 'mobile-dump' ? '落盘并复制路径' : '落盘完整 Goal 并复制路径');
+  });
+  updateDumpButton(copy);
+  renderFiles(copy);
+}
+
+async function saveFileMetadata() {
+  try {
+    await persistNow();
+    return true;
+  } catch {
+    lastDumpMessage += ' 文件已生成，但附件记录保存失败，请点击顶部保存状态重试。';
+    return false;
+  }
+}
+
 async function dumpCompleteGoal(copy) {
-  const button = byId('dump-goal');
-  if (!button || button.dataset.loading === 'true') return;
-  button.dataset.loading = 'true';
-  button.disabled = true;
-  button.textContent = '落盘中...';
+  if (operationCopyId) return;
+  const text = completeGoalText(copy.variables, copy.body);
+  const revision = copy.contentRevision ?? 0;
+  setOperation(copy, true);
   lastDumpPath = '';
   lastDumpMessage = '';
   lastDumpError = false;
   renderDumpFeedback(copy);
   try {
-    const response = await fetch(GOAL_DUMP_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workingCopyId: copy.id,
-        text: completeGoalText(copy.variables, copy.body),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || typeof payload.path !== 'string') {
-      throw new Error(payload.message || '落盘失败（' + response.status + '）');
-    }
-    lastDumpPath = payload.path;
+    const path = await writeGoalFile(copy, text);
+    lastDumpPath = path;
+    addFile(copy, path, 'goal', '完整 Goal', revision);
+    lastDumpMessage = '完整 Goal 已落盘。';
+    const saved = await saveFileMetadata();
     try {
-      await writeClipboard(payload.path);
-      lastDumpMessage = '完整 Goal 已落盘，路径已复制。';
-      toast('完整 Goal 已落盘，路径已复制');
+      await writeClipboard(path);
+      if (saved) lastDumpMessage = '完整 Goal 已落盘，路径已复制。';
     } catch (error) {
-      console.error('[PromptBoard] Failed to copy dumped goal path:', error);
-      lastDumpMessage = '完整 Goal 已落盘，但自动复制路径失败，请手动复制。';
-      toast('已落盘，请手动复制路径');
+      console.error('[GoalBoard] Failed to copy path:', error);
+      if (saved) lastDumpMessage = '完整 Goal 已落盘，但自动复制路径失败，请手动复制。';
     }
     renderDumpFeedback(copy);
+    if (isMobile()) showCopySheet('完整 Goal 已落盘', path, lastDumpMessage);
+    else toast(lastDumpMessage);
   } catch (error) {
-    console.error('[PromptBoard] Failed to dump complete goal:', error);
-    lastDumpPath = '';
+    console.error('[GoalBoard] Failed to dump complete goal:', error);
     lastDumpError = true;
     lastDumpMessage = (error instanceof Error ? error.message : String(error)) + '，完整 Goal 未落盘，可重试。';
     renderDumpFeedback(copy);
   } finally {
-    button.dataset.loading = 'false';
-    button.disabled = false;
-    button.textContent = '落盘完整 Goal 并复制路径';
+    setOperation(copy, false);
   }
 }
 
-async function dumpSelection(copy, textarea, target) {
+async function dumpSelection(copy, textarea, target, entireField = false) {
+  if (operationCopyId) return;
+  if (entireField) textarea.setSelectionRange(0, textarea.value.length);
   rememberSelection(textarea, copy, target);
   if (!hasSelection(copy, target)) return;
-  const start = savedSelection.start;
-  const end = savedSelection.end;
+  const { start, end } = savedSelection;
   const beforeValue = editTargetValue(copy, target);
   const selectedText = beforeValue.slice(start, end);
   if (!selectedText) return;
-  const textareaScrollTop = textarea.scrollTop;
-  const textareaScrollLeft = textarea.scrollLeft;
-  const pageScrollX = window.scrollX;
-  const pageScrollY = window.scrollY;
-  const button = byId('dump-selection');
-  if (button) {
-    button.dataset.loading = 'true';
-    button.disabled = true;
-    button.textContent = '落盘中...';
-  }
+  const scrollTop = textarea.scrollTop;
+  setOperation(copy, true);
   lastDumpError = false;
   lastDumpMessage = '';
   renderDumpFeedback(copy);
   try {
-    const response = await fetch(DUMP_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: selectedText,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || typeof payload.path !== 'string') {
-      throw new Error(payload.message || '落盘失败（' + response.status + '）');
+    const path = await writeGoalFile(copy, selectedText);
+    lastDumpPath = path;
+    addFile(copy, path, 'attachment', target.kind === 'body' ? '正文摘录' : copy.variables[target.index].name, copy.contentRevision ?? 0);
+    // A request may finish after the user has continued typing. Never overwrite that edit.
+    if (editTargetValue(copy, target) === beforeValue) {
+      const afterValue = beforeValue.slice(0, start) + path + beforeValue.slice(end);
+      setEditTargetValue(copy, target, afterValue);
+      undoReplacement = { copyId: copy.id, target, targetKey: editTargetKey(target), beforeValue, afterValue };
+      textarea.value = afterValue;
+      const source = target.kind === 'body' ? byId('copy-body') : byId('detail').querySelector('[data-copy-variable-index="' + target.index + '"] textarea');
+      if (source) source.value = afterValue;
+      if (expandedEditorState?.targetKey === editTargetKey(target)) byId('expanded-editor').value = afterValue;
+      const cursor = start + path.length;
+      textarea.setSelectionRange(cursor, cursor);
+      textarea.scrollTop = scrollTop;
+      clearSavedSelection();
+      lastDumpMessage = '选区已落盘并在原位置替换。';
+      touchCopy(copy);
+    } else {
+      lastDumpMessage = '附件已落盘；检测到继续编辑，保留最新内容，未替换选区。';
     }
-    const replacement = payload.path;
-    const afterValue = beforeValue.slice(0, start) + replacement + beforeValue.slice(end);
-    setEditTargetValue(copy, target, afterValue);
-    copy.updatedAt = nowIso();
-    undoReplacement = {
-      copyId: copy.id,
-      target,
-      targetKey: editTargetKey(target),
-      beforeValue,
-      afterValue,
-    };
-    lastDumpPath = payload.path;
-    lastDumpMessage = '选区已落盘并在原位置替换。';
-    lastDumpError = false;
-    textarea.value = afterValue;
-    if (expandedEditorState?.targetKey === editTargetKey(target)) {
-      expandedEditorState.sourceTextarea.value = afterValue;
-    }
-    const cursor = start + replacement.length;
-    savedSelection = {
-      copyId: copy.id,
-      targetKey: editTargetKey(target),
-      target,
-      textarea,
-      start: cursor,
-      end: cursor,
-    };
-    textarea.focus({ preventScroll: true });
-    textarea.setSelectionRange(cursor, cursor);
-    textarea.scrollTop = textareaScrollTop;
-    textarea.scrollLeft = textareaScrollLeft;
-    window.scrollTo(pageScrollX, pageScrollY);
-    requestAnimationFrame(() => {
-      textarea.scrollTop = textareaScrollTop;
-      textarea.scrollLeft = textareaScrollLeft;
-      window.scrollTo(pageScrollX, pageScrollY);
-    });
+    await saveFileMetadata();
+    updateMobileFields();
     renderDumpFeedback(copy);
-    scheduleSave();
   } catch (error) {
-    console.error('[PromptBoard] Failed to dump selection:', error);
-    lastDumpPath = '';
+    console.error('[GoalBoard] Failed to dump selection:', error);
     lastDumpError = true;
     lastDumpMessage = (error instanceof Error ? error.message : String(error)) + '，内容未改变，可重试。';
     renderDumpFeedback(copy);
   } finally {
-    if (button) {
-      button.dataset.loading = 'false';
-      button.textContent = '落盘选中';
-    }
-    updateDumpButton(copy);
+    setOperation(copy, false);
   }
 }
 
 function undoDumpReplacement(copy) {
+  if (operationCopyId) return;
   if (!undoReplacement || undoReplacement.copyId !== copy.id) return;
   const target = undoReplacement.target;
   setEditTargetValue(copy, target, undoReplacement.beforeValue);
@@ -1276,6 +1334,8 @@ function undoDumpReplacement(copy) {
   lastDumpError = false;
   lastDumpMessage = '引用替换已撤销；已经生成的附件继续保留。';
   renderDumpFeedback(copy);
+  renderFiles(copy);
+  updateMobileFields();
   updateDumpButton(copy);
   persistNow().catch(() => {
     lastDumpError = true;
@@ -1286,8 +1346,11 @@ function undoDumpReplacement(copy) {
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
-    closeExpandedEditor();
+    if (byId('result-modal').getAttribute('aria-hidden') === 'false') closeResult();
+    else if (expandedEditorState) closeExpandedEditor();
+    else closePicker();
   }
+  trapModalFocus(event);
   if (!event.altKey || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
   const copy = currentCopy();
   const textarea = savedSelection.textarea;
@@ -1306,8 +1369,239 @@ byId('editor-modal').addEventListener('pointerdown', (event) => {
 
 byId('reload').addEventListener('click', () => {
   if (templateDraft && !confirm('当前母版编辑尚未保存，确定重新加载吗？')) return;
-  loadWorkspace();
+  if (!workspaceLoaded) { loadWorkspace(); return; }
+  persistNow().then(loadWorkspace).catch(() => toast('保存失败，请重试后再刷新'));
 });
+
+function isMobile() {
+  return window.matchMedia?.('(max-width: 780px)').matches ?? false;
+}
+
+function setTab(tab) {
+  activeTab = tab;
+  byId('detail').querySelectorAll('[data-panel]').forEach(panel => {
+    panel.classList.toggle('max-[780px]:!hidden', panel.dataset.panel !== tab);
+  });
+  byId('detail').querySelectorAll('[data-tab]').forEach(button => {
+    button.setAttribute('aria-selected', String(button.dataset.tab === tab));
+  });
+}
+
+function updateMobileActions() {
+  const visible = currentCopy() && !templateDraft;
+  byId('mobile-actions').classList.toggle('!hidden', !visible);
+  byId('mobile-actions').classList.add('min-[781px]:!hidden');
+}
+
+function updateMobileFields() {
+  let shortCount = 0;
+  let extraCount = 0;
+  byId('detail').querySelectorAll('[data-copy-variable-index]').forEach(row => {
+    const textarea = row.querySelector('textarea');
+    const button = row.querySelector('[data-expand-variable]');
+    const isLong = textarea.value.length > 100 || textarea.value.includes('\n') || /HINT|REFERENCE|CONTEXT|DESCRIPTION/i.test(textarea.getAttribute('aria-label'));
+    if (!isLong) shortCount++;
+    const extra = !isLong && shortCount > 4;
+    if (extra) extraCount++;
+    row.classList.toggle('max-[780px]:!hidden', extra && !moreParameters);
+    textarea.classList.toggle('max-[780px]:!h-24', isLong);
+    textarea.classList.toggle('max-[780px]:!h-11', !isLong);
+    textarea.readOnly = isMobile() && isLong;
+    button.classList.toggle('max-[780px]:!hidden', !isLong);
+    if (isMobile()) button.textContent = '编辑长文本 · ' + textarea.value.length.toLocaleString() + ' 字';
+    else button.textContent = '打开编辑';
+  });
+  const moreButton = byId('more-parameters');
+  if (moreButton) {
+    moreButton.classList.toggle('!hidden', !extraCount);
+    moreButton.textContent = moreParameters ? '收起更多参数' : '显示其余 ' + extraCount + ' 个参数';
+  }
+}
+
+function openPicker() {
+  byId('sidebar').classList.remove('max-[780px]:!hidden');
+  byId('picker-backdrop').classList.remove('!hidden');
+  byId('open-picker').setAttribute('aria-expanded', 'true');
+  byId('detail').inert = true;
+  byId('mobile-actions').inert = true;
+  byId('sidebar').querySelector('.active, button')?.focus();
+}
+
+function closePicker() {
+  const wasOpen = byId('open-picker').getAttribute('aria-expanded') === 'true';
+  byId('sidebar').classList.add('max-[780px]:!hidden');
+  byId('picker-backdrop').classList.add('!hidden');
+  byId('open-picker').setAttribute('aria-expanded', 'false');
+  byId('detail').inert = false;
+  byId('mobile-actions').inert = false;
+  if (wasOpen) byId('open-picker').focus();
+}
+
+function syncModalInert() {
+  const resultOpen = byId('result-modal').getAttribute('aria-hidden') === 'false';
+  document.querySelector('.layout').inert = Boolean(expandedEditorState) || resultOpen;
+  document.querySelector('header').inert = Boolean(expandedEditorState) || resultOpen;
+  byId('editor-modal').inert = resultOpen;
+}
+
+function trapModalFocus(event) {
+  if (event.key !== 'Tab') return;
+  const modal = byId('result-modal').getAttribute('aria-hidden') === 'false' ? byId('result-modal') :
+    expandedEditorState ? byId('editor-modal') : null;
+  if (!modal) return;
+  const nodes = [...modal.querySelectorAll('button:not(:disabled), textarea, input, [tabindex="0"]')];
+  const first = nodes[0];
+  const last = nodes[nodes.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+}
+
+function openResult(title, html) {
+  if (byId('result-modal').getAttribute('aria-hidden') !== 'false') resultReturnFocus = document.activeElement;
+  byId('result-title').textContent = title;
+  byId('result-content').innerHTML = html;
+  byId('result-modal').classList.remove('!hidden');
+  byId('result-modal').setAttribute('aria-hidden', 'false');
+  syncModalInert();
+  byId('close-result').focus();
+}
+
+function closeResult() {
+  byId('result-modal').classList.add('!hidden');
+  byId('result-modal').setAttribute('aria-hidden', 'true');
+  syncModalInert();
+  if (resultReturnFocus?.isConnected) resultReturnFocus.focus({ preventScroll: true });
+  else byId('copy-title')?.focus({ preventScroll: true });
+}
+
+function showCopySheet(title, text, message) {
+  openResult(title, '<p id="result-message" class="mt-0 text-sm text-[var(--muted)]" role="status">' + escapeHtml(message) + '</p>' +
+    '<textarea id="result-text" readonly class="!min-h-32 !max-h-[50dvh] !text-sm !font-mono" aria-label="可复制内容">' + escapeHtml(text) + '</textarea>' +
+    '<div class="mt-3 grid grid-cols-2 gap-2"><button id="select-result">全选</button><button id="copy-result" class="primary">复制</button></div>');
+  byId('select-result').addEventListener('click', () => { byId('result-text').focus(); byId('result-text').select(); });
+  byId('copy-result').addEventListener('click', () => writeClipboard(text).then(() => {
+    byId('result-message').textContent = '已复制';
+    toast('已复制');
+  }).catch(() => {
+    byId('result-message').textContent = '自动复制不可用，已全选，请长按手动复制。';
+    byId('result-text').focus();
+    byId('result-text').select();
+  }));
+}
+
+function previewGoal(copy) {
+  showCopySheet('完整 Goal 预览', completeGoalText(copy.variables, copy.body), '包含当前参数和执行正文，可直接复制。');
+}
+
+function renderFiles(copy) {
+  const container = byId('file-list');
+  if (!container || currentCopy()?.id !== copy.id) return;
+  const files = copy.files ?? [];
+  const goals = files.filter(file => file.kind === 'goal').reverse();
+  const attachments = files.filter(file => file.kind === 'attachment').reverse();
+  const latest = goals[0];
+  const state = !latest ? '尚未生成完整 Goal 文件' : latest.revision === (copy.contentRevision ?? 0) ? '最新文件与当前内容一致' : '内容已修改，请重新落盘';
+  const rows = (items) => items.map(file => '<div class="mt-3 rounded-xl border border-solid border-[var(--border)] bg-[var(--panel)] p-3">' +
+    '<div class="flex items-center gap-2"><strong class="min-w-0 flex-1 break-words text-sm">' + escapeHtml(file.label) + '</strong>' +
+    '<button data-copy-file="' + escapeHtml(file.id) + '" class="shrink-0 !text-xs">复制路径</button></div>' +
+    '<div class="mt-1 text-xs text-[var(--muted)]">' + escapeHtml(formatUpdated(file.createdAt)) +
+    (file.kind === 'goal' ? ' · 版本 ' + (files.filter(item => item.kind === 'goal').findIndex(item => item.id === file.id) + 1) : '') + '</div>' +
+    '<p class="mb-0 mt-2 break-all font-mono text-xs text-[var(--muted)]">' + escapeHtml(file.path) + '</p></div>').join('');
+  container.innerHTML = '<span class="section-label">文件工作区</span><p class="text-sm text-[var(--accent)]">' + state + '</p>' +
+    '<button id="regenerate-goal" class="w-full" ' + (operationCopyId ? 'disabled' : '') + '>生成完整 Goal 新版本</button>' +
+    rows(goals) + '<div class="mt-6 flex items-center gap-2"><span class="flex-1 text-sm">引用附件 · ' + attachments.length + '</span><button id="add-attachment" class="!text-xs">新增附件</button></div>' +
+    (rows(attachments) || '<p class="text-xs leading-6 text-[var(--muted)]">在长文编辑器中提取选区，或粘贴参考内容生成附件。生成的文件路径可直接复制。</p>') +
+    '<p class="mt-4 text-xs text-[var(--muted)]">这里记录本次使用移动视图后生成的文件。已有正文中的路径保持原样。</p>';
+  container.querySelectorAll('[data-copy-file]').forEach(button => button.addEventListener('click', () => {
+    const file = files.find(item => item.id === button.dataset.copyFile);
+    if (file) writeClipboard(file.path).then(() => toast('路径已复制')).catch(() => showCopySheet('复制文件路径', file.path, '可全选后手动复制。'));
+  }));
+  byId('regenerate-goal').addEventListener('click', () => dumpCompleteGoal(copy));
+  byId('add-attachment').addEventListener('click', () => openAttachmentSheet(copy));
+}
+
+function openAttachmentSheet(copy) {
+  if (operationCopyId) return toast('正在落盘，请稍候');
+  openResult('新增参考附件', '<label class="field-label" for="attachment-name">附件名称</label><input id="attachment-name" value="参考资料" maxlength="120" />' +
+    '<label class="field-label mt-4" for="attachment-text">粘贴内容</label><textarea id="attachment-text" class="!min-h-48" placeholder="粘贴日志、需求或测试参考…"></textarea>' +
+    '<p id="attachment-feedback" class="text-xs text-[var(--muted)]" role="status">生成后可复制路径，粘贴到任意参数中。</p><button id="save-attachment" class="primary w-full">落盘附件</button>');
+  byId('save-attachment').addEventListener('click', async () => {
+    const text = byId('attachment-text').value;
+    if (!text.trim()) { byId('attachment-feedback').textContent = '请先粘贴附件内容。'; return; }
+    if (operationCopyId) return;
+    const label = byId('attachment-name').value.trim() || '参考资料';
+    byId('save-attachment').disabled = true;
+    setOperation(copy, true);
+    try {
+      const path = await writeGoalFile(copy, text);
+      addFile(copy, path, 'attachment', label, copy.contentRevision ?? 0);
+      lastDumpMessage = '附件已落盘，可复制路径。';
+      lastDumpPath = path;
+      lastDumpError = false;
+      await saveFileMetadata();
+      if (byId('attachment-text')) showCopySheet('附件已落盘', path, lastDumpMessage);
+      renderDumpFeedback(copy);
+    } catch (error) {
+      console.error('[GoalBoard] Failed to create attachment:', error);
+      const feedback = byId('attachment-feedback');
+      if (feedback) feedback.textContent = '落盘失败，内容已保留，可重试：' + (error instanceof Error ? error.message : String(error));
+      const button = byId('save-attachment');
+      if (button) button.disabled = false;
+    } finally {
+      setOperation(copy, false);
+      renderFiles(copy);
+    }
+  });
+}
+
+function syncViewport() {
+  const viewport = window.visualViewport;
+  document.body.style.setProperty('--app-height', (viewport?.height ?? window.innerHeight) + 'px');
+  document.body.style.setProperty('--app-top', (viewport?.offsetTop ?? 0) + 'px');
+}
+
+byId('open-picker').addEventListener('click', () => {
+  if (byId('open-picker').getAttribute('aria-expanded') === 'true') closePicker();
+  else openPicker();
+});
+byId('picker-backdrop').addEventListener('click', closePicker);
+byId('close-result').addEventListener('click', closeResult);
+byId('result-modal').addEventListener('pointerdown', event => { if (event.target === byId('result-modal')) closeResult(); });
+byId('mobile-copy').addEventListener('click', () => { const copy = currentCopy(); if (copy) copyCompleteGoal(copy.variables, copy.body); });
+byId('mobile-dump').addEventListener('click', () => { const copy = currentCopy(); if (copy) dumpCompleteGoal(copy); });
+byId('editor-select-all').addEventListener('click', () => {
+  const copy = currentCopy();
+  if (!copy || !expandedEditorState) return;
+  const editor = byId('expanded-editor');
+  editor.focus();
+  editor.select();
+  rememberSelection(editor, copy, expandedEditorState.target);
+});
+['editor-dump-selection', 'editor-dump-all'].forEach(id => {
+  byId(id).addEventListener('pointerdown', event => event.preventDefault());
+  byId(id).addEventListener('click', () => {
+    const copy = currentCopy();
+    if (copy && expandedEditorState) dumpSelection(copy, byId('expanded-editor'), expandedEditorState.target, id === 'editor-dump-all');
+  });
+});
+byId('editor-undo').addEventListener('click', () => { const copy = currentCopy(); if (copy) undoDumpReplacement(copy); });
+document.addEventListener('selectionchange', () => {
+  const copy = currentCopy();
+  if (copy && expandedEditorState && document.activeElement === byId('expanded-editor')) rememberSelection(byId('expanded-editor'), copy, expandedEditorState.target);
+});
+statusEl.setAttribute('role', 'button');
+statusEl.setAttribute('tabindex', '0');
+statusEl.setAttribute('title', '点击立即保存 / 重试保存');
+statusEl.addEventListener('click', () => {
+  if (!workspaceLoaded) { loadWorkspace(); return; }
+  persistNow().catch(() => toast('保存失败，请检查网络后重试'));
+});
+statusEl.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); statusEl.click(); } });
+window.addEventListener('resize', () => { syncViewport(); updateMobileFields(); if (!isMobile()) closePicker(); });
+window.visualViewport?.addEventListener('resize', syncViewport);
+window.visualViewport?.addEventListener('scroll', syncViewport);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && saveTimer) persistNow().catch(() => undefined); });
+syncViewport();
 
 loadWorkspace();
 </script>

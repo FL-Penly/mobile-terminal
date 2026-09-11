@@ -4,8 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "npm run build:goal && vite",
+    "build:goal": "tailwindcss -i src/styles/goal-board.css -o public/goal-board-mobile.css --content public/goal-board.html --minify",
+    "build": "npm run build:goal && tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run"
   },
