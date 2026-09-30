@@ -1,5 +1,7 @@
 import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createTerminalKeyHandler } from '../../utils/terminal-key-input'
+import type { PasteResultCapture } from '../../utils/terminal-paste'
 
 import {
   TerminalProvider,
@@ -340,5 +342,38 @@ describe('TerminalContext', () => {
     const frame = ws.send.mock.calls[0][0]
     const bytes = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength)
     expect(new TextDecoder().decode(bytes)).toBe(`0\x1b[13;2u`)
+  })
+
+  it('sends combo keys as ttyd input without changing existing shortcuts or pasted text', () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    ws.send.mockClear()
+    const capture: PasteResultCapture = { current: null }
+    const unregister = getContext().registerKeyHandler(createTerminalKeyHandler({
+      modes: { applicationCursorKeysMode: false },
+      input: data => capture.current?.(getContext().sendInput(data)),
+    }, capture))
+    expect(getContext().sendKeystroke({ key: 'ArrowLeft', modifiers: { shift: true, ctrl: false, alt: false } })).toEqual({ ok: true, byteLength: 6 })
+    getContext().sendKey('ARROW_LEFT')
+    getContext().sendKey('CTRL_C')
+    getContext().sendInput('中文 plain text')
+    const frames = ws.send.mock.calls.map(([frame]) => new TextDecoder().decode(frame))
+    expect(frames).toEqual(['0\x1b[1;2D', '0\x1b[D', '0\x03', '0中文 plain text'])
+    unregister()
+    expect(getContext().sendKeystroke({ key: 'Enter', modifiers: { shift: false, ctrl: false, alt: false } })).toEqual({ ok: false, reason: 'terminalUnavailable' })
+  })
+
+  it('blocks keystrokes while switching targets and does not replay them', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    act(() => MockWebSocket.instances[0].open())
+    const handler = vi.fn(() => ({ ok: true as const, byteLength: 1 }))
+    getContext().registerKeyHandler(handler)
+    act(() => getContext().switchTerminal('herdr', 'w1:p1'))
+    expect(getContext().sendKeystroke({ key: 'Enter', modifiers: { shift: false, ctrl: false, alt: false } })).toEqual({ ok: false, reason: 'disconnected' })
+    expect(handler).not.toHaveBeenCalled()
   })
 })

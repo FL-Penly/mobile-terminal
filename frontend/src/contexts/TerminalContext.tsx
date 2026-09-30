@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import type { EncodedKey, TerminalKeystroke } from '../utils/terminal-keys'
 
 const encoder = new TextEncoder()
 const MAX_EARLY_CHUNKS = 200
@@ -10,6 +11,8 @@ export type InputSendResult =
   | { ok: false; reason: InputFailureReason; message?: string }
 
 export type PasteInputHandler = (text: string) => InputSendResult
+export type KeyInputResult = InputSendResult | Extract<EncodedKey, { ok: false }>
+export type KeyInputHandler = (stroke: TerminalKeystroke) => KeyInputResult
 
 export type TerminalMux = 'tmux' | 'herdr'
 
@@ -23,6 +26,8 @@ export interface TerminalContextValue {
   submitText: (text: string) => Promise<InputSendResult>
 
   registerPasteHandler: (handler: PasteInputHandler) => () => void
+  registerKeyHandler: (handler: KeyInputHandler) => () => void
+  sendKeystroke: KeyInputHandler
   
   sendKey: (key: 'ESC' | 'TAB' | 'SHIFT_TAB' | 'ENTER' | 'SHIFT_ENTER' | 'CTRL_C' | 'ARROW_UP' | 'ARROW_DOWN' | 'ARROW_LEFT' | 'ARROW_RIGHT' | 'PAGE_UP' | 'PAGE_DOWN' | 'CTRL_L') => void
   
@@ -106,6 +111,7 @@ const pageOwnsHerdrFocus = () => (
 )
 
 export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const keyHandlerRef = useRef<KeyInputHandler | null>(null)
   const [target, setTarget] = useState<TerminalTarget>(readTerminalTarget)
   const targetRef = useRef<TerminalTarget>(target)
   const terminalRef = useRef<HTMLDivElement>(null)
@@ -605,6 +611,20 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [])
 
+  const registerKeyHandler = useCallback((handler: KeyInputHandler) => {
+    keyHandlerRef.current = handler
+    return () => {
+      if (keyHandlerRef.current === handler) keyHandlerRef.current = null
+    }
+  }, [])
+
+  const sendKeystroke = useCallback<KeyInputHandler>((stroke) => {
+    if (pendingTargetRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      return { ok: false, reason: 'disconnected' }
+    }
+    return keyHandlerRef.current?.(stroke) ?? { ok: false, reason: 'terminalUnavailable' }
+  }, [])
+
   const sendKey = useCallback((key: keyof typeof KEY_SEQUENCES) => {
     const sequence = KEY_SEQUENCES[key]
     if (sequence) {
@@ -656,6 +676,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     pasteInput,
     submitText,
     registerPasteHandler,
+    registerKeyHandler,
+    sendKeystroke,
     sendKey,
     subscribeOutput,
     sendControl,
@@ -670,7 +692,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     switchTerminal,
     disconnectReason,
     takeoverDetected,
-  }), [connectionState, sendInput, pasteInput, submitText, registerPasteHandler, sendKey, subscribeOutput, sendControl, terminalRef, resize, reconnect, reconnectAttempt, clientTty, setClientTtyValue, target, switchTerminal, disconnectReason, takeoverDetected])
+  }), [connectionState, sendInput, pasteInput, submitText, registerPasteHandler, registerKeyHandler, sendKeystroke, sendKey, subscribeOutput, sendControl, terminalRef, resize, reconnect, reconnectAttempt, clientTty, setClientTtyValue, target, switchTerminal, disconnectReason, takeoverDetected])
 
   return (
     <TerminalContext.Provider value={contextValue}>

@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
+import { useServerEvents } from '../contexts/ServerEventsContext'
 import { SettingsModal, UserConfig, UserCommand, DEFAULT_CONFIG, loadUserConfig, saveUserConfig } from './SettingsModal'
 
 import { TextInputModal } from './TextInputModal'
 import { GitPanel } from './GitPanel'
+import { ComboKeyPanel } from './ComboKeyPanel'
 
 const hapticTap = () => { try { navigator.vibrate?.(8) } catch {} }
 
 export const Toolbar: React.FC = () => {
-  const { sendKey, sendInput, submitText } = useTerminal()
+  const { sendKey, sendInput, submitText, connectionState, mux, paneId, clientTty } = useTerminal()
+  const { currentTmuxSession } = useServerEvents()
+  const [isComboOpen, setIsComboOpen] = useState(false)
   const [config, setConfig] = useState<UserConfig>(DEFAULT_CONFIG)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isInputOpen, setIsInputOpen] = useState(false)
@@ -29,6 +33,14 @@ export const Toolbar: React.FC = () => {
   useEffect(() => {
     loadUserConfig().then(setConfig)
   }, [])
+
+  useEffect(() => {
+    setIsComboOpen(false)
+  }, [connectionState, mux, paneId, clientTty, currentTmuxSession])
+
+  useEffect(() => {
+    if (isInputOpen || isSettingsOpen || isGitOpen || isPickerOpen) setIsComboOpen(false)
+  }, [isInputOpen, isSettingsOpen, isGitOpen, isPickerOpen])
 
   const exec = (cmd: UserCommand) => {
     hapticTap()
@@ -124,6 +136,7 @@ export const Toolbar: React.FC = () => {
         )}
 
         <div className="bg-bg-secondary border-t border-border-subtle pb-[env(safe-area-inset-bottom)]">
+          {isComboOpen ? <ComboKeyPanel onClose={() => setIsComboOpen(false)} /> : (
           <div className="flex flex-col gap-1.5 px-2 py-1.5">
 
             {isExpanded ? (
@@ -152,6 +165,7 @@ export const Toolbar: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-1.5 justify-end">
+                  <button type="button" aria-expanded={isComboOpen} aria-controls="combo-key-panel" onClick={() => setIsComboOpen(value => !value)} onMouseDown={event => event.preventDefault()} className={`${btnBase} mr-auto px-2 text-xs ${isComboOpen ? 'border-accent-blue text-accent-blue' : 'bg-bg-tertiary text-text-secondary'}`}>组合键</button>
                   <K label="←" onClick={() => k('ARROW_LEFT')} />
                   <K label="↓" onClick={() => k('ARROW_DOWN')} />
                   <K label="→" onClick={() => k('ARROW_RIGHT')} />
@@ -169,6 +183,7 @@ export const Toolbar: React.FC = () => {
                 <K label="↓" onClick={() => k('ARROW_DOWN')} />
                 <K label="←" onClick={() => k('ARROW_LEFT')} />
                 <K label="→" onClick={() => k('ARROW_RIGHT')} />
+                <button type="button" aria-expanded={isComboOpen} aria-controls="combo-key-panel" onClick={() => setIsComboOpen(value => !value)} onMouseDown={event => event.preventDefault()} className={`${btnBase} px-2 text-xs ${isComboOpen ? 'border-accent-blue text-accent-blue' : 'bg-bg-tertiary text-text-secondary'}`}>组合键</button>
                 <Sep />
                 <Sys label="💬" onClick={() => setIsPickerOpen(!isPickerOpen)} className="text-accent-orange" aria-label="Commands" />
                 <Sys label="⌨️" onClick={() => setIsInputOpen(true)} aria-label="Text input" />
@@ -180,6 +195,7 @@ export const Toolbar: React.FC = () => {
             )}
 
           </div>
+          )}
         </div>
       </div>
 

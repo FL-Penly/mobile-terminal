@@ -6,6 +6,7 @@ A mobile-optimized web terminal powered by a single Rust binary. Access your dev
 
 - Single Rust binary — zero external dependencies
 - Mobile-optimized virtual keyboard (ESC, Tab, Ctrl+C, arrow keys)
+- On-demand combination keys (Ctrl/Alt/Shift, letters, symbols, F1–F12)
 - Expandable toolbar (▲/▼ toggle for narrow screens)
 - Customizable quick command buttons
 - Text input modal (easier long text input on mobile)
@@ -70,6 +71,28 @@ cp .env.example .env
 | `PORT` | Server port | 7682 |
 
 ## Features Detail
+
+### Combination Keys
+
+Open **组合键** next to the toolbar arrows when you need a shortcut. It replaces
+the ordinary toolbar in the bottom area; **返回** restores the previous expanded
+or collapsed toolbar. The terminal resizes above it instead of being covered.
+Tap Ctrl,
+Alt, or Shift, then a key **inside the panel**. Modifiers can be combined and stay
+active until tapped again. You can also hold a modifier with one finger while
+pressing another key. Panel arrows
+and Backspace repeat while held.
+
+For Shift+Left/Right: open the panel, select Shift, then use its arrow buttons
+repeatedly; tap Shift again to release it. Letters, symbols, navigation keys, and F1–F12 are
+available in the expandable rows. Existing toolbar shortcuts and text entry keep
+their original behavior. Closing the panel, changing sessions, disconnecting, or
+backgrounding the page clears modifier state.
+
+The panel uses traditional xterm key sequences plus the existing Shift+Enter
+compatibility sequence. Combinations requiring extended keyboard negotiation
+(such as Ctrl+Shift+letter or Ctrl+Tab) are reported as unsupported instead of
+silently sending a different shortcut. No input is queued for reconnection.
 
 ### Tmux Session Management
 

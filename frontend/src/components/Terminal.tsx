@@ -12,6 +12,7 @@ import { ZerolagInputAddon } from 'xterm-zerolag-input'
 import { CopyModeOverlay } from './CopyModeOverlay'
 import { AltScreenTranscript } from '../utils/alt-screen-transcript'
 import { createTerminalPasteHandler, type PasteResultCapture } from '../utils/terminal-paste'
+import { createTerminalKeyHandler } from '../utils/terminal-key-input'
 import { observeTerminalResize } from '../utils/terminal-resize'
 
 const MIN_FONT_SIZE = 6
@@ -22,7 +23,7 @@ export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const { subscribeOutput, sendInput, registerPasteHandler, sendControl, resize, setClientTty, mux, paneId } = useTerminal()
+  const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux, paneId } = useTerminal()
   const { tuiActive } = useServerEvents()
   const setClientTtyRef = useRef(setClientTty)
   
@@ -480,6 +481,9 @@ export const Terminal = () => {
     const unregisterPasteHandler = registerPasteHandler(
       createTerminalPasteHandler(term, pasteResultCaptureRef),
     )
+    const unregisterKeyHandler = registerKeyHandler(
+      createTerminalKeyHandler(term, pasteResultCaptureRef),
+    )
     const altTranscript = new AltScreenTranscript()
     const readLine = (row: number): string => {
       const line = term.buffer.active.getLine(row)
@@ -641,6 +645,7 @@ export const Terminal = () => {
     return () => {
       unsubscribe()
       unregisterPasteHandler()
+      unregisterKeyHandler()
       dataDisposable.dispose()
       writeParsedDisposable.dispose()
       oscDisposable.dispose()
@@ -672,7 +677,7 @@ export const Terminal = () => {
       container.removeEventListener('paste', handlePaste, true)
       term.dispose()
     }
-  }, [subscribeOutput, sendInput, registerPasteHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd, sendTerminalWheel])
+  }, [subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd, sendTerminalWheel])
 
   const zoomPercent = Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)
 
