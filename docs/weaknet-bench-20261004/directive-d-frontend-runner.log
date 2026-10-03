@@ -1,0 +1,6 @@
+{"starting": "tsc", "command": ["npx", "tsc", "--noEmit"]}
+{"name": "tsc", "command": ["npx", "tsc", "--noEmit"], "exit_code": 0, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-frontend-tsc.log"}
+{"starting": "test", "command": ["npm", "test"]}
+{"name": "test", "command": ["npm", "test"], "exit_code": 0, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-frontend-test.log"}
+{"starting": "build", "command": ["npm", "run", "build"]}
+{"name": "build", "command": ["npm", "run", "build"], "exit_code": 0, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-frontend-build.log"}

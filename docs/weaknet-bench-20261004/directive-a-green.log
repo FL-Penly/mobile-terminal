@@ -1,0 +1,8 @@
+
+ RUN  v4.1.4 /data00/home/fengliang.975/project/mobile-terminal-weaknet/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  40 passed (40)
+   Start at  10:44:45
+   Duration  1.00s (transform 119ms, setup 62ms, import 190ms, tests 142ms, environment 476ms)

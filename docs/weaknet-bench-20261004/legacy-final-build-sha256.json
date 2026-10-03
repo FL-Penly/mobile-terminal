@@ -1,0 +1,4 @@
+{
+  "frontend/dist/index.html": "5e2be2264d364d298c09882f676e65bf571f5df1bff57750bece2c1af734f6a4",
+  "server/target/release/rust-terminal": "4a9205909080e2a3269969191abea444f1613cbc9b8318c5597dd44b75b11bc4"
+}

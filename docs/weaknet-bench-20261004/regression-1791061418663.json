@@ -1,0 +1,7 @@
+[
+  {
+    "name": "13 goal and prompt boards load with gzip",
+    "passed": false,
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#reload') to be visible\u001b[22m\n\u001b[2m    63 × locator resolved to hidden <button id=\"reload\" class=\"ghost\">刷新</button>\u001b[22m\n\n    at /data00/home/fengliang.975/.local/share/mt-weaknet/harness/regression.mjs:162:418\n    at async check (/data00/home/fengliang.975/.local/share/mt-weaknet/harness/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/.local/share/mt-weaknet/harness/regression.mjs:160:3"
+  }
+]

@@ -1,0 +1,428 @@
+{
+  "started": "2026-10-04T04:10:57.927Z",
+  "config": {
+    "ports": [
+      7702,
+      7704
+    ],
+    "profiles": [
+      "P0",
+      "P1",
+      "P2"
+    ],
+    "scenes": [
+      "S1"
+    ],
+    "recovery_probe_ms": 20,
+    "profile_rates": {},
+    "calibration_rate": 100,
+    "sample_ms": 10000,
+    "viewport": "390x844",
+    "serviceWorkers": "block"
+  },
+  "cases": [
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 220277,
+        "transfer_bytes": 220577,
+        "duration_ms": 153.69999980926514,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 220277,
+        "transfer_bytes": 300,
+        "duration_ms": 91.89999961853027,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 825,
+      "traffic": {
+        "bytes": 340,
+        "frames": 3,
+        "prefixes": {
+          "4": 1,
+          "5": 2
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087058532
+          },
+          {
+            "type": "handshake",
+            "at": 1791087058569,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791087058817
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791087058874
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1791087058878,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P1",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 220277,
+        "transfer_bytes": 220577,
+        "duration_ms": 2096,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 220277,
+        "transfer_bytes": 300,
+        "duration_ms": 380.30000019073486,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 3388,
+      "traffic": {
+        "bytes": 283,
+        "frames": 2,
+        "prefixes": {
+          "4": 1,
+          "5": 1
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087061250
+          },
+          {
+            "type": "handshake",
+            "at": 1791087061472,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791087062201
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791087062261
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1791087062266,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 220277,
+        "transfer_bytes": 220577,
+        "duration_ms": 7658.099999427795,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 220277,
+        "transfer_bytes": 300,
+        "duration_ms": 864.3999996185303,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 10413,
+      "traffic": {
+        "bytes": 283,
+        "frames": 2,
+        "prefixes": {
+          "4": 1,
+          "5": 1
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087070193
+          },
+          {
+            "type": "handshake",
+            "at": 1791087070823,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791087072620
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791087072676
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1791087072680,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7704,
+      "profile": "P0",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 790425,
+        "transfer_bytes": 790725,
+        "duration_ms": 141.30000019073486,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 790425,
+        "transfer_bytes": 790725,
+        "duration_ms": 93.5,
+        "status": 200
+      },
+      "http_statuses": [],
+      "elapsed_ms": 769,
+      "traffic": {
+        "bytes": 5672,
+        "frames": 2,
+        "prefixes": {
+          "0": 2
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087073089
+          },
+          {
+            "type": "handshake",
+            "at": 1791087073134,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791087073382
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791087073446
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1791087073448,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7704,
+      "profile": "P1",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 790425,
+        "transfer_bytes": 790725,
+        "duration_ms": 6517.199999809265,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 790425,
+        "transfer_bytes": 790725,
+        "duration_ms": 6546.699999809265,
+        "status": 200
+      },
+      "http_statuses": [],
+      "elapsed_ms": 13983,
+      "traffic": {
+        "bytes": 2838,
+        "frames": 1,
+        "prefixes": {
+          "0": 1
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087080240
+          },
+          {
+            "type": "handshake",
+            "at": 1791087080487,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791087081300
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791087087428
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1791087087432,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7704,
+      "profile": "P2",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 790425,
+        "transfer_bytes": 790725,
+        "duration_ms": 25633.5,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 790425,
+        "transfer_bytes": 790725,
+        "duration_ms": 25703.60000038147,
+        "status": 200
+      },
+      "http_statuses": [],
+      "elapsed_ms": 53190,
+      "traffic": {
+        "bytes": 2838,
+        "frames": 1,
+        "prefixes": {
+          "0": 1
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087113344
+          },
+          {
+            "type": "handshake",
+            "at": 1791087114016,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791087115898
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791087140621
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1791087140623,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    }
+  ],
+  "finished": "2026-10-04T04:12:20.636Z"
+}

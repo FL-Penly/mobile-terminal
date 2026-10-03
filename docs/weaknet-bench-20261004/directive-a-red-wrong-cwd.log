@@ -1,0 +1,154 @@
+
+ RUN  v4.1.4 /data00/home/fengliang.975/project/mobile-terminal-weaknet
+
+ ❯ frontend/src/contexts/__tests__/TerminalContext.test.tsx (40 tests | 40 failed) 24ms
+     × returns disconnected without attempting a WebSocket send 7ms
+     × connects directly to the requested herdr pane 1ms
+     × pastes multiline Herdr text through the acknowledged pane paste API 1ms
+     × returns the Herdr paste error without reporting a false success 0ms
+     × keeps single-line Herdr input on the existing terminal paste path 1ms
+     × does not weaken the multiline safety gate outside Herdr 0ms
+     × does not gate a visible herdr page on unreliable document focus 0ms
+     × stops automatic reconnect when another herdr controller takes over 0ms
+     × coalesces rapid pane selections and connects only the latest target without reloading 1ms
+     × keeps a herdr controller on window blur while the page remains visible 0ms
+     × keeps a tmux connection alive on window blur 0ms
+     × cancels a pending herdr reconnect when the page becomes hidden 0ms
+     × reacquires the current herdr pane exactly once when the page becomes visible 0ms
+     × defers pane changes while hidden and reacquires only the latest target 0ms
+     × sends one complete ttyd UTF-8 frame and reports its byte length 0ms
+     × reports a synchronous WebSocket send error 0ms
+     × sends the CSI-u Shift+Enter sequence 0ms
+     × sends combo keys as ttyd input without changing existing shortcuts or pasted text 0ms
+     × blocks keystrokes while switching targets and does not replay them 0ms
+     × backs off through twelve unstable opens and clears attempts only after ten stable seconds 0ms
+     × preserves takeover control when the close reason is lost and refuses online reconnect 0ms
+     × schedules one reconnect in StrictMode 0ms
+     × advertises features without changing auth and size fields 0ms
+     × detects heartbeat silence without waiting for close and extends the deadline for any message 0ms
+     × does not time out an unnegotiated open connection: / 0ms
+     × does not time out an unnegotiated open connection: /?mux=herdr&pane=w4%3Ap1 0ms
+     × uses ten, fifteen, then twenty second connection timeouts and retries immediately 0ms
+     × subtracts time already spent connecting from the next backoff 2ms
+     × retries immediately when a never-opened attempt has already exceeded its backoff 0ms
+     × waits the full backoff after open even when the handshake was slow 0ms
+     × reconnects immediately on online and cancels the old retry timer 0ms
+     × pauses tmux retries while hidden and reconnects once on visibility 0ms
+     × does not resume a hidden herdr pane on online 0ms
+     × honors retry false even for a close reason other than takeover 0ms
+     × decodes compressed output, preserves raw notices and detects the compressed tty marker 0ms
+     × reconnects when the negotiated deflate stream is corrupt 0ms
+     × coalesces wire-byte acknowledgements even before any output subscriber exists 0ms
+     × never acknowledges output without negotiated flow 0ms
+     × retires old ack timers and starts the new connection byte count at zero 0ms
+     × retains a takeover received before close when visibility changes first 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 40 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > returns disconnected without attempting a WebSocket send
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > connects directly to the requested herdr pane
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > pastes multiline Herdr text through the acknowledged pane paste API
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > returns the Herdr paste error without reporting a false success
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > keeps single-line Herdr input on the existing terminal paste path
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not weaken the multiline safety gate outside Herdr
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not gate a visible herdr page on unreliable document focus
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > stops automatic reconnect when another herdr controller takes over
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > coalesces rapid pane selections and connects only the latest target without reloading
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > keeps a herdr controller on window blur while the page remains visible
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > keeps a tmux connection alive on window blur
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > cancels a pending herdr reconnect when the page becomes hidden
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reacquires the current herdr pane exactly once when the page becomes visible
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > defers pane changes while hidden and reacquires only the latest target
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > sends one complete ttyd UTF-8 frame and reports its byte length
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reports a synchronous WebSocket send error
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > sends the CSI-u Shift+Enter sequence
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > sends combo keys as ttyd input without changing existing shortcuts or pasted text
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > blocks keystrokes while switching targets and does not replay them
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > backs off through twelve unstable opens and clears attempts only after ten stable seconds
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > preserves takeover control when the close reason is lost and refuses online reconnect
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > schedules one reconnect in StrictMode
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > advertises features without changing auth and size fields
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > detects heartbeat silence without waiting for close and extends the deadline for any message
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not time out an unnegotiated open connection: /
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not time out an unnegotiated open connection: /?mux=herdr&pane=w4%3Ap1
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > uses ten, fifteen, then twenty second connection timeouts and retries immediately
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > subtracts time already spent connecting from the next backoff
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retries immediately when a never-opened attempt has already exceeded its backoff
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > waits the full backoff after open even when the handshake was slow
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reconnects immediately on online and cancels the old retry timer
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > pauses tmux retries while hidden and reconnects once on visibility
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not resume a hidden herdr pane on online
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > honors retry false even for a close reason other than takeover
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > decodes compressed output, preserves raw notices and detects the compressed tty marker
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reconnects when the negotiated deflate stream is corrupt
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > coalesces wire-byte acknowledgements even before any output subscriber exists
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > never acknowledges output without negotiated flow
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retires old ack timers and starts the new connection byte count at zero
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retains a takeover received before close when visibility changes first
+ReferenceError: document is not defined
+ ❯ frontend/src/contexts/__tests__/TerminalContext.test.tsx:58:14
+     56| describe('TerminalContext', () => {
+     57|   beforeEach(() => {
+     58|     vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+       |              ^
+     59|   })
+     60|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/80]⎯
+
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > returns disconnected without attempting a WebSocket send
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > connects directly to the requested herdr pane
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > pastes multiline Herdr text through the acknowledged pane paste API
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > returns the Herdr paste error without reporting a false success
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > keeps single-line Herdr input on the existing terminal paste path
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not weaken the multiline safety gate outside Herdr
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not gate a visible herdr page on unreliable document focus
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > stops automatic reconnect when another herdr controller takes over
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > coalesces rapid pane selections and connects only the latest target without reloading
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > keeps a herdr controller on window blur while the page remains visible
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > keeps a tmux connection alive on window blur
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > cancels a pending herdr reconnect when the page becomes hidden
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reacquires the current herdr pane exactly once when the page becomes visible
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > defers pane changes while hidden and reacquires only the latest target
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > sends one complete ttyd UTF-8 frame and reports its byte length
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reports a synchronous WebSocket send error
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > sends the CSI-u Shift+Enter sequence
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > sends combo keys as ttyd input without changing existing shortcuts or pasted text
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > blocks keystrokes while switching targets and does not replay them
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > backs off through twelve unstable opens and clears attempts only after ten stable seconds
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > preserves takeover control when the close reason is lost and refuses online reconnect
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > schedules one reconnect in StrictMode
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > advertises features without changing auth and size fields
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > detects heartbeat silence without waiting for close and extends the deadline for any message
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not time out an unnegotiated open connection: /
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not time out an unnegotiated open connection: /?mux=herdr&pane=w4%3Ap1
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > uses ten, fifteen, then twenty second connection timeouts and retries immediately
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > subtracts time already spent connecting from the next backoff
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retries immediately when a never-opened attempt has already exceeded its backoff
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > waits the full backoff after open even when the handshake was slow
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reconnects immediately on online and cancels the old retry timer
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > pauses tmux retries while hidden and reconnects once on visibility
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > does not resume a hidden herdr pane on online
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > honors retry false even for a close reason other than takeover
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > decodes compressed output, preserves raw notices and detects the compressed tty marker
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > reconnects when the negotiated deflate stream is corrupt
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > coalesces wire-byte acknowledgements even before any output subscriber exists
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > never acknowledges output without negotiated flow
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retires old ack timers and starts the new connection byte count at zero
+ FAIL  frontend/src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retains a takeover received before close when visibility changes first
+ReferenceError: window is not defined
+ ❯ frontend/src/contexts/__tests__/TerminalContext.test.tsx:67:5
+     65|     MockWebSocket.instances = []
+     66|     contextValue = null
+     67|     window.history.replaceState({}, '', '/')
+       |     ^
+     68|   })
+     69|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/80]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  40 failed (40)
+   Start at  10:43:55
+   Duration  579ms (transform 119ms, setup 0ms, import 248ms, tests 24ms, environment 0ms)

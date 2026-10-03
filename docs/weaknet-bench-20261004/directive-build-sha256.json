@@ -1,0 +1,5 @@
+{
+  "frontend/dist/index.html": "5f4a641bce7bc9d655413211e5c7acb955cbe456092a4bf839d211dfd1de500b",
+  "server/target/release/rust-terminal": "4a9205909080e2a3269969191abea444f1613cbc9b8318c5597dd44b75b11bc4",
+  "scripts/weaknet/bench.mjs": "2966c3fea4a265306096cb1e4aef93692979115e19939850eefd7ef558976322"
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "13 goal and prompt boards load with gzip",
+    "passed": true,
+    "evidence": [
+      {
+        "name": "goal-board.html",
+        "title": "Goal 工作台",
+        "status": "已加载",
+        "encoding": "gzip"
+      },
+      {
+        "name": "prompt-board.html",
+        "title": "Prompt 库",
+        "status": "已同步",
+        "encoding": "gzip"
+      }
+    ]
+  }
+]

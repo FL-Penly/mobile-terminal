@@ -1,0 +1,72 @@
+
+ RUN  v4.1.4 /data00/home/fengliang.975/project/mobile-terminal-weaknet/frontend
+
+ ❯ src/contexts/__tests__/TerminalContext.test.tsx (40 tests | 3 failed) 146ms
+     × uses ten, fifteen, then twenty second connection timeouts and retries immediately 10ms
+     × subtracts time already spent connecting from the next backoff 2ms
+     × retries immediately when a never-opened attempt has already exceeded its backoff 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > uses ten, fifteen, then twenty second connection timeouts and retries immediately
+AssertionError: expected [ MockWebSocket{ …(9) } ] to have a length of 2 but got 1
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/contexts/__tests__/TerminalContext.test.tsx:485:39
+    483|       expect(ws.close).toHaveBeenCalledOnce()
+    484|       act(() => { vi.advanceTimersByTime(1) })
+    485|       expect(MockWebSocket.instances).toHaveLength(index + 2)
+       |                                       ^
+    486|     }
+    487|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > subtracts time already spent connecting from the next backoff
+AssertionError: expected [ MockWebSocket{ …(9) } ] to have a length of 2 but got 1
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/contexts/__tests__/TerminalContext.test.tsx:499:37
+    497|     expect(MockWebSocket.instances).toHaveLength(1)
+    498|     act(() => { vi.advanceTimersByTime(1) })
+    499|     expect(MockWebSocket.instances).toHaveLength(2)
+       |                                     ^
+    500|     expect(getContext().reconnectAttempt).toBe(1)
+    501|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/contexts/__tests__/TerminalContext.test.tsx > TerminalContext > retries immediately when a never-opened attempt has already exceeded its backoff
+AssertionError: expected [ MockWebSocket{ …(9) } ] to have a length of 2 but got 1
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/contexts/__tests__/TerminalContext.test.tsx:511:37
+    509|     act(() => ws.onclose?.({ reason: 'handshake failed' }))
+    510|     act(() => { vi.advanceTimersByTime(1) })
+    511|     expect(MockWebSocket.instances).toHaveLength(2)
+       |                                     ^
+    512|   })
+    513|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 37 passed (40)
+   Start at  10:44:19
+   Duration  1.03s (transform 118ms, setup 62ms, import 196ms, tests 146ms, environment 494ms)

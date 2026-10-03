@@ -1,0 +1,825 @@
+{
+  "started": "2026-10-04T04:12:22.108Z",
+  "config": {
+    "ports": [
+      7702
+    ],
+    "profiles": [
+      "P0",
+      "P1",
+      "P2"
+    ],
+    "scenes": [
+      "S2",
+      "S3",
+      "S7"
+    ],
+    "recovery_probe_ms": 20,
+    "profile_rates": {},
+    "calibration_rate": 100,
+    "sample_ms": 10000,
+    "viewport": "390x844",
+    "serviceWorkers": "block"
+  },
+  "cases": [
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S2",
+      "rate": 100,
+      "samples": [
+        {
+          "id": "1fq50001",
+          "ms": 133
+        },
+        {
+          "id": "1fq50002",
+          "ms": 93
+        },
+        {
+          "id": "1fq50003",
+          "ms": 111
+        },
+        {
+          "id": "1fq50004",
+          "ms": 111
+        },
+        {
+          "id": "1fq50005",
+          "ms": 108
+        },
+        {
+          "id": "1fq50006",
+          "ms": 108
+        },
+        {
+          "id": "1fq50007",
+          "ms": 109
+        },
+        {
+          "id": "1fq50008",
+          "ms": 108
+        },
+        {
+          "id": "1fq50009",
+          "ms": 107
+        },
+        {
+          "id": "1fq5000a",
+          "ms": 108
+        },
+        {
+          "id": "1fq5000b",
+          "ms": 106
+        },
+        {
+          "id": "1fq5000c",
+          "ms": 108
+        },
+        {
+          "id": "1fq5000d",
+          "ms": 107
+        },
+        {
+          "id": "1fq5000e",
+          "ms": 93
+        },
+        {
+          "id": "1fq5000f",
+          "ms": 112
+        },
+        {
+          "id": "1fq5000g",
+          "ms": 96
+        },
+        {
+          "id": "1fq5000h",
+          "ms": 108
+        },
+        {
+          "id": "1fq5000i",
+          "ms": 107
+        },
+        {
+          "id": "1fq5000j",
+          "ms": 109
+        },
+        {
+          "id": "1fq5000k",
+          "ms": 107
+        }
+      ],
+      "p50": 108,
+      "p95": 112,
+      "max": 133,
+      "timeouts": 0,
+      "elapsed_ms": 28079,
+      "traffic": {
+        "bytes": 295487,
+        "frames": 1600,
+        "prefixes": {
+          "4": 6,
+          "5": 1594
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087142722
+          },
+          {
+            "type": "handshake",
+            "at": 1791087142758,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 133
+        },
+        {
+          "ms": 100
+        },
+        {
+          "ms": 83
+        },
+        {
+          "ms": 100
+        },
+        {
+          "ms": 83
+        }
+      ],
+      "p50": 100,
+      "p95": 133,
+      "max": 133,
+      "timeouts": 0,
+      "elapsed_ms": 26689,
+      "traffic": {
+        "bytes": 271859,
+        "frames": 1519,
+        "prefixes": {
+          "4": 6,
+          "5": 1513
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087170738
+          },
+          {
+            "type": "handshake",
+            "at": 1791087170775,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S7",
+      "busy_bytes": 645949,
+      "idle_bytes": 252,
+      "elapsed_ms": 127964,
+      "traffic": {
+        "bytes": 701578,
+        "frames": 3772,
+        "prefixes": {
+          "4": 26,
+          "5": 3746
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "Cannot read properties of undefined (reading 'update')",
+          "Cannot read properties of undefined (reading 'update')"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087197431
+          },
+          {
+            "type": "handshake",
+            "at": 1791087197469,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P1",
+      "scene": "S2",
+      "rate": 100,
+      "samples": [
+        {
+          "id": "1fq50001",
+          "ms": 468
+        },
+        {
+          "id": "1fq50002",
+          "ms": 373
+        },
+        {
+          "id": "1fq50003",
+          "ms": 428
+        },
+        {
+          "id": "1fq50004",
+          "ms": 393
+        },
+        {
+          "id": "1fq50005",
+          "ms": 429
+        },
+        {
+          "id": "1fq50006",
+          "ms": 396
+        },
+        {
+          "id": "1fq50007",
+          "ms": 411
+        },
+        {
+          "id": "1fq50008",
+          "ms": 425
+        },
+        {
+          "id": "1fq50009",
+          "ms": 378
+        },
+        {
+          "id": "1fq5000a",
+          "ms": 378
+        },
+        {
+          "id": "1fq5000b",
+          "ms": 442
+        },
+        {
+          "id": "1fq5000c",
+          "ms": 411
+        },
+        {
+          "id": "1fq5000d",
+          "ms": 395
+        },
+        {
+          "id": "1fq5000e",
+          "ms": 444
+        },
+        {
+          "id": "1fq5000f",
+          "ms": 394
+        },
+        {
+          "id": "1fq5000g",
+          "ms": 408
+        },
+        {
+          "id": "1fq5000h",
+          "ms": 378
+        },
+        {
+          "id": "1fq5000i",
+          "ms": 424
+        },
+        {
+          "id": "1fq5000j",
+          "ms": 429
+        },
+        {
+          "id": "1fq5000k",
+          "ms": 443
+        }
+      ],
+      "p50": 411,
+      "p95": 444,
+      "max": 468,
+      "timeouts": 0,
+      "elapsed_ms": 36780,
+      "traffic": {
+        "bytes": 360486,
+        "frames": 1964,
+        "prefixes": {
+          "4": 7,
+          "5": 1957
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087327390
+          },
+          {
+            "type": "handshake",
+            "at": 1791087327692,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P1",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 418
+        },
+        {
+          "ms": 398
+        },
+        {
+          "ms": 350
+        },
+        {
+          "ms": 383
+        },
+        {
+          "ms": 382
+        }
+      ],
+      "p50": 383,
+      "p95": 418,
+      "max": 418,
+      "timeouts": 0,
+      "elapsed_ms": 31287,
+      "traffic": {
+        "bytes": 286658,
+        "frames": 1588,
+        "prefixes": {
+          "4": 6,
+          "5": 1582
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087364151
+          },
+          {
+            "type": "handshake",
+            "at": 1791087364443,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S2",
+      "rate": 100,
+      "samples": [
+        {
+          "id": "1fq50001",
+          "ms": 1151
+        },
+        {
+          "id": "1fq50002",
+          "ms": 1092
+        },
+        {
+          "id": "1fq50003",
+          "ms": 1074
+        },
+        {
+          "id": "1fq50004",
+          "ms": 1112
+        },
+        {
+          "id": "1fq50005",
+          "ms": 1110
+        },
+        {
+          "id": "1fq50006",
+          "ms": 1111
+        },
+        {
+          "id": "1fq50007",
+          "ms": 1061
+        },
+        {
+          "id": "1fq50008",
+          "ms": 1079
+        },
+        {
+          "id": "1fq50009",
+          "ms": 1005
+        },
+        {
+          "id": "1fq5000a",
+          "ms": 1059
+        },
+        {
+          "id": "1fq5000b",
+          "ms": 1045
+        },
+        {
+          "id": "1fq5000c",
+          "ms": 1126
+        },
+        {
+          "id": "1fq5000d",
+          "ms": 1059
+        },
+        {
+          "id": "1fq5000e",
+          "ms": 1094
+        },
+        {
+          "id": "1fq5000f",
+          "ms": 1112
+        },
+        {
+          "id": "1fq5000g",
+          "ms": 1094
+        },
+        {
+          "id": "1fq5000h",
+          "ms": 1012
+        },
+        {
+          "id": "1fq5000i",
+          "ms": 1073
+        },
+        {
+          "id": "1fq5000j",
+          "ms": 1045
+        },
+        {
+          "id": "1fq5000k",
+          "ms": 1090
+        }
+      ],
+      "p50": 1079,
+      "p95": 1126,
+      "max": 1151,
+      "timeouts": 0,
+      "elapsed_ms": 57495,
+      "traffic": {
+        "bytes": 504047,
+        "frames": 2736,
+        "prefixes": {
+          "4": 10,
+          "5": 2726
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087401378
+          },
+          {
+            "type": "handshake",
+            "at": 1791087402244,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 1103
+        },
+        {
+          "ms": 867
+        },
+        {
+          "ms": 1050
+        },
+        {
+          "ms": 849
+        },
+        {
+          "ms": 965
+        }
+      ],
+      "p50": 965,
+      "p95": 1103,
+      "max": 1103,
+      "timeouts": 0,
+      "elapsed_ms": 42127,
+      "traffic": {
+        "bytes": 316041,
+        "frames": 1757,
+        "prefixes": {
+          "4": 7,
+          "5": 1750
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791087458747
+          },
+          {
+            "type": "handshake",
+            "at": 1791087459378,
+            "status": 101
+          }
+        ]
+      }
+    }
+  ],
+  "finished": "2026-10-04T04:18:12.672Z"
+}

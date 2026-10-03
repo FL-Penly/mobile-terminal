@@ -1,0 +1,494 @@
+{
+  "gates": [
+    {
+      "scene": "S1",
+      "profile": "P0",
+      "label": "冷加载字节",
+      "status": "通过",
+      "baseline": 783893,
+      "candidate": 220277,
+      "limits": [
+        235167.9
+      ]
+    },
+    {
+      "scene": "S1",
+      "profile": "P0",
+      "label": "刷新传输字节",
+      "status": "通过",
+      "baseline": 784193,
+      "candidate": 300,
+      "limits": [
+        5000
+      ]
+    },
+    {
+      "scene": "S1",
+      "profile": "P1",
+      "label": "冷加载字节",
+      "status": "通过",
+      "baseline": 783893,
+      "candidate": 220277,
+      "limits": [
+        235167.9
+      ]
+    },
+    {
+      "scene": "S1",
+      "profile": "P1",
+      "label": "刷新传输字节",
+      "status": "通过",
+      "baseline": 784193,
+      "candidate": 300,
+      "limits": [
+        5000
+      ]
+    },
+    {
+      "scene": "S1",
+      "profile": "P2",
+      "label": "冷加载字节",
+      "status": "通过",
+      "baseline": 783893,
+      "candidate": 220277,
+      "limits": [
+        235167.9
+      ]
+    },
+    {
+      "scene": "S1",
+      "profile": "P2",
+      "label": "刷新传输字节",
+      "status": "通过",
+      "baseline": 784193,
+      "candidate": 300,
+      "limits": [
+        5000
+      ]
+    },
+    {
+      "scene": "S2",
+      "profile": "P0",
+      "label": "回显 p95",
+      "status": "通过",
+      "baseline": 111,
+      "candidate": 112,
+      "limits": [
+        172.10000000000002
+      ]
+    },
+    {
+      "scene": "S2",
+      "profile": "P1",
+      "label": "回显 p95",
+      "status": "通过",
+      "baseline": 30000,
+      "candidate": 444,
+      "limits": [
+        33050.0
+      ]
+    },
+    {
+      "scene": "S2",
+      "profile": "P2",
+      "label": "回显 p95",
+      "status": "通过",
+      "baseline": 30000,
+      "candidate": 1126,
+      "limits": [
+        2500
+      ]
+    },
+    {
+      "scene": "S3",
+      "profile": "P0",
+      "label": "Ctrl-C max",
+      "status": "通过",
+      "baseline": 134,
+      "candidate": 133,
+      "limits": [
+        197.4
+      ]
+    },
+    {
+      "scene": "S3",
+      "profile": "P1",
+      "label": "Ctrl-C max",
+      "status": "通过",
+      "baseline": 2417,
+      "candidate": 418,
+      "limits": [
+        2708.7000000000003
+      ]
+    },
+    {
+      "scene": "S3",
+      "profile": "P2",
+      "label": "Ctrl-C max",
+      "status": "通过",
+      "baseline": 27916,
+      "candidate": 1103,
+      "limits": [
+        2500
+      ]
+    },
+    {
+      "scene": "S4",
+      "profile": "P0",
+      "label": "恢复回显",
+      "status": "未达标",
+      "baseline": 704,
+      "candidate": 707,
+      "limits": [
+        704
+      ]
+    },
+    {
+      "scene": "S4",
+      "profile": "P0",
+      "label": "恢复下行字节",
+      "status": "通过",
+      "baseline": 18436,
+      "candidate": 1424,
+      "limits": [
+        32768,
+        18436
+      ]
+    },
+    {
+      "scene": "S4",
+      "profile": "P1",
+      "label": "恢复回显",
+      "status": "通过",
+      "baseline": 1339,
+      "candidate": 1306,
+      "limits": [
+        2000,
+        1339
+      ]
+    },
+    {
+      "scene": "S4",
+      "profile": "P1",
+      "label": "恢复下行字节",
+      "status": "通过",
+      "baseline": 24390,
+      "candidate": 1839,
+      "limits": [
+        32768,
+        24390
+      ]
+    },
+    {
+      "scene": "S4",
+      "profile": "P2",
+      "label": "恢复回显",
+      "status": "通过",
+      "baseline": 2557,
+      "candidate": 2526,
+      "limits": [
+        3000,
+        2557
+      ]
+    },
+    {
+      "scene": "S4",
+      "profile": "P2",
+      "label": "恢复下行字节",
+      "status": "通过",
+      "baseline": 12396,
+      "candidate": 3295,
+      "limits": [
+        32768,
+        12396
+      ]
+    },
+    {
+      "scene": "S5a",
+      "profile": "P0",
+      "label": "发现断流",
+      "status": "通过",
+      "baseline": 40000,
+      "candidate": 14783,
+      "limits": [
+        20000
+      ]
+    },
+    {
+      "scene": "S5a",
+      "profile": "P1",
+      "label": "发现断流",
+      "status": "通过",
+      "baseline": 40000,
+      "candidate": 14682,
+      "limits": [
+        20000
+      ]
+    },
+    {
+      "scene": "S5a",
+      "profile": "P2",
+      "label": "发现断流",
+      "status": "通过",
+      "baseline": 40000,
+      "candidate": 15263,
+      "limits": [
+        20000
+      ]
+    },
+    {
+      "scene": "S5a",
+      "profile": "P1",
+      "label": "静止恢复",
+      "status": "通过",
+      "baseline": 1270,
+      "candidate": 781,
+      "limits": [
+        4270
+      ]
+    },
+    {
+      "scene": "S5a",
+      "profile": "P2",
+      "label": "静止恢复",
+      "status": "通过",
+      "baseline": 2325,
+      "candidate": 1949,
+      "limits": [
+        7325
+      ]
+    },
+    {
+      "scene": "S5b",
+      "profile": "P0",
+      "label": "发现断流",
+      "status": "通过",
+      "baseline": 40000,
+      "candidate": 13742,
+      "limits": [
+        20000
+      ]
+    },
+    {
+      "scene": "S5b",
+      "profile": "P1",
+      "label": "发现断流",
+      "status": "通过",
+      "baseline": 40000,
+      "candidate": 13514,
+      "limits": [
+        20000
+      ]
+    },
+    {
+      "scene": "S5b",
+      "profile": "P2",
+      "label": "发现断流",
+      "status": "通过",
+      "baseline": 40000,
+      "candidate": 12895,
+      "limits": [
+        20000
+      ]
+    },
+    {
+      "scene": "S5b",
+      "profile": "P0",
+      "label": "刷屏恢复",
+      "status": "通过",
+      "baseline": 698,
+      "candidate": 183,
+      "limits": [
+        698
+      ]
+    },
+    {
+      "scene": "S5b",
+      "profile": "P1",
+      "label": "刷屏恢复",
+      "status": "通过",
+      "baseline": 1301,
+      "candidate": 710,
+      "limits": [
+        8000,
+        1301
+      ]
+    },
+    {
+      "scene": "S5b",
+      "profile": "P2",
+      "label": "刷屏恢复",
+      "status": "通过",
+      "baseline": 3369,
+      "candidate": 1898,
+      "limits": [
+        12000,
+        3369
+      ]
+    },
+    {
+      "scene": "S5c",
+      "profile": "P0",
+      "label": "reset_peer 恢复",
+      "status": "通过",
+      "baseline": 727,
+      "candidate": 712,
+      "limits": [
+        727
+      ]
+    },
+    {
+      "scene": "S5c",
+      "profile": "P1",
+      "label": "reset_peer 恢复",
+      "status": "通过",
+      "baseline": 1428,
+      "candidate": 1245,
+      "limits": [
+        1428
+      ]
+    },
+    {
+      "scene": "S5c",
+      "profile": "P2",
+      "label": "reset_peer 恢复",
+      "status": "通过",
+      "baseline": 2694,
+      "candidate": 2545,
+      "limits": [
+        2694
+      ]
+    },
+    {
+      "scene": "S7",
+      "profile": "P0",
+      "label": "刷屏60s字节",
+      "status": "通过",
+      "baseline": 10399970,
+      "candidate": 645949,
+      "limits": [
+        2599992.5
+      ]
+    },
+    {
+      "scene": "S7",
+      "profile": "P0",
+      "label": "静止60s字节",
+      "status": "通过",
+      "baseline": 0,
+      "candidate": 252,
+      "limits": [
+        2048
+      ]
+    },
+    {
+      "scene": "S2",
+      "port": 7703,
+      "profile": "P0",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 111,
+      "candidate": 113,
+      "limits": [
+        172.10000000000002
+      ]
+    },
+    {
+      "scene": "S4",
+      "port": 7703,
+      "profile": "P0",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 704,
+      "candidate": 671,
+      "limits": [
+        824.4000000000001
+      ]
+    },
+    {
+      "scene": "S2u",
+      "port": 7703,
+      "profile": "P1",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 483,
+      "candidate": 483,
+      "limits": [
+        581.3000000000001
+      ]
+    },
+    {
+      "scene": "S4",
+      "port": 7703,
+      "profile": "P1",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 1339,
+      "candidate": 1359,
+      "limits": [
+        1522.9
+      ]
+    },
+    {
+      "scene": "S2u",
+      "port": 7703,
+      "profile": "P2",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 1195,
+      "candidate": 1228,
+      "limits": [
+        1364.5
+      ]
+    },
+    {
+      "scene": "S4",
+      "port": 7703,
+      "profile": "P2",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 2557,
+      "candidate": 2823,
+      "limits": [
+        2862.7000000000003
+      ]
+    },
+    {
+      "scene": "S2",
+      "port": 7704,
+      "profile": "P0",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 111,
+      "candidate": 112,
+      "limits": [
+        172.10000000000002
+      ]
+    },
+    {
+      "scene": "S2u",
+      "port": 7704,
+      "profile": "P1",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 483,
+      "candidate": 477,
+      "limits": [
+        581.3000000000001
+      ]
+    },
+    {
+      "scene": "S2u",
+      "port": 7704,
+      "profile": "P2",
+      "label": "兼容延迟",
+      "status": "通过",
+      "baseline": 1195,
+      "candidate": 1243,
+      "limits": [
+        1364.5
+      ]
+    }
+  ],
+  "missing": []
+}

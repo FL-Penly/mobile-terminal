@@ -1,4 +1,9 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import {
+  CONTROL_PREFIX, OUTPUT_PREFIX, DEFLATE_OUTPUT_PREFIX, createOutputInflater, HEARTBEAT_TIMEOUT_MS, LIVENESS_CHECK_INTERVAL_MS,
+  ACK_DELAY_MS, encodeAckMessage, STABLE_CONNECTION_MS, encodeInitMessage, parseControlMessage, reconnectDelay, connectTimeout,
+  type ControlMessage,
+} from '../utils/terminal-protocol'
 import type { EncodedKey, TerminalKeystroke } from '../utils/terminal-keys'
 
 const encoder = new TextEncoder()
@@ -83,9 +88,6 @@ const KEY_SEQUENCES: Record<string, string> = {
   'CTRL_L': '\x0c',
 }
 
-const MAX_RECONNECT_ATTEMPTS = 10
-const RECONNECT_DELAYS = [500, 1000, 2000, 3000, 5000, 5000, 10000, 10000, 15000, 30000]
-
 const TMUX_SESSION_KEY = 'ttyd_last_tmux_session'
 const TARGET_SWITCH_DELAY = 70
 
@@ -124,6 +126,9 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const targetSwitchTimerRef = useRef<number | null>(null)
   const pendingTargetRef = useRef<TerminalTarget | null>(null)
   const connectionGenerationRef = useRef(0)
+  const reconnectAttemptRef = useRef(0)
+  const connectionCleanupRef = useRef<(() => void) | null>(null)
+  const automaticReconnectBlockedRef = useRef(false)
   const herdrOwnershipSuspendedRef = useRef(!pageOwnsHerdrFocus())
   const focusAbortRef = useRef<AbortController | null>(null)
   const lastConnectedTimeRef = useRef<number>(0)
@@ -221,135 +226,6 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [waitForClientTty])
 
-  const connectRef = useRef<(nextTarget: TerminalTarget, generation: number, reconnecting: boolean) => void>(() => undefined)
-
-  const connect = useCallback((nextTarget: TerminalTarget, generation: number, reconnecting: boolean) => {
-    if (generation !== connectionGenerationRef.current) return
-    if (nextTarget.mux === 'herdr' && herdrOwnershipSuspendedRef.current) {
-      setConnectionState('disconnected')
-      return
-    }
-    const existing = wsRef.current
-    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return
-
-    setConnectionState(reconnecting ? 'reconnecting' : 'connecting')
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const path = window.location.pathname.replace(/\/$/, '')
-    const wsParams = nextTarget.mux === 'herdr'
-      ? `?mux=herdr&pane=${encodeURIComponent(nextTarget.paneId ?? '')}`
-      : ''
-    const wsUrl = `${protocol}//${host}${path}/ws${wsParams}`
-
-    const ws = new WebSocket(wsUrl, ['tty'])
-    ws.binaryType = 'arraybuffer'
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      if (generation !== connectionGenerationRef.current || wsRef.current !== ws) return
-      console.log('[Terminal] WebSocket connected')
-      setConnectionState('connected')
-      setReconnectAttempt(0)
-      setDisconnectReason(null)
-      setTakeoverDetected(false)
-      lastConnectedTimeRef.current = Date.now()
-      clientTtyRef.current = null
-      setClientTty(null)
-      
-      const { cols, rows } = dimensionsRef.current
-      const auth = JSON.stringify({ AuthToken: '', columns: cols, rows: rows })
-      ws.send(encoder.encode(auth))
-
-      if (nextTarget.mux === 'tmux') {
-        restoreTmuxSession(ws)
-      }
-    }
-
-    ws.onmessage = (event) => {
-      if (generation !== connectionGenerationRef.current || wsRef.current !== ws) return
-      const data = new Uint8Array(event.data as ArrayBuffer)
-      if (data.length === 0) return
-
-      const cmd = String.fromCharCode(data[0])
-      
-      if (cmd === '0') {
-        const payload = data.subarray(1)
-
-        if (!clientTtyRef.current) {
-          const text = new TextDecoder().decode(payload)
-          const m = text.match(/\]7337;(\/dev\/[A-Za-z0-9/]+)/)
-          if (m) {
-            clientTtyRef.current = m[1]
-            setClientTty(m[1])
-          }
-        }
-
-        writeBufferRef.current.push(payload)
-        writeTotalRef.current += payload.length
-        
-        const SAFETY_VALVE = 512 * 1024
-        if (writeTotalRef.current > SAFETY_VALVE) {
-          flushBuffer()
-        } else if (rafIdRef.current === null) {
-          rafIdRef.current = requestAnimationFrame(flushBuffer)
-        }
-      } else if (cmd === '1') {
-        const title = new TextDecoder().decode(data.subarray(1))
-        document.title = title
-      }
-    }
-
-    ws.onclose = (event) => {
-      if (generation !== connectionGenerationRef.current || wsRef.current !== ws) return
-      console.log('[Terminal] WebSocket closed', event.reason)
-      wsRef.current = null
-      
-      flushBuffer()
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-      
-      const wasTakenOver = nextTarget.mux === 'herdr' && event.reason.toLocaleLowerCase().includes('taken over')
-      setDisconnectReason(event.reason || (nextTarget.mux === 'herdr' ? 'Herdr terminal connection closed' : 'Connection lost'))
-      setTakeoverDetected(wasTakenOver)
-      
-      setConnectionState('disconnected')
-      if (wasTakenOver) {
-        setReconnectAttempt(0)
-        return
-      }
-      if (nextTarget.mux === 'herdr' && herdrOwnershipSuspendedRef.current) {
-        setReconnectAttempt(0)
-        return
-      }
-
-      setReconnectAttempt(prev => {
-        const attempt = prev + 1
-        if (attempt <= MAX_RECONNECT_ATTEMPTS) {
-          const delay = RECONNECT_DELAYS[prev] || 30000
-          console.log(`[Terminal] Reconnecting in ${delay}ms (attempt ${attempt})`)
-          reconnectTimerRef.current = window.setTimeout(() => {
-            const ownershipSuspended = nextTarget.mux === 'herdr' && herdrOwnershipSuspendedRef.current
-            if (generation === connectionGenerationRef.current && !ownershipSuspended) {
-              connectRef.current(nextTarget, generation, true)
-            }
-          }, delay)
-        }
-        return attempt
-      })
-    }
-
-    ws.onerror = (error) => {
-      if (generation !== connectionGenerationRef.current || wsRef.current !== ws) return
-      console.error('[Terminal] WebSocket error', error)
-      if (nextTarget.mux === 'herdr') setDisconnectReason('Unable to reach the Herdr terminal controller')
-    }
-  }, [restoreTmuxSession, flushBuffer])
-
-  connectRef.current = connect
-
   const retireConnection = useCallback((clearScreen: boolean) => {
     const generation = connectionGenerationRef.current + 1
     connectionGenerationRef.current = generation
@@ -357,6 +233,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       window.clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
+    connectionCleanupRef.current?.()
+    connectionCleanupRef.current = null
     const previous = wsRef.current
     wsRef.current = null
     if (previous) {
@@ -379,10 +257,204 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return generation
   }, [])
 
+  const connectRef = useRef<(nextTarget: TerminalTarget, generation: number, reconnecting: boolean) => void>(() => undefined)
+
+  const connect = useCallback((nextTarget: TerminalTarget, generation: number, reconnecting: boolean) => {
+    if (generation !== connectionGenerationRef.current) return
+    if (nextTarget.mux === 'herdr' && herdrOwnershipSuspendedRef.current) {
+      setConnectionState('disconnected')
+      return
+    }
+    const existing = wsRef.current
+    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return
+
+    setConnectionState(reconnecting ? 'reconnecting' : 'connecting')
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = window.location.host
+    const path = window.location.pathname.replace(/\/$/, '')
+    const wsParams = nextTarget.mux === 'herdr'
+      ? `?mux=herdr&pane=${encodeURIComponent(nextTarget.paneId ?? '')}`
+      : ''
+    const wsUrl = `${protocol}//${host}${path}/ws${wsParams}`
+
+    const attemptStartedAt = Date.now()
+    let opened = false
+    const ws = new WebSocket(wsUrl, ['tty'])
+    ws.binaryType = 'arraybuffer'
+    wsRef.current = ws
+
+    let flow = false
+    let receivedBytes = 0
+    let acknowledgedBytes = 0
+    let ackTimer: number | null = null
+    let inflater: ReturnType<typeof createOutputInflater> | null = null
+    let livenessTimer: number | null = null
+    let stableTimer: number | null = null
+    let deadline = Date.now() + HEARTBEAT_TIMEOUT_MS
+    let closedControl: Extract<ControlMessage, { type: 'closed' }> | null = null
+    const isCurrent = () => generation === connectionGenerationRef.current && wsRef.current === ws
+
+    const scheduleReconnect = (reason: string) => {
+      if (!isCurrent()) return
+      flushBuffer()
+      const nextGeneration = retireConnection(false)
+      const wasTakenOver = nextTarget.mux === 'herdr'
+        && (reason.toLowerCase().includes('taken over') || closedControl?.reason === 'taken_over')
+      automaticReconnectBlockedRef.current = wasTakenOver || closedControl?.retry === false
+      setTakeoverDetected(wasTakenOver)
+      setDisconnectReason(reason)
+      setConnectionState('disconnected')
+      if (automaticReconnectBlockedRef.current) {
+        reconnectAttemptRef.current = 0
+        setReconnectAttempt(0)
+        return
+      }
+      if ((nextTarget.mux === 'herdr' && herdrOwnershipSuspendedRef.current)
+        || document.visibilityState !== 'visible') return
+      reconnectAttemptRef.current += 1
+      setReconnectAttempt(reconnectAttemptRef.current)
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null
+        if (document.visibilityState === 'visible') {
+          connectRef.current(targetRef.current, nextGeneration, true)
+        }
+      }, Math.max(0, reconnectDelay(reconnectAttemptRef.current) - (opened ? 0 : Date.now() - attemptStartedAt)))
+    }
+
+    const connectTimer = window.setTimeout(() => {
+      scheduleReconnect('Connection timed out')
+    }, connectTimeout(reconnectAttemptRef.current))
+    connectionCleanupRef.current = () => {
+      window.clearTimeout(connectTimer)
+      if (ackTimer !== null) window.clearTimeout(ackTimer)
+      if (stableTimer !== null) window.clearTimeout(stableTimer)
+      if (livenessTimer !== null) window.clearInterval(livenessTimer)
+    }
+
+    ws.onopen = () => {
+      if (!isCurrent()) return
+      opened = true
+      window.clearTimeout(connectTimer)
+      setConnectionState('connected')
+      setDisconnectReason(null)
+      setTakeoverDetected(false)
+      lastConnectedTimeRef.current = Date.now()
+      clientTtyRef.current = null
+      setClientTty(null)
+      const { cols, rows } = dimensionsRef.current
+      try {
+        ws.send(encodeInitMessage(cols, rows))
+      } catch (error) {
+        console.error('[Terminal] Initialization failed:', error)
+        scheduleReconnect('Connection initialization failed')
+        return
+      }
+      stableTimer = window.setTimeout(() => {
+        if (!isCurrent()) return
+        reconnectAttemptRef.current = 0
+        setReconnectAttempt(0)
+      }, STABLE_CONNECTION_MS)
+      if (nextTarget.mux === 'tmux') {
+        void restoreTmuxSession(ws).catch(error => console.error('[Terminal] Restore failed:', error))
+      }
+    }
+
+    const handleOutputChunk = (payload: Uint8Array) => {
+      if (!clientTtyRef.current) {
+        const text = new TextDecoder().decode(payload)
+        const match = text.match(/\]7337;(\/dev\/[A-Za-z0-9/]+)/)
+        if (match) {
+          clientTtyRef.current = match[1]
+          setClientTty(match[1])
+        }
+      }
+      writeBufferRef.current.push(payload)
+      writeTotalRef.current += payload.length
+      const SAFETY_VALVE = 512 * 1024
+      if (writeTotalRef.current > SAFETY_VALVE) {
+        flushBuffer()
+      } else if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(flushBuffer)
+      }
+    }
+
+    ws.onmessage = (event) => {
+      if (!isCurrent()) return
+      deadline = Date.now() + HEARTBEAT_TIMEOUT_MS
+      const data = new Uint8Array(event.data as ArrayBuffer)
+      if (data.length === 0) return
+      const command = data[0]
+      if (flow && (command === OUTPUT_PREFIX || command === DEFLATE_OUTPUT_PREFIX)) {
+        receivedBytes += data.byteLength
+        if (ackTimer === null) {
+          ackTimer = window.setTimeout(() => {
+            ackTimer = null
+            if (!isCurrent() || ws.readyState !== WebSocket.OPEN || receivedBytes === acknowledgedBytes) return
+            try {
+              ws.send(encodeAckMessage(receivedBytes))
+              acknowledgedBytes = receivedBytes
+            } catch (error) {
+              console.error('[Terminal] Acknowledgement failed:', error)
+              scheduleReconnect('Connection lost')
+            }
+          }, ACK_DELAY_MS)
+        }
+      }
+      if (command === CONTROL_PREFIX) {
+        const control = parseControlMessage(data.subarray(1))
+        if (control?.type === 'hello') {
+          flow = nextTarget.mux === 'herdr' && control.features.includes('flow')
+          if (control.features.includes('deflate') && inflater === null) {
+            inflater = createOutputInflater(handleOutputChunk)
+          }
+          if (control.features.includes('heartbeat') && nextTarget.mux === 'herdr' && livenessTimer === null) {
+            livenessTimer = window.setInterval(() => {
+              if (Date.now() >= deadline) scheduleReconnect('Connection timed out')
+            }, LIVENESS_CHECK_INTERVAL_MS)
+          }
+        } else if (control?.type === 'closed') {
+          closedControl = control
+          const wasTakenOver = nextTarget.mux === 'herdr' && control.reason === 'taken_over'
+          if (wasTakenOver || !control.retry) {
+            automaticReconnectBlockedRef.current = true
+            setTakeoverDetected(wasTakenOver)
+            setDisconnectReason(wasTakenOver ? 'terminal attach taken over' : control.reason)
+          }
+        }
+      } else if (command === OUTPUT_PREFIX) {
+        handleOutputChunk(data.subarray(1))
+      } else if (command === DEFLATE_OUTPUT_PREFIX && inflater) {
+        try {
+          inflater.push(data.subarray(1))
+        } catch (error) {
+          console.error('[Terminal] Decompression failed:', error)
+          scheduleReconnect('Decompression failed')
+        }
+      } else if (command === 0x31) {
+        document.title = new TextDecoder().decode(data.subarray(1))
+      }
+    }
+
+    ws.onclose = (event) => {
+      scheduleReconnect(event.reason || (nextTarget.mux === 'herdr' ? 'Herdr terminal connection closed' : 'Connection lost'))
+    }
+
+    ws.onerror = (error) => {
+      if (generation !== connectionGenerationRef.current || wsRef.current !== ws) return
+      console.error('[Terminal] WebSocket error', error)
+      if (nextTarget.mux === 'herdr') setDisconnectReason('Unable to reach the Herdr terminal controller')
+    }
+  }, [restoreTmuxSession, flushBuffer, retireConnection])
+
+  connectRef.current = connect
+
   const replaceConnection = useCallback((nextTarget: TerminalTarget, reconnecting: boolean) => {
     const generation = retireConnection(!reconnecting)
     setDisconnectReason(null)
     setTakeoverDetected(false)
+    automaticReconnectBlockedRef.current = false
+    reconnectAttemptRef.current = 0
     setReconnectAttempt(0)
     if (nextTarget.mux === 'herdr' && herdrOwnershipSuspendedRef.current) {
       setConnectionState('disconnected')
@@ -401,15 +473,18 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     retireConnection(false)
     setConnectionState('disconnected')
+    reconnectAttemptRef.current = 0
     setReconnectAttempt(0)
-    setDisconnectReason(null)
-    setTakeoverDetected(false)
+    if (!automaticReconnectBlockedRef.current) {
+      setDisconnectReason(null)
+      setTakeoverDetected(false)
+    }
   }, [retireConnection])
 
   const resumeHerdrOwnership = useCallback(() => {
     if (document.visibilityState !== 'visible') return
     herdrOwnershipSuspendedRef.current = false
-    if (targetRef.current.mux !== 'herdr') return
+    if (targetRef.current.mux !== 'herdr' || automaticReconnectBlockedRef.current) return
 
     const ws = wsRef.current
     const isActive = ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)
@@ -470,6 +545,10 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') {
+        if (reconnectTimerRef.current !== null) {
+          window.clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = null
+        }
         suspendHerdrOwnership()
         return
       }
@@ -511,8 +590,22 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [replaceConnection, resumeHerdrOwnership, suspendHerdrOwnership])
 
   useEffect(() => {
+    const handleOnline = () => {
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN || automaticReconnectBlockedRef.current
+        || document.visibilityState !== 'visible'
+        || (targetRef.current.mux === 'herdr' && herdrOwnershipSuspendedRef.current)) return
+      replaceConnection(targetRef.current, true)
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [replaceConnection])
+
+  useEffect(() => {
     replaceConnection(targetRef.current, false)
     return () => {
+      connectionCleanupRef.current?.()
+      connectionCleanupRef.current = null
       connectionGenerationRef.current += 1
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current)

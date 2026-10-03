@@ -1,0 +1,58 @@
+{
+  "started": "2026-10-04T03:53:49.867Z",
+  "config": {
+    "ports": [
+      7701
+    ],
+    "profiles": [
+      "P0"
+    ],
+    "scenes": [
+      "CAL"
+    ],
+    "recovery_probe_ms": 20,
+    "profile_rates": {},
+    "calibration_rate": 12,
+    "sample_ms": 10000,
+    "viewport": "390x844",
+    "serviceWorkers": "block"
+  },
+  "cases": [
+    {
+      "port": 7701,
+      "profile": "P0",
+      "scene": "CAL",
+      "rate": 12,
+      "measured_ms": 10000.30473,
+      "ws_down_bytes": 359240,
+      "bytes_per_second": 35922.90532130614,
+      "elapsed_ms": 15781,
+      "traffic": {
+        "bytes": 484821,
+        "frames": 183,
+        "prefixes": {
+          "0": 183
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791086030435
+          },
+          {
+            "type": "handshake",
+            "at": 1791086030472,
+            "status": 101
+          }
+        ]
+      }
+    }
+  ],
+  "finished": "2026-10-04T03:54:05.779Z"
+}

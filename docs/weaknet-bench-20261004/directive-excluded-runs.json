@@ -1,0 +1,416 @@
+[
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P0",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P0",
+      "S5a"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P0",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P0",
+      "S5b"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P1",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P1",
+      "S5a"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P1",
+      "S5b"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P1",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P2",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P2",
+      "S5a"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P2",
+      "S5b"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7701,
+      "P2",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S1"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S2"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S3"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S5a"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S5b"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P0",
+      "S7"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S1"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S2"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S3"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S5a"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S5b"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P1",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S1"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S2"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S3"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S5a"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S5b"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7702,
+      "P2",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7703,
+      "P0",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7703,
+      "P1",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7703,
+      "P2",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P0",
+      "S1"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P0",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P0",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P1",
+      "S1"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P1",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P1",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P2",
+      "S1"
+    ],
+    "reason": "DIRECTIVE D：A后最终构建确认"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P2",
+      "S4"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  },
+  {
+    "file": "matrix-2.json",
+    "case": [
+      7704,
+      "P2",
+      "S5c"
+    ],
+    "reason": "DIRECTIVE B：A修正及恢复探测100→20ms，固定三轮"
+  }
+]

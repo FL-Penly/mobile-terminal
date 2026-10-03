@@ -51,7 +51,7 @@ export const ConnectionOverlay: React.FC = () => {
             {isReconnecting && (
               <>
                 <p className="text-sm text-text-secondary">
-                  Attempt {reconnectAttempt} of 10
+                  Attempt {reconnectAttempt}
                 </p>
                 {disconnectReason && <p className="mt-2 text-xs text-accent-orange">{disconnectReason}</p>}
               </>
@@ -59,25 +59,7 @@ export const ConnectionOverlay: React.FC = () => {
           </>
         )}
 
-        {isDisconnected && !takeoverDetected && reconnectAttempt >= 10 && (
-          <>
-            <div className="w-12 h-12 rounded-full bg-accent-red/20 flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">✕</span>
-            </div>
-            <h3 className="text-lg font-semibold mb-2">Connection Failed</h3>
-            <p className="text-sm text-text-secondary mb-4">
-              {disconnectReason ?? 'Could not connect after 10 attempts'}
-            </p>
-            <button
-              onClick={reconnect}
-              className="w-full py-2.5 bg-accent-purple text-white rounded-lg font-medium active:opacity-80"
-            >
-              Try Again
-            </button>
-          </>
-        )}
-
-        {isDisconnected && !takeoverDetected && reconnectAttempt < 10 && reconnectAttempt > 0 && (
+        {isDisconnected && !takeoverDetected && reconnectAttempt > 0 && (
           <>
             <div className="w-12 h-12 rounded-full bg-accent-yellow/20 flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl">⚡</span>

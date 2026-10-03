@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTerminalKeyHandler } from '../../utils/terminal-key-input'
@@ -9,6 +10,7 @@ import {
   type InputSendResult,
   type TerminalContextValue,
 } from '../TerminalContext'
+import flateFrames from '../../utils/__tests__/fixtures/flate2-frames.json'
 
 class MockWebSocket {
   static readonly CONNECTING = 0
@@ -376,4 +378,328 @@ describe('TerminalContext', () => {
     expect(getContext().sendKeystroke({ key: 'Enter', modifiers: { shift: false, ctrl: false, alt: false } })).toEqual({ ok: false, reason: 'disconnected' })
     expect(handler).not.toHaveBeenCalled()
   })
+  it('backs off through twelve unstable opens and clears attempts only after ten stable seconds', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    for (let attempt = 1; attempt <= 12; attempt++) {
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]
+      act(() => ws.open())
+      act(() => ws.onclose?.({ reason: '' }))
+      expect(getContext().reconnectAttempt).toBe(attempt)
+      const count = MockWebSocket.instances.length
+      const delay = [500, 1000, 2000, 3000, 5000][Math.min(attempt - 1, 4)]
+      act(() => { vi.advanceTimersByTime(delay - 1) })
+      expect(MockWebSocket.instances).toHaveLength(count)
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(MockWebSocket.instances).toHaveLength(count + 1)
+    }
+    act(() => MockWebSocket.instances[MockWebSocket.instances.length - 1].open())
+    act(() => { vi.advanceTimersByTime(9999) })
+    expect(getContext().reconnectAttempt).toBe(12)
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(getContext().reconnectAttempt).toBe(0)
+  })
+
+  it('preserves takeover control when the close reason is lost and refuses online reconnect', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"closed","reason":"taken_over","retry":false}').buffer }))
+    act(() => ws.onclose?.({ reason: '' }))
+    expect(getContext().takeoverDetected).toBe(true)
+    act(() => window.dispatchEvent(new Event('online')))
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('schedules one reconnect in StrictMode', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<StrictMode><TerminalProvider><ContextCapture /></TerminalProvider></StrictMode>)
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]
+    const count = MockWebSocket.instances.length
+    act(() => ws.open())
+    act(() => ws.onclose?.({ reason: '' }))
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(MockWebSocket.instances).toHaveLength(count + 1)
+    expect(getContext().reconnectAttempt).toBe(1)
+  })
+
+
+  it('advertises features without changing auth and size fields', () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    expect(JSON.parse(new TextDecoder().decode(ws.send.mock.calls[0][0]))).toEqual({
+      AuthToken: '', columns: 80, rows: 24, features: ['heartbeat', 'deflate', 'flow'],
+    })
+  })
+
+  it('detects heartbeat silence without waiting for close and extends the deadline for any message', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["heartbeat"]}').buffer }))
+    act(() => { vi.advanceTimersByTime(14000) })
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('0still alive').buffer }))
+    act(() => { vi.advanceTimersByTime(14000) })
+    expect(ws.close).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(ws.close).toHaveBeenCalledOnce()
+    expect(getContext().connectionState).toBe('disconnected')
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it.each(['/', '/?mux=herdr&pane=w4%3Ap1'])('does not time out an unnegotiated open connection: %s', path => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    window.history.replaceState({}, '', path)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(ws.close).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('uses ten, fifteen, then twenty second connection timeouts and retries immediately', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    for (const [index, timeout] of [10000, 15000, 20000, 20000].entries()) {
+      const ws = MockWebSocket.instances[index]
+      act(() => { vi.advanceTimersByTime(timeout - 1) })
+      expect(ws.close).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(ws.close).toHaveBeenCalledOnce()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(MockWebSocket.instances).toHaveLength(index + 2)
+    }
+  })
+
+  it('subtracts time already spent connecting from the next backoff', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => { vi.advanceTimersByTime(200) })
+    act(() => ws.onclose?.({ reason: 'handshake failed' }))
+    act(() => { vi.advanceTimersByTime(299) })
+    expect(MockWebSocket.instances).toHaveLength(1)
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(getContext().reconnectAttempt).toBe(1)
+  })
+
+  it('retries immediately when a never-opened attempt has already exceeded its backoff', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => { vi.advanceTimersByTime(2000) })
+    act(() => ws.onclose?.({ reason: 'handshake failed' }))
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('waits the full backoff after open even when the handshake was slow', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => { vi.advanceTimersByTime(2000) })
+    act(() => ws.open())
+    act(() => ws.onclose?.({ reason: '' }))
+    act(() => { vi.advanceTimersByTime(499) })
+    expect(MockWebSocket.instances).toHaveLength(1)
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('reconnects immediately on online and cancels the old retry timer', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    act(() => MockWebSocket.instances[0].open())
+    act(() => window.dispatchEvent(new Event('online')))
+    expect(MockWebSocket.instances).toHaveLength(1)
+    act(() => MockWebSocket.instances[0].onclose?.({ reason: '' }))
+    act(() => window.dispatchEvent(new Event('online')))
+    expect(MockWebSocket.instances).toHaveLength(2)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('pauses tmux retries while hidden and reconnects once on visibility', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    act(() => MockWebSocket.instances[0].open())
+    visibility.mockReturnValue('hidden')
+    act(() => MockWebSocket.instances[0].onclose?.({ reason: '' }))
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(MockWebSocket.instances).toHaveLength(1)
+    visibility.mockReturnValue('visible')
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('does not resume a hidden herdr pane on online', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    act(() => MockWebSocket.instances[0].open())
+    visibility.mockReturnValue('hidden')
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    act(() => window.dispatchEvent(new Event('online')))
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('honors retry false even for a close reason other than takeover', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"closed","reason":"ended","retry":false}').buffer }))
+    act(() => ws.onclose?.({ reason: '' }))
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(getContext().takeoverDetected).toBe(false)
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+
+  it('decodes compressed output, preserves raw notices and detects the compressed tty marker', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    const received: string[] = []
+    getContext().subscribeOutput(chunk => received.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk)))
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["deflate"]}').buffer }))
+    for (const [index, frame] of flateFrames.entries()) {
+      const payload = Uint8Array.from(atob(frame), char => char.charCodeAt(0))
+      const data = new Uint8Array(payload.length + 1)
+      data[0] = 0x35
+      data.set(payload, 1)
+      act(() => ws.onmessage?.({ data: data.buffer }))
+      if (index === 0) act(() => ws.onmessage?.({ data: new TextEncoder().encode('0NOTICE').buffer }))
+    }
+    act(() => { vi.advanceTimersByTime(20) })
+    expect(received.join('')).toBe('hello\nNOTICE中文 😀\n\x1b]7337;/dev/pts/42\x1b\\')
+    expect(getContext().clientTty).toBe('/dev/pts/42')
+  })
+
+  it('reconnects when the negotiated deflate stream is corrupt', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["deflate"]}').buffer }))
+    act(() => ws.onmessage?.({ data: new Uint8Array([0x35, 0x07]).buffer }))
+    expect(ws.close).toHaveBeenCalledOnce()
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+
+  it('coalesces wire-byte acknowledgements even before any output subscriber exists', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["flow","deflate"]}').buffer }))
+    const raw = new TextEncoder().encode('0中文')
+    const payload = Uint8Array.from(atob(flateFrames[0]), char => char.charCodeAt(0))
+    const compressed = new Uint8Array(payload.length + 1)
+    compressed[0] = 0x35
+    compressed.set(payload, 1)
+    act(() => {
+      ws.onmessage?.({ data: raw.buffer })
+      ws.onmessage?.({ data: compressed.buffer })
+      ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"heartbeat"}').buffer })
+      vi.advanceTimersByTime(29)
+    })
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(new TextDecoder().decode(ws.send.mock.calls[1][0])).toBe(`4{"type":"ack","bytes":${raw.byteLength + compressed.byteLength}}`)
+    act(() => ws.onmessage?.({ data: raw.buffer }))
+    act(() => { vi.advanceTimersByTime(30) })
+    expect(new TextDecoder().decode(ws.send.mock.calls[2][0])).toBe(`4{"type":"ack","bytes":${raw.byteLength * 2 + compressed.byteLength}}`)
+  })
+
+  it('never acknowledges output without negotiated flow', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('0raw').buffer }))
+    act(() => { vi.advanceTimersByTime(100) })
+    expect(ws.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('retires old ack timers and starts the new connection byte count at zero', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const old = MockWebSocket.instances[0]
+    act(() => old.open())
+    act(() => {
+      old.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["flow"]}').buffer })
+      old.onmessage?.({ data: new TextEncoder().encode('0old data').buffer })
+      getContext().reconnect()
+    })
+    const current = MockWebSocket.instances[1]
+    act(() => current.open())
+    act(() => { vi.advanceTimersByTime(30) })
+    expect(old.send).toHaveBeenCalledTimes(1)
+    expect(current.send).toHaveBeenCalledTimes(1)
+    act(() => {
+      current.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["flow"]}').buffer })
+      current.onmessage?.({ data: new TextEncoder().encode('0x').buffer })
+      vi.advanceTimersByTime(30)
+    })
+    expect(new TextDecoder().decode(current.send.mock.calls[1][0])).toBe('4{"type":"ack","bytes":2}')
+  })
+
+  it('retains a takeover received before close when visibility changes first', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"closed","reason":"taken_over","retry":false}').buffer }))
+    visibility.mockReturnValue('hidden')
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    visibility.mockReturnValue('visible')
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    act(() => window.dispatchEvent(new Event('online')))
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(getContext().takeoverDetected).toBe(true)
+    expect(getContext().connectionState).toBe('disconnected')
+  })
+
 })

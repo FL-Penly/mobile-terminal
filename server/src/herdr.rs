@@ -11,13 +11,22 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
-pub const SUPPORTED_PROTOCOL: u64 = 20;
+// ─── Protocol compatibility ───────────────────────────────────────────────
+
+pub const MIN_SUPPORTED_PROTOCOL: u64 = 20;
+
+pub fn is_supported_protocol(protocol: u64) -> bool {
+    protocol >= MIN_SUPPORTED_PROTOCOL
+}
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
 pub enum TerminalEvent {
-    Frame(bytes::Bytes),
+    Frame {
+        bytes: bytes::Bytes,
+        full: Option<bool>,
+    },
     Closed(String),
 }
 
@@ -209,7 +218,7 @@ pub async fn list() -> Result<Value, String> {
 
     Ok(json!({
         "mux": "herdr",
-        "protocol": SUPPORTED_PROTOCOL,
+        "protocol": MIN_SUPPORTED_PROTOCOL,
         "panes": panes.get("panes").cloned().unwrap_or_else(|| json!([])),
         "workspaces": workspaces.get("workspaces").cloned().unwrap_or_else(|| json!([])),
         "agents": agents.get("agents").cloned().unwrap_or_else(|| json!([])),
@@ -361,7 +370,10 @@ fn parse_terminal_line(line: &str) -> Result<TerminalEvent, String> {
             BASE64
                 .decode(encoded)
                 .map(bytes::Bytes::from)
-                .map(TerminalEvent::Frame)
+                .map(|bytes| TerminalEvent::Frame {
+                    bytes,
+                    full: value.get("full").and_then(Value::as_bool),
+                })
                 .map_err(|error| format!("Invalid base64 in herdr terminal frame: {}", error))
         }
         Some("terminal.closed") => Ok(TerminalEvent::Closed(
@@ -391,6 +403,13 @@ fn socket_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supported_protocol_accepts_min_and_newer() {
+        assert!(!is_supported_protocol(19));
+        assert!(is_supported_protocol(20));
+        assert!(is_supported_protocol(22));
+    }
 
     #[test]
     fn request_envelope_always_includes_method_and_params() {
@@ -425,8 +444,19 @@ mod tests {
         )
         .unwrap();
         match event {
-            TerminalEvent::Frame(data) => assert_eq!(data.as_ref(), b"\x1b[2Hi\x1b[0m"),
+            TerminalEvent::Frame { bytes, full } => {
+                assert_eq!(bytes.as_ref(), b"\x1b[2Hi\x1b[0m");
+                assert_eq!(full, Some(true));
+            }
             TerminalEvent::Closed(_) => panic!("expected terminal frame"),
+        }
+
+        for (field, expected) in [(",\"full\":false", Some(false)), ("", None)] {
+            let event = parse_terminal_line(&format!(
+                r#"{{"type":"terminal.frame","bytes":"eA=="{field}}}"#
+            ))
+            .unwrap();
+            assert!(matches!(event, TerminalEvent::Frame { full, .. } if full == expected));
         }
 
         let event = parse_terminal_line(
@@ -437,7 +467,7 @@ mod tests {
             TerminalEvent::Closed(reason) => {
                 assert_eq!(reason, "terminal attach taken over")
             }
-            TerminalEvent::Frame(_) => panic!("expected terminal close"),
+            TerminalEvent::Frame { .. } => panic!("expected terminal close"),
         }
     }
 }

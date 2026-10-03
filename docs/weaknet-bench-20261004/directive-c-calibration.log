@@ -1,0 +1,51 @@
+{"starting": "directive-c-cal-01-coarse-100"}
+{"rate": 100, "measured_ms": 10000.211274000001, "ws_down_bytes": 1757308, "bytes_per_second": 175727.08734353483, "phase": "coarse", "source": "directive-c-cal-01-coarse-100.json"}
+{"starting": "directive-c-cal-02-coarse-80"}
+{"rate": 80, "measured_ms": 10000.707951, "ws_down_bytes": 1739346, "bytes_per_second": 173922.28715428867, "phase": "coarse", "source": "directive-c-cal-02-coarse-80.json"}
+{"starting": "directive-c-cal-03-coarse-60"}
+{"rate": 60, "measured_ms": 10000.248564000001, "ws_down_bytes": 1790250, "bytes_per_second": 179020.55019359614, "phase": "coarse", "source": "directive-c-cal-03-coarse-60.json"}
+{"starting": "directive-c-cal-04-coarse-50"}
+{"rate": 50, "measured_ms": 10001.059915999998, "ws_down_bytes": 1496838, "bytes_per_second": 149667.93645594636, "phase": "coarse", "source": "directive-c-cal-04-coarse-50.json"}
+{"starting": "directive-c-cal-05-coarse-40"}
+{"rate": 40, "measured_ms": 10001.018334, "ws_down_bytes": 1197462, "bytes_per_second": 119734.00707896352, "phase": "coarse", "source": "directive-c-cal-05-coarse-40.json"}
+{"starting": "directive-c-cal-06-coarse-30"}
+{"rate": 30, "measured_ms": 10000.289374, "ws_down_bytes": 898100, "bytes_per_second": 89807.4012073083, "phase": "coarse", "source": "directive-c-cal-06-coarse-30.json"}
+{"starting": "directive-c-cal-07-coarse-25"}
+{"rate": 25, "measured_ms": 10000.858097, "ws_down_bytes": 748426, "bytes_per_second": 74836.17832998835, "phase": "coarse", "source": "directive-c-cal-07-coarse-25.json"}
+{"starting": "directive-c-cal-08-coarse-20"}
+{"rate": 20, "measured_ms": 10000.021571000001, "ws_down_bytes": 598738, "bytes_per_second": 59873.67084650461, "phase": "coarse", "source": "directive-c-cal-08-coarse-20.json"}
+{"starting": "directive-c-cal-09-coarse-15"}
+{"rate": 15, "measured_ms": 10000.486894000001, "ws_down_bytes": 449050, "bytes_per_second": 44902.813708942194, "phase": "coarse", "source": "directive-c-cal-09-coarse-15.json"}
+{"starting": "directive-c-cal-10-coarse-12"}
+{"rate": 12, "measured_ms": 10000.30473, "ws_down_bytes": 359240, "bytes_per_second": 35922.90532130614, "phase": "coarse", "source": "directive-c-cal-10-coarse-12.json"}
+{"starting": "directive-c-cal-11-coarse-10"}
+{"rate": 10, "measured_ms": 10000.373124, "ws_down_bytes": 299362, "bytes_per_second": 29935.0830502072, "phase": "coarse", "source": "directive-c-cal-11-coarse-10.json"}
+{"starting": "directive-c-cal-12-coarse-8"}
+{"rate": 8, "measured_ms": 10001.051591, "ws_down_bytes": 239484, "bytes_per_second": 23945.881872613572, "phase": "coarse", "source": "directive-c-cal-12-coarse-8.json"}
+{"starting": "directive-c-cal-13-coarse-6"}
+{"rate": 6, "measured_ms": 10000.556438, "ws_down_bytes": 179620, "bytes_per_second": 17961.000581675835, "phase": "coarse", "source": "directive-c-cal-13-coarse-6.json"}
+{"starting": "directive-c-cal-14-coarse-5"}
+{"rate": 5, "measured_ms": 10000.140227, "ws_down_bytes": 149688, "bytes_per_second": 14968.590099951605, "phase": "coarse", "source": "directive-c-cal-14-coarse-5.json"}
+{"starting": "directive-c-cal-15-coarse-4"}
+{"rate": 4, "measured_ms": 10000.660209, "ws_down_bytes": 117906, "bytes_per_second": 11789.821625365454, "phase": "coarse", "source": "directive-c-cal-15-coarse-4.json"}
+{"starting": "directive-c-cal-16-coarse-3"}
+{"rate": 3, "measured_ms": 10000.325784, "ws_down_bytes": 74095, "bytes_per_second": 7409.258618209032, "phase": "coarse", "source": "directive-c-cal-16-coarse-3.json"}
+{"starting": "directive-c-cal-17-coarse-2"}
+{"rate": 2, "measured_ms": 10000.305585999999, "ws_down_bytes": 30270, "bytes_per_second": 3026.9075019444117, "phase": "coarse", "source": "directive-c-cal-17-coarse-2.json"}
+{"starting": "directive-c-cal-18-coarse-1"}
+{"rate": 1, "measured_ms": 10000.122091000001, "ws_down_bytes": 2182, "bytes_per_second": 218.19733600690495, "phase": "coarse", "source": "directive-c-cal-18-coarse-1.json"}
+{"starting": "directive-c-cal-19-refine-P1-26"}
+{"rate": 26, "measured_ms": 10000.854157, "ws_down_bytes": 778358, "bytes_per_second": 77829.15216848713, "phase": "refine-P1", "source": "directive-c-cal-19-refine-P1-26.json"}
+{"starting": "directive-c-cal-20-refine-P1-27"}
+{"rate": 27, "measured_ms": 10000.038799000002, "ws_down_bytes": 808290, "bytes_per_second": 80828.68639277965, "phase": "refine-P1", "source": "directive-c-cal-20-refine-P1-27.json"}
+{"starting": "directive-c-cal-21-refine-P1-28"}
+{"rate": 28, "measured_ms": 10001.060807999998, "ws_down_bytes": 838222, "bytes_per_second": 83813.30901712883, "phase": "refine-P1", "source": "directive-c-cal-21-refine-P1-28.json"}
+{"starting": "directive-c-cal-22-refine-P1-29"}
+{"rate": 29, "measured_ms": 10001.154268999999, "ws_down_bytes": 868168, "bytes_per_second": 86806.78016246688, "phase": "refine-P1", "source": "directive-c-cal-22-refine-P1-29.json"}
+{"starting": "directive-c-cal-23-confirm-P1-29"}
+{"rate": 29, "measured_ms": 20000.993188, "ws_down_bytes": 1736322, "bytes_per_second": 86811.7889786464, "phase": "confirm-P1", "source": "directive-c-cal-23-confirm-P1-29.json"}
+{"starting": "directive-c-cal-24-refine-P2-7"}
+{"rate": 7, "measured_ms": 10001.031005, "ws_down_bytes": 209566, "bytes_per_second": 20954.439586801378, "phase": "refine-P2", "source": "directive-c-cal-24-refine-P2-7.json"}
+{"starting": "directive-c-cal-25-confirm-P2-7"}
+{"rate": 7, "measured_ms": 20001.067279, "ws_down_bytes": 419118, "bytes_per_second": 20954.78177007336, "phase": "confirm-P2", "source": "directive-c-cal-25-confirm-P2-7.json"}
+{"selected": {"P1": {"rate": 29, "measured_ms": 20000.993188, "ws_down_bytes": 1736322, "bytes_per_second": 86811.7889786464, "phase": "confirm-P1", "source": "directive-c-cal-23-confirm-P1-29.json"}, "P2": {"rate": 7, "measured_ms": 20001.067279, "ws_down_bytes": 419118, "bytes_per_second": 20954.78177007336, "phase": "confirm-P2", "source": "directive-c-cal-25-confirm-P2-7.json"}}, "rates_file": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-c-rates.json"}

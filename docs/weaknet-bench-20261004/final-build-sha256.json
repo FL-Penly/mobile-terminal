@@ -1,0 +1,8 @@
+{
+  "frontend/dist/index.html": "5f4a641bce7bc9d655413211e5c7acb955cbe456092a4bf839d211dfd1de500b",
+  "server/target/release/rust-terminal": "4a9205909080e2a3269969191abea444f1613cbc9b8318c5597dd44b75b11bc4",
+  "scripts/weaknet/bench.mjs": "b07bca36e0a9e67bb52b46c8ae960bb78d8c9ae970256f1f480ebee45174857c",
+  "scripts/weaknet/calibrate.py": "ddfae44a3e4502f8d0ace3475cff22ec6a6fc2d6c6569032ab725cf6fb7e7ed0",
+  "scripts/weaknet/report.py": "f957bb818ca30df5a9e27376e7ff033f87f0dd0ad89a3472f71195896de65c3e",
+  "scripts/weaknet/regression.mjs": "263449654bc375fd68e3ef93378dd81bf58ff4b97f0f445638770f9f278185cf"
+}

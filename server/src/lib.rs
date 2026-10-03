@@ -12,12 +12,14 @@ use axum::{
     serve::ListenerExt,
     Json, Router,
 };
+
 use bytes::{BufMut, BytesMut};
 use chrono::Local;
 use clap::Parser;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
+
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     convert::Infallible,
@@ -27,17 +29,27 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     process::{Command as StdCommand, Stdio},
-    sync::{Arc, Condvar, Mutex},
-    time::Duration,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Condvar, Mutex,
+    },
+    time::{Duration, Instant},
 };
+
 use tokio::sync::{broadcast, mpsc};
 
-use tower_http::cors::CorsLayer;
+use tower_http::{compression::CompressionLayer, cors::CorsLayer};
 
 mod herdr;
 mod tmux_discovery;
+mod ws_link;
 
 use tmux_discovery::{DiscoverySnapshot, GitRootCache};
+use ws_link::{
+    closed_frame, heartbeat_frame, hello_frame, negotiate, parse_ack, GateAction, LinkMode,
+    OutputEncoder, OutputGate, CLIENT_IDLE_TIMEOUT, CLOSE_DRAIN_TIMEOUT, CONTROL_PREFIX,
+    FLOW_TICK_INTERVAL, HEARTBEAT_INTERVAL, INIT_MESSAGE_TIMEOUT, PING_INTERVAL,
+};
 
 // ─── CLI ───────────────────────────────────────────────────────────────────
 
@@ -85,7 +97,7 @@ impl AppState {
             herdr_controllers: Arc::new(Mutex::new(HashMap::new())),
             herdr_snapshot: Arc::new(Mutex::new(serde_json::json!({
                 "mux": "herdr",
-                "protocol": herdr::SUPPORTED_PROTOCOL,
+                "protocol": herdr::MIN_SUPPORTED_PROTOCOL,
                 "panes": [],
                 "workspaces": [],
                 "agents": [],
@@ -232,7 +244,10 @@ pub fn build_router(state: AppState) -> Router {
             get(api_get_user_config).post(api_set_user_config),
         )
         // Static file serving — catch-all for frontend
-        .fallback(move |req: Request| serve_static(req, static_dir.clone()))
+        .fallback_service(
+            any(move |req: Request| serve_static(req, static_dir.clone()))
+                .layer(CompressionLayer::new()),
+        )
         .layer(cors)
         .with_state(state)
 }
@@ -312,12 +327,12 @@ fn start_herdr_events(state: AppState) {
     tokio::spawn(async move {
         loop {
             match herdr::protocol_version().await {
-                Ok(protocol) if protocol == herdr::SUPPORTED_PROTOCOL => break,
+                Ok(protocol) if herdr::is_supported_protocol(protocol) => break,
                 Ok(protocol) => {
                     tracing::error!(
-                        "Unsupported herdr protocol {}; expected {}",
+                        "Unsupported herdr protocol {}; expected at least {}",
                         protocol,
-                        herdr::SUPPORTED_PROTOCOL
+                        herdr::MIN_SUPPORTED_PROTOCOL
                     );
                 }
                 Err(error) => tracing::warn!("Herdr protocol check failed: {}", error),
@@ -486,32 +501,55 @@ async fn serve_static(req: Request, static_dir: PathBuf) -> Response {
 
     let file_path = static_dir.join(if path.is_empty() { "index.html" } else { path });
 
-    let is_file = tokio::fs::metadata(&file_path)
+    let metadata = tokio::fs::metadata(&file_path)
         .await
-        .map(|m| m.is_file())
-        .unwrap_or(false);
-
-    if is_file {
-        serve_file(&file_path).await
+        .ok()
+        .filter(|m| m.is_file());
+    if let Some(metadata) = metadata {
+        serve_file(&file_path, &metadata, req.headers()).await
     } else {
         let index = static_dir.join("index.html");
-        let index_exists = tokio::fs::metadata(&index)
-            .await
-            .map(|m| m.is_file())
-            .unwrap_or(false);
-        if index_exists {
-            serve_file(&index).await
-        } else {
-            (
+        match tokio::fs::metadata(&index).await {
+            Ok(metadata) if metadata.is_file() => {
+                serve_file(&index, &metadata, req.headers()).await
+            }
+            _ => (
                 StatusCode::NOT_FOUND,
                 "Frontend not built. Run: cd frontend && npm run build",
             )
-                .into_response()
+                .into_response(),
         }
     }
 }
 
-async fn serve_file(path: &Path) -> Response {
+async fn serve_file(
+    path: &Path,
+    metadata: &std::fs::Metadata,
+    headers: &axum::http::HeaderMap,
+) -> Response {
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let etag = format!("W/\"{:x}-{:x}\"", metadata.len(), modified);
+    let cache_headers = [
+        (header::CACHE_CONTROL, "no-cache"),
+        (header::ETAG, etag.as_str()),
+    ];
+    let matches = headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|value| {
+            let tag = value.trim();
+            tag == "*" || tag.trim_start_matches("W/") == etag.trim_start_matches("W/")
+        });
+    if matches {
+        return (StatusCode::NOT_MODIFIED, cache_headers).into_response();
+    }
     match tokio::fs::read(path).await {
         Ok(contents) => {
             let mime = match path.extension().and_then(|e| e.to_str()) {
@@ -527,7 +565,7 @@ async fn serve_file(path: &Path) -> Response {
                 Some("ico") => "image/x-icon",
                 _ => "application/octet-stream",
             };
-            ([(header::CONTENT_TYPE, mime)], contents).into_response()
+            ([(header::CONTENT_TYPE, mime)], cache_headers, contents).into_response()
         }
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
@@ -579,19 +617,25 @@ enum HerdrInput {
     Data(bytes::Bytes),
     Resize { cols: u16, rows: u16 },
     Scroll { direction: String, lines: u32 },
+    RequestKeyframe,
     Release,
 }
 
 async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: String) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
-    let (init_cols, init_rows) = match ws_receiver.next().await {
-        Some(Ok(message)) => parse_init_message(message),
-        _ => {
-            tracing::error!("No init message received for herdr pane {}", pane_id);
+    let Some(init) = read_init_message(&mut ws_receiver, INIT_MESSAGE_TIMEOUT).await else {
+        tracing::warn!("No init message received for herdr pane {}", pane_id);
+        return;
+    };
+    let (init_cols, init_rows) = (init.cols, init.rows);
+    let features = negotiate(&init.features, LinkMode::Herdr);
+    tracing::debug!(?features, "Herdr link negotiated");
+    if let Some(hello) = hello_frame(&features) {
+        if ws_sender.send(Message::Binary(hello)).await.is_err() {
             return;
         }
-    };
+    }
     tracing::info!(
         "Herdr terminal session {}: {}x{}",
         pane_id,
@@ -623,7 +667,7 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
     let reader_task = tokio::spawn(async move {
         loop {
             match terminal_reader.next_event().await {
-                Ok(event @ herdr::TerminalEvent::Frame(_)) => {
+                Ok(event @ herdr::TerminalEvent::Frame { .. }) => {
                     if reader_output_tx.send(event).await.is_err() {
                         break;
                     }
@@ -645,10 +689,20 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
     let (input_tx, mut input_rx) = mpsc::channel::<HerdrInput>(256);
     let writer_output_tx = output_tx.clone();
     let writer_task = tokio::spawn(async move {
+        let mut last_size = (init_cols, init_rows);
         while let Some(command) = input_rx.recv().await {
             let result = match command {
                 HerdrInput::Data(data) => terminal_writer.send_input(&data).await,
-                HerdrInput::Resize { cols, rows } => terminal_writer.resize(cols, rows).await,
+                HerdrInput::Resize { cols, rows } => {
+                    let result = terminal_writer.resize(cols, rows).await;
+                    if result.is_ok() {
+                        last_size = (cols, rows);
+                    }
+                    result
+                }
+                HerdrInput::RequestKeyframe => {
+                    terminal_writer.resize(last_size.0, last_size.1).await
+                }
                 HerdrInput::Scroll { direction, lines } => {
                     terminal_writer.scroll(&direction, lines).await
                 }
@@ -674,28 +728,71 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
         controllers.insert(pane_id.clone(), input_tx.clone());
     }
 
+    let acked = Arc::new(AtomicU64::new(0));
+    let ack_notify = Arc::new(tokio::sync::Notify::new());
+    let sender_acked = acked.clone();
+    let sender_ack_notify = ack_notify.clone();
+    let sender_input_tx = input_tx.clone();
     let mut sender_task = tokio::spawn(async move {
-        while let Some(event) = output_rx.recv().await {
+        let mut encoder = OutputEncoder::new(features.deflate);
+        let mut gate = OutputGate::new(features.flow);
+        let mut flow_tick = delayed_interval(FLOW_TICK_INTERVAL);
+        let mut heartbeat = delayed_interval(HEARTBEAT_INTERVAL);
+        let mut ping = delayed_interval(PING_INTERVAL);
+        loop {
+            let event = tokio::select! {
+                event = output_rx.recv() => match event {
+                    Some(event) => event,
+                    None => break,
+                },
+                _ = sender_ack_notify.notified(), if features.flow => {
+                    let action = gate.on_ack(sender_acked.swap(0, Ordering::Relaxed), Instant::now());
+                    if apply_gate_action(action, &sender_input_tx, &mut ws_sender).await { break; }
+                    continue;
+                },
+                _ = flow_tick.tick(), if features.flow => {
+                    let action = gate.on_tick(Instant::now());
+                    if apply_gate_action(action, &sender_input_tx, &mut ws_sender).await { break; }
+                    continue;
+                },
+                _ = heartbeat.tick(), if features.heartbeat => {
+                    if ws_sender.send(Message::Binary(heartbeat_frame())).await.is_err() { break; }
+                    continue;
+                },
+                _ = ping.tick() => {
+                    if ws_sender.send(Message::Ping(bytes::Bytes::new())).await.is_err() { break; }
+                    continue;
+                },
+            };
             match event {
-                herdr::TerminalEvent::Frame(data) => {
-                    let mut frame = BytesMut::with_capacity(data.len() + 1);
-                    frame.put_u8(0x30);
-                    frame.extend_from_slice(&data);
-                    if ws_sender
-                        .send(Message::Binary(frame.freeze()))
-                        .await
-                        .is_err()
-                    {
-                        break;
+                herdr::TerminalEvent::Frame { bytes, full } => {
+                    if gate.on_frame(full, Instant::now()) == GateAction::Drop {
+                        continue;
+                    }
+                    match emit(&mut ws_sender, &mut encoder, &bytes).await {
+                        Ok(len) => gate.record_sent(len, Instant::now()),
+                        Err(_) => break,
                     }
                 }
                 herdr::TerminalEvent::Closed(reason) => {
+                    if features.heartbeat && reason.to_lowercase().contains("taken over") {
+                        let _ = ws_sender
+                            .send(Message::Binary(closed_frame("taken_over")))
+                            .await;
+                    }
                     let mut frame = BytesMut::with_capacity(reason.len() + 32);
                     frame.put_u8(0x30);
                     frame.extend_from_slice(
                         format!("\r\n[Herdr] Connection closed: {}\r\n", reason).as_bytes(),
                     );
-                    let _ = ws_sender.send(Message::Binary(frame.freeze())).await;
+                    let len = frame.len();
+                    if ws_sender
+                        .send(Message::Binary(frame.freeze()))
+                        .await
+                        .is_ok()
+                    {
+                        gate.record_sent(len, Instant::now());
+                    }
                     let _ = ws_sender
                         .send(Message::Close(Some(CloseFrame {
                             code: close_code::NORMAL,
@@ -710,7 +807,16 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
 
     let receiver_input_tx = input_tx.clone();
     let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(message)) = ws_receiver.next().await {
+        loop {
+            let message = match tokio::time::timeout(CLIENT_IDLE_TIMEOUT, ws_receiver.next()).await
+            {
+                Ok(Some(Ok(message))) => message,
+                Err(_) => {
+                    tracing::warn!("Herdr client idle timeout");
+                    break;
+                }
+                _ => break,
+            };
             match message {
                 Message::Binary(data) => {
                     if data.is_empty() {
@@ -725,6 +831,13 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
                                 cols: resize.columns,
                                 rows: resize.rows,
                             }),
+                        CONTROL_PREFIX if features.flow => {
+                            if let Some(bytes) = parse_ack(&data[1..]) {
+                                acked.fetch_max(bytes, Ordering::Relaxed);
+                                ack_notify.notify_one();
+                            }
+                            None
+                        }
                         _ => None,
                     };
                     if let Some(command) = command {
@@ -757,8 +870,10 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
 
     tokio::select! {
         _ = &mut sender_task => {
-            recv_task.abort();
-            let _ = recv_task.await;
+            if tokio::time::timeout(CLOSE_DRAIN_TIMEOUT, &mut recv_task).await.is_err() {
+                recv_task.abort();
+                let _ = recv_task.await;
+            }
         }
         _ = &mut recv_task => {
             let _ = input_tx.send(HerdrInput::Release).await;
@@ -788,13 +903,18 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
 
     // Step 1: Wait for the auth/init message from client
     // Client sends: JSON {"AuthToken":"","columns":80,"rows":24}
-    let (init_cols, init_rows) = match ws_receiver.next().await {
-        Some(Ok(msg)) => parse_init_message(msg),
-        _ => {
-            tracing::error!("No init message received");
+    let Some(init) = read_init_message(&mut ws_receiver, INIT_MESSAGE_TIMEOUT).await else {
+        tracing::warn!("No init message received");
+        return;
+    };
+    let (init_cols, init_rows) = (init.cols, init.rows);
+    let features = negotiate(&init.features, LinkMode::Pty);
+    tracing::debug!(?features, "PTY link negotiated");
+    if let Some(hello) = hello_frame(&features) {
+        if ws_sender.send(Message::Binary(hello)).await.is_err() {
             return;
         }
-    };
+    }
 
     tracing::info!("Terminal session: {}x{}", init_cols, init_rows);
 
@@ -944,11 +1064,18 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
     // Adaptive batching: 4ms idle flush, 32KB cap.
     let mut sender_task = tokio::spawn(async move {
         let mut buffer = BytesMut::with_capacity(32768);
-        let mut frame_buf = BytesMut::with_capacity(65537);
+        let mut encoder = OutputEncoder::new(features.deflate);
         let mut tty_detected = false;
+        let mut ping = delayed_interval(PING_INTERVAL);
 
         loop {
-            let data = output_rx.recv().await;
+            let data = tokio::select! {
+                data = output_rx.recv() => data,
+                _ = ping.tick() => {
+                    if ws_sender.send(Message::Ping(bytes::Bytes::new())).await.is_err() { break; }
+                    continue;
+                },
+            };
             match data {
                 Some(bytes) => {
                     if !tty_detected {
@@ -1006,10 +1133,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                                     }
                                     None => {
                                         if !buffer.is_empty() {
-                                            frame_buf.clear();
-                                            frame_buf.put_u8(0x30);
-                                            frame_buf.extend_from_slice(&buffer);
-                                            let _ = ws_sender.send(Message::Binary(frame_buf.split().freeze())).await;
+                                            let _ = emit(&mut ws_sender, &mut encoder, &buffer).await;
                                         }
                                         return;
                                     }
@@ -1022,27 +1146,15 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                     }
 
                     if !buffer.is_empty() {
-                        frame_buf.clear();
-                        frame_buf.put_u8(0x30);
-                        frame_buf.extend_from_slice(&buffer);
-                        buffer.clear();
-                        if ws_sender
-                            .send(Message::Binary(frame_buf.split().freeze()))
-                            .await
-                            .is_err()
-                        {
+                        if emit(&mut ws_sender, &mut encoder, &buffer).await.is_err() {
                             break;
                         }
+                        buffer.clear();
                     }
                 }
                 None => {
                     if !buffer.is_empty() {
-                        frame_buf.clear();
-                        frame_buf.put_u8(0x30);
-                        frame_buf.extend_from_slice(&buffer);
-                        let _ = ws_sender
-                            .send(Message::Binary(frame_buf.split().freeze()))
-                            .await;
+                        let _ = emit(&mut ws_sender, &mut encoder, &buffer).await;
                     }
                     break;
                 }
@@ -1165,19 +1277,91 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
     tracing::info!("Terminal session ended");
 }
 
-fn parse_init_message(msg: Message) -> (u16, u16) {
-    let data = match msg {
-        Message::Text(text) => text.as_bytes().to_vec(),
-        Message::Binary(data) => data.to_vec(),
-        _ => return (80, 24),
-    };
-
-    if let Ok(text) = std::str::from_utf8(&data) {
-        if let Ok(init) = serde_json::from_str::<InitMessage>(text) {
-            return (init.columns.max(1) as u16, init.rows.max(1) as u16);
+async fn apply_gate_action(
+    action: GateAction,
+    input: &mpsc::Sender<HerdrInput>,
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+) -> bool {
+    match action {
+        GateAction::RequestKeyframe => {
+            // Never await the writer while it may be waiting for the output reader.
+            let _ = input.try_send(HerdrInput::RequestKeyframe);
+            false
         }
+        GateAction::Close => {
+            tracing::warn!("Herdr keyframe resync timed out");
+            let _ = sender
+                .send(Message::Close(Some(CloseFrame {
+                    code: close_code::ERROR,
+                    reason: "resync".into(),
+                })))
+                .await;
+            true
+        }
+        _ => false,
     }
-    (80, 24)
+}
+
+async fn emit(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    encoder: &mut OutputEncoder,
+    payload: &[u8],
+) -> Result<usize, String> {
+    let frame = match encoder.encode(payload) {
+        Ok(frame) => frame,
+        Err(error) => {
+            tracing::warn!("Terminal output encoding failed: {}", error);
+            return Err(error.to_string());
+        }
+    };
+    let len = frame.len();
+    sender
+        .send(Message::Binary(frame))
+        .await
+        .map(|()| len)
+        .map_err(|error| error.to_string())
+}
+
+fn delayed_interval(period: Duration) -> tokio::time::Interval {
+    let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    interval
+}
+
+struct TerminalInit {
+    cols: u16,
+    rows: u16,
+    features: Vec<String>,
+}
+
+async fn read_init_message<S>(stream: &mut S, timeout: Duration) -> Option<TerminalInit>
+where
+    S: Stream<Item = Result<Message, axum::Error>> + Unpin,
+{
+    match tokio::time::timeout(timeout, stream.next()).await {
+        Ok(Some(Ok(message))) => Some(parse_init_message(message)),
+        _ => None,
+    }
+}
+
+fn parse_init_message(msg: Message) -> TerminalInit {
+    let data = match msg {
+        Message::Text(text) => Some(text.as_bytes().to_vec()),
+        Message::Binary(data) => Some(data.to_vec()),
+        _ => None,
+    };
+    if let Some(init) = data.and_then(|data| serde_json::from_slice::<InitMessage>(&data).ok()) {
+        return TerminalInit {
+            cols: init.columns.max(1) as u16,
+            rows: init.rows.max(1) as u16,
+            features: init.features,
+        };
+    }
+    TerminalInit {
+        cols: 80,
+        rows: 24,
+        features: Vec::new(),
+    }
 }
 
 fn write_wrapper_script(path: &str, shell: &str, tty_file: &str, cwd_file: &str) {
@@ -1310,6 +1494,8 @@ struct InitMessage {
     auth_token: Option<String>,
     columns: u32,
     rows: u32,
+    #[serde(default)]
+    features: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -5304,11 +5490,36 @@ mod tests {
         }
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn read_init_message_times_out_without_input() {
+        let mut stream = futures_util::stream::pending();
+        assert!(read_init_message(&mut stream, INIT_MESSAGE_TIMEOUT)
+            .await
+            .is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn read_init_message_accepts_features_and_defaults() {
+        let mut stream = futures_util::stream::iter([Ok(Message::Text(
+            r#"{"columns":90,"rows":30,"features":["heartbeat"]}"#.into(),
+        ))]);
+        let init = read_init_message(&mut stream, INIT_MESSAGE_TIMEOUT)
+            .await
+            .unwrap();
+        assert_eq!((init.cols, init.rows), (90, 30));
+        assert_eq!(init.features, ["heartbeat"]);
+        assert!(
+            parse_init_message(Message::Text(r#"{"columns":80,"rows":24}"#.into()))
+                .features
+                .is_empty()
+        );
+    }
+
     #[test]
     fn test_parse_init_message_binary_valid() {
         let json = r#"{"AuthToken":"","columns":120,"rows":40}"#;
         let msg = Message::Binary(json.as_bytes().to_vec().into());
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 120);
         assert_eq!(rows, 40);
     }
@@ -5317,7 +5528,7 @@ mod tests {
     fn test_parse_init_message_text_valid() {
         let json = r#"{"AuthToken":"","columns":80,"rows":24}"#;
         let msg = Message::Text(json.to_string().into());
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 80);
         assert_eq!(rows, 24);
     }
@@ -5325,7 +5536,7 @@ mod tests {
     #[test]
     fn test_parse_init_message_invalid_returns_defaults() {
         let msg = Message::Binary(b"not json".to_vec().into());
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 80);
         assert_eq!(rows, 24);
     }
@@ -5333,7 +5544,7 @@ mod tests {
     #[test]
     fn test_parse_init_message_ping_returns_defaults() {
         let msg = Message::Ping(vec![1, 2, 3].into());
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 80);
         assert_eq!(rows, 24);
     }
@@ -5387,7 +5598,7 @@ mod tests {
     fn test_parse_init_message_zero_columns_clamped_to_one() {
         let json = r#"{"columns":0,"rows":24}"#;
         let msg = Message::Text(json.to_string().into());
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 1);
         assert_eq!(rows, 24);
     }
@@ -5396,7 +5607,7 @@ mod tests {
     fn test_parse_init_message_zero_rows_clamped_to_one() {
         let json = r#"{"columns":80,"rows":0}"#;
         let msg = Message::Text(json.to_string().into());
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 80);
         assert_eq!(rows, 1);
     }
@@ -5404,7 +5615,7 @@ mod tests {
     #[test]
     fn test_parse_init_message_close_returns_defaults() {
         let msg = Message::Close(None);
-        let (cols, rows) = parse_init_message(msg);
+        let TerminalInit { cols, rows, .. } = parse_init_message(msg);
         assert_eq!(cols, 80);
         assert_eq!(rows, 24);
     }

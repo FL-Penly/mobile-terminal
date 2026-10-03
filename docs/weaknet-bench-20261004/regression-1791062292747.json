@@ -1,0 +1,918 @@
+[
+  {
+    "name": "9/10 plain shell and tmux restore within two minutes",
+    "passed": true,
+    "evidence": {
+      "elapsed_ms": 7138,
+      "busy": {
+        "maxStep": 521,
+        "echo_ms": 107,
+        "interrupt_ms": 95,
+        "compressed_frames": 555
+      },
+      "traffic": {
+        "opens": 2,
+        "closes": 1,
+        "inputs": [
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "66",
+            "text": "f"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "52",
+            "text": "R"
+          },
+          {
+            "prefix": 48,
+            "hex": "45",
+            "text": "E"
+          },
+          {
+            "prefix": 48,
+            "hex": "47",
+            "text": "G"
+          },
+          {
+            "prefix": 48,
+            "hex": "5f",
+            "text": "_"
+          },
+          {
+            "prefix": 48,
+            "hex": "25",
+            "text": "%"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "5c",
+            "text": "\\"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "50",
+            "text": "P"
+          },
+          {
+            "prefix": 48,
+            "hex": "4c",
+            "text": "L"
+          },
+          {
+            "prefix": 48,
+            "hex": "41",
+            "text": "A"
+          },
+          {
+            "prefix": 48,
+            "hex": "49",
+            "text": "I"
+          },
+          {
+            "prefix": 48,
+            "hex": "4e",
+            "text": "N"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "0d",
+            "text": "\r"
+          },
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          },
+          {
+            "prefix": 48,
+            "hex": "1b5b3e303b3237363b3063",
+            "text": "\u001b[>0;276;0c"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "66",
+            "text": "f"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "52",
+            "text": "R"
+          },
+          {
+            "prefix": 48,
+            "hex": "45",
+            "text": "E"
+          },
+          {
+            "prefix": 48,
+            "hex": "47",
+            "text": "G"
+          },
+          {
+            "prefix": 48,
+            "hex": "5f",
+            "text": "_"
+          },
+          {
+            "prefix": 48,
+            "hex": "25",
+            "text": "%"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "5c",
+            "text": "\\"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "54",
+            "text": "T"
+          },
+          {
+            "prefix": 48,
+            "hex": "4d",
+            "text": "M"
+          },
+          {
+            "prefix": 48,
+            "hex": "55",
+            "text": "U"
+          },
+          {
+            "prefix": 48,
+            "hex": "58",
+            "text": "X"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "0d",
+            "text": "\r"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "79",
+            "text": "y"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "68",
+            "text": "h"
+          },
+          {
+            "prefix": 48,
+            "hex": "6f",
+            "text": "o"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "33",
+            "text": "3"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "64",
+            "text": "d"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "30",
+            "text": "0"
+          },
+          {
+            "prefix": 48,
+            "hex": "30",
+            "text": "0"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "68",
+            "text": "h"
+          },
+          {
+            "prefix": 48,
+            "hex": "6f",
+            "text": "o"
+          },
+          {
+            "prefix": 48,
+            "hex": "6d",
+            "text": "m"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "66",
+            "text": "f"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "67",
+            "text": "g"
+          },
+          {
+            "prefix": 48,
+            "hex": "6c",
+            "text": "l"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "67",
+            "text": "g"
+          },
+          {
+            "prefix": 48,
+            "hex": "2e",
+            "text": "."
+          },
+          {
+            "prefix": 48,
+            "hex": "39",
+            "text": "9"
+          },
+          {
+            "prefix": 48,
+            "hex": "37",
+            "text": "7"
+          },
+          {
+            "prefix": 48,
+            "hex": "35",
+            "text": "5"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "6f",
+            "text": "o"
+          },
+          {
+            "prefix": 48,
+            "hex": "6a",
+            "text": "j"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "63",
+            "text": "c"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "6d",
+            "text": "m"
+          },
+          {
+            "prefix": 48,
+            "hex": "6f",
+            "text": "o"
+          },
+          {
+            "prefix": 48,
+            "hex": "62",
+            "text": "b"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6c",
+            "text": "l"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "2d",
+            "text": "-"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "6d",
+            "text": "m"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "6c",
+            "text": "l"
+          },
+          {
+            "prefix": 48,
+            "hex": "2d",
+            "text": "-"
+          },
+          {
+            "prefix": 48,
+            "hex": "77",
+            "text": "w"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "6b",
+            "text": "k"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "63",
+            "text": "c"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "77",
+            "text": "w"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "6b",
+            "text": "k"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "2f",
+            "text": "/"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "67",
+            "text": "g"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "2d",
+            "text": "-"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6d",
+            "text": "m"
+          },
+          {
+            "prefix": 48,
+            "hex": "2e",
+            "text": "."
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "79",
+            "text": "y"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "2d",
+            "text": "-"
+          },
+          {
+            "prefix": 48,
+            "hex": "2d",
+            "text": "-"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "61",
+            "text": "a"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "65",
+            "text": "e"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "31",
+            "text": "1"
+          },
+          {
+            "prefix": 48,
+            "hex": "30",
+            "text": "0"
+          },
+          {
+            "prefix": 48,
+            "hex": "30",
+            "text": "0"
+          },
+          {
+            "prefix": 48,
+            "hex": "0d",
+            "text": "\r"
+          },
+          {
+            "prefix": 48,
+            "hex": "6b",
+            "text": "k"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "6d",
+            "text": "m"
+          },
+          {
+            "prefix": 48,
+            "hex": "75",
+            "text": "u"
+          },
+          {
+            "prefix": 48,
+            "hex": "78",
+            "text": "x"
+          },
+          {
+            "prefix": 48,
+            "hex": "5f",
+            "text": "_"
+          },
+          {
+            "prefix": 48,
+            "hex": "62",
+            "text": "b"
+          },
+          {
+            "prefix": 48,
+            "hex": "75",
+            "text": "u"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "79",
+            "text": "y"
+          },
+          {
+            "prefix": 48,
+            "hex": "2e",
+            "text": "."
+          },
+          {
+            "prefix": 48,
+            "hex": "03",
+            "text": "\u0003"
+          }
+        ],
+        "prefixes": {
+          "52": 2,
+          "53": 591
+        },
+        "controls": [
+          {
+            "features": [
+              "deflate"
+            ],
+            "type": "hello"
+          },
+          {
+            "features": [
+              "deflate"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ]
+      }
+    }
+  }
+]

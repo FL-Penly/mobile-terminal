@@ -1,0 +1,1197 @@
+[
+  {
+    "name": "1 herdr input and 15 connected indicator",
+    "passed": true,
+    "evidence": {
+      "opens": 1,
+      "closes": 0,
+      "inputs": [
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+        },
+        {
+          "prefix": 48,
+          "hex": "70",
+          "text": "p"
+        },
+        {
+          "prefix": 48,
+          "hex": "72",
+          "text": "r"
+        },
+        {
+          "prefix": 48,
+          "hex": "69",
+          "text": "i"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "74",
+          "text": "t"
+        },
+        {
+          "prefix": 48,
+          "hex": "66",
+          "text": "f"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "47",
+          "text": "G"
+        },
+        {
+          "prefix": 48,
+          "hex": "5f",
+          "text": "_"
+        },
+        {
+          "prefix": 48,
+          "hex": "25",
+          "text": "%"
+        },
+        {
+          "prefix": 48,
+          "hex": "73",
+          "text": "s"
+        },
+        {
+          "prefix": 48,
+          "hex": "5c",
+          "text": "\\"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "48",
+          "text": "H"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "44",
+          "text": "D"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "0d",
+          "text": "\r"
+        }
+      ],
+      "prefixes": {
+        "52": 1,
+        "53": 7
+      },
+      "controls": [
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow"
+          ],
+          "type": "hello"
+        }
+      ],
+      "errors": [
+        "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+      ]
+    }
+  },
+  {
+    "name": "2 multiline paste API through text input UI",
+    "passed": true,
+    "evidence": {
+      "response": {
+        "byteLength": 57,
+        "paneId": "w3:p1",
+        "result": {
+          "type": "ok"
+        },
+        "success": true
+      },
+      "text": "ECHO j5rf0007                                       \nagent step=00000684 checking module=18 status=workin\ng progress=84                                  orkin\nagent step=00000685 checking module=19 status=workin\ng progress=85                                       \nagent step=00000686 checking module=20 status=workin\ng progress=86                                       \nagent step=00000687 checking module=21 status=workin\ng progress=87                                       \nagent step=00000688 checking module=22 status=workin\ng progress=88                                       \nagent step=00000689 checking module=23 status=workin\ng progress=89                                       \nagent step=00000690 checking module=24 status=workin\ng progress=90                                       \nagent step=00000691 checking module=25 status=workin\ng progress=91                                       \nagent step=00000692 checking module=26 status=workin\ng progress=92                                       \nagent step=00000693 checking module=27 status=workin\ng progress=93                                       \nspinner /                                      orkin\nSTOPPED                                             \n➜  mobile-terminal-weaknet git:(feat/weak-network) ✗\n         s=88                                       \n➜  mobile-terminal-weaknetngit:(feat/weak-network)ip\nrintf 'REG_%s\\n' 'HERDR'                            \nREG_HERDRp=00000690 checking module=24 status=workin\n➜  rogress=90                                       \n➜  mobile-terminal-weaknetngit:(feat/weak-network)ip\nrintf 'PASTE_%s\\n' 'FIRST'                          \nprintf 'PASTE_%s\\n' 'SECOND'                      in\n                                                    \nPASTE_FIRST               ng module=27 status=workin\nPASTE_SECOND                                        \n➜  mobile-terminal-weaknet git:(feat/weak-network)  \nSTOPPED                                             \n➜  mobile-terminal-weaknet git:(feat/weak-network) ✗\n                                                    \n➜  mobile-terminal-weaknet git:(feat/weak-network) p\nrintf 'REG_%s\\n' 'HERDR'                            \nREG_HERDR                                           \n➜  mobile-terminal-weaknet git:(feat/weak-network)  \n➜  mobile-terminal-weaknet git:(feat/weak-network) p\nrintf 'PASTE_%s\\n' 'FIRST'                          \nprintf 'PASTE_%s\\n' 'SECOND'                        \n                                                    "
+    }
+  },
+  {
+    "name": "3 Ctrl Alt Shift arrow combinations",
+    "passed": true,
+    "evidence": [
+      {
+        "modifier": "Ctrl",
+        "key": "ArrowLeft",
+        "expected": "1b5b313b3544"
+      },
+      {
+        "modifier": "Alt",
+        "key": "ArrowRight",
+        "expected": "1b5b313b3343"
+      },
+      {
+        "modifier": "Shift",
+        "key": "ArrowUp",
+        "expected": "1b5b313b3241"
+      }
+    ]
+  },
+  {
+    "name": "4 pinch emits correct resized dimensions",
+    "passed": true,
+    "evidence": {
+      "resizes": [
+        {
+          "AuthToken": "",
+          "columns": 32,
+          "rows": 30
+        }
+      ],
+      "domRows": 30,
+      "fontSize": "19"
+    }
+  },
+  {
+    "name": "5 switch pane using sidebar",
+    "passed": true,
+    "evidence": {
+      "url": "http://127.0.0.1:7712/?mux=herdr&pane=w6%3Ap1",
+      "opens": 2
+    }
+  },
+  {
+    "name": "6 takeover under P0",
+    "passed": true,
+    "evidence": {
+      "first": {
+        "opens": 1,
+        "closes": 1,
+        "inputs": [
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          }
+        ],
+        "prefixes": {
+          "48": 1,
+          "52": 2,
+          "53": 2
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "reason": "taken_over",
+            "retry": false,
+            "type": "closed"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ]
+      },
+      "second": {
+        "opens": 1,
+        "closes": 0,
+        "inputs": [
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          }
+        ],
+        "prefixes": {
+          "52": 2,
+          "53": 2
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ]
+      }
+    }
+  },
+  {
+    "name": "6 takeover under P2",
+    "passed": true,
+    "evidence": {
+      "first": {
+        "opens": 1,
+        "closes": 1,
+        "inputs": [],
+        "prefixes": {
+          "48": 1,
+          "52": 4,
+          "53": 699
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "reason": "taken_over",
+            "retry": false,
+            "type": "closed"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ]
+      },
+      "second": {
+        "opens": 1,
+        "closes": 0,
+        "inputs": [],
+        "prefixes": {
+          "52": 2,
+          "53": 444
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ]
+      }
+    }
+  },
+  {
+    "name": "7 hidden controller release and visible restore",
+    "passed": true,
+    "evidence": {
+      "opens": 2,
+      "closes": 1,
+      "inputs": [
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+        },
+        {
+          "prefix": 48,
+          "hex": "70",
+          "text": "p"
+        },
+        {
+          "prefix": 48,
+          "hex": "72",
+          "text": "r"
+        },
+        {
+          "prefix": 48,
+          "hex": "69",
+          "text": "i"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "74",
+          "text": "t"
+        },
+        {
+          "prefix": 48,
+          "hex": "66",
+          "text": "f"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "47",
+          "text": "G"
+        },
+        {
+          "prefix": 48,
+          "hex": "5f",
+          "text": "_"
+        },
+        {
+          "prefix": 48,
+          "hex": "25",
+          "text": "%"
+        },
+        {
+          "prefix": 48,
+          "hex": "73",
+          "text": "s"
+        },
+        {
+          "prefix": 48,
+          "hex": "5c",
+          "text": "\\"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "56",
+          "text": "V"
+        },
+        {
+          "prefix": 48,
+          "hex": "49",
+          "text": "I"
+        },
+        {
+          "prefix": 48,
+          "hex": "53",
+          "text": "S"
+        },
+        {
+          "prefix": 48,
+          "hex": "49",
+          "text": "I"
+        },
+        {
+          "prefix": 48,
+          "hex": "42",
+          "text": "B"
+        },
+        {
+          "prefix": 48,
+          "hex": "4c",
+          "text": "L"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "0d",
+          "text": "\r"
+        }
+      ],
+      "prefixes": {
+        "52": 2,
+        "53": 7
+      },
+      "controls": [
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow"
+          ],
+          "type": "hello"
+        },
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow"
+          ],
+          "type": "hello"
+        }
+      ],
+      "errors": [
+        "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+      ]
+    }
+  },
+  {
+    "name": "8 Detach behavior 7701",
+    "passed": true,
+    "evidence": {
+      "opens": 2,
+      "closes": 1,
+      "inputs": [
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+        },
+        {
+          "prefix": 48,
+          "hex": "70",
+          "text": "p"
+        },
+        {
+          "prefix": 48,
+          "hex": "72",
+          "text": "r"
+        },
+        {
+          "prefix": 48,
+          "hex": "69",
+          "text": "i"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "74",
+          "text": "t"
+        },
+        {
+          "prefix": 48,
+          "hex": "66",
+          "text": "f"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "47",
+          "text": "G"
+        },
+        {
+          "prefix": 48,
+          "hex": "5f",
+          "text": "_"
+        },
+        {
+          "prefix": 48,
+          "hex": "25",
+          "text": "%"
+        },
+        {
+          "prefix": 48,
+          "hex": "73",
+          "text": "s"
+        },
+        {
+          "prefix": 48,
+          "hex": "5c",
+          "text": "\\"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "44",
+          "text": "D"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "54",
+          "text": "T"
+        },
+        {
+          "prefix": 48,
+          "hex": "41",
+          "text": "A"
+        },
+        {
+          "prefix": 48,
+          "hex": "43",
+          "text": "C"
+        },
+        {
+          "prefix": 48,
+          "hex": "48",
+          "text": "H"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "0d",
+          "text": "\r"
+        }
+      ],
+      "prefixes": {
+        "48": 8
+      },
+      "controls": [],
+      "errors": [
+        "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+      ]
+    }
+  },
+  {
+    "name": "8 Detach behavior 7702",
+    "passed": true,
+    "evidence": {
+      "opens": 2,
+      "closes": 1,
+      "inputs": [
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+        },
+        {
+          "prefix": 48,
+          "hex": "70",
+          "text": "p"
+        },
+        {
+          "prefix": 48,
+          "hex": "72",
+          "text": "r"
+        },
+        {
+          "prefix": 48,
+          "hex": "69",
+          "text": "i"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "74",
+          "text": "t"
+        },
+        {
+          "prefix": 48,
+          "hex": "66",
+          "text": "f"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "47",
+          "text": "G"
+        },
+        {
+          "prefix": 48,
+          "hex": "5f",
+          "text": "_"
+        },
+        {
+          "prefix": 48,
+          "hex": "25",
+          "text": "%"
+        },
+        {
+          "prefix": 48,
+          "hex": "73",
+          "text": "s"
+        },
+        {
+          "prefix": 48,
+          "hex": "5c",
+          "text": "\\"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "44",
+          "text": "D"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "54",
+          "text": "T"
+        },
+        {
+          "prefix": 48,
+          "hex": "41",
+          "text": "A"
+        },
+        {
+          "prefix": 48,
+          "hex": "43",
+          "text": "C"
+        },
+        {
+          "prefix": 48,
+          "hex": "48",
+          "text": "H"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "0d",
+          "text": "\r"
+        }
+      ],
+      "prefixes": {
+        "48": 1,
+        "52": 2,
+        "53": 7
+      },
+      "controls": [
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow"
+          ],
+          "type": "hello"
+        },
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow"
+          ],
+          "type": "hello"
+        }
+      ],
+      "errors": [
+        "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+      ]
+    }
+  },
+  {
+    "name": "11 Git Diff panel",
+    "passed": true,
+    "evidence": {
+      "text": "w3:p1\n│\nfeat/weak-network\n▼\n│\n~/project/mobile-terminal-weaknet\ng progress=02                                       \nagent step=00002003 checking module=05 status=workin\ng progress=03                                       \nagent step=00002004 checking module=06 status=workin\ng progress=04                                       \nagent step=00002005 checking module=07 status=workin\ng progress=05                                       \nagent step=00002006 checking module=08 status=workin\ng progress=06                                       \nagent step=00002007 checking module=09 status=workin\ng progress=07                                       \nagent step=00002008 checking module=10 status=workin\ng progress=08                                       \nagent step=00002009 checking module=11 status=workin\ng progress=09                                       \nagent step=00002010 checking module=12 status=workin\ng progress=10                                       \nagent step=00002011 checking module=13 status=workin\ng progress=11                                       \nagent step=00002012 checking module=14 status=workin\ng progress=12                                       \nagent step=00002013 checking module=15 status=workin\ng progress=13                                       \nagent step=00002014 checking module=16 status=workin\ng progress=14                                       \nagent step=00002015 checking module=17 status=workin\ng progress=15                                       \nagent step=00002016 checking module=18 status=workin\ng progress=16                                       \nagent step=00002017 checking module=19 status=workin\ng progress=17                                       \nagent step=00002018 checking module=20 status=workin\ng progress=18                                       \nagent step=00002019 checking module=21 status=workin\ng progress=19                                       \nspinner +                                           \nSTOPPED                                             \n➜  mobile-terminal-weaknet git:(feat/weak-network) p\nrintf 'REG_%s\\n' 'VISIBLE'                          \nREG_VISIBLE                                         \n➜  mobile-terminal-weaknet git:(feat/weak-network) p\nrintf 'REG_%s\\n' 'DETACH'                           \nREG_DETACH                                          \n➜  mobile-terminal-weaknet git:(feat/weak-network) c\nd '/home/fengliang.975/.local/share/mt-weaknet/git-r\negression-wk96F2'                                   \n➜  git-regression-wk96F2 git:(main) ✗               \n▼\nESC\n^C\n^L\n💬\n⌨️\n📎\nSel\nGit\n⚙️\nTab\n⇧Tab\nEnter\n⇧Enter\n↑\n组合键\n←\n↓\n→\nSOURCE CONTROL\n1\nReview All\nCommit All 1 file\n▾\nStaged Changes\nNo staged files\n▾\nChanges\n1\nregression.txt\nM\n@@ -1 +1 @@\nDiscard\nStage\n\n1\t\t-\tBEFORE_WEAKNET_DIFF\n\t1\t+\tAFTER_WEAKNET_DIFF\n▸\nCommits\n1"
+    }
+  },
+  {
+    "name": "12 image paste upload",
+    "passed": true,
+    "evidence": {
+      "filename": "mtbench-paste_1791061378218.png",
+      "path": "/tmp/ttyd_uploads/mtbench-paste_1791061378218.png"
+    }
+  },
+  {
+    "name": "13 goal and prompt boards load with gzip",
+    "passed": false,
+    "error": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok((await page.locator('body').innerText()).length>50)\n\n    at file:///data00/home/fengliang.975/.local/share/mt-weaknet/harness/regression.mjs:162:285\n    at async check (file:///data00/home/fengliang.975/.local/share/mt-weaknet/harness/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/.local/share/mt-weaknet/harness/regression.mjs:160:3"
+  },
+  {
+    "name": "9/10 plain shell and tmux restore within two minutes",
+    "passed": true,
+    "evidence": {
+      "elapsed_ms": 7676,
+      "traffic": {
+        "opens": 2,
+        "closes": 1,
+        "inputs": [
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "66",
+            "text": "f"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "52",
+            "text": "R"
+          },
+          {
+            "prefix": 48,
+            "hex": "45",
+            "text": "E"
+          },
+          {
+            "prefix": 48,
+            "hex": "47",
+            "text": "G"
+          },
+          {
+            "prefix": 48,
+            "hex": "5f",
+            "text": "_"
+          },
+          {
+            "prefix": 48,
+            "hex": "25",
+            "text": "%"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "5c",
+            "text": "\\"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "50",
+            "text": "P"
+          },
+          {
+            "prefix": 48,
+            "hex": "4c",
+            "text": "L"
+          },
+          {
+            "prefix": 48,
+            "hex": "41",
+            "text": "A"
+          },
+          {
+            "prefix": 48,
+            "hex": "49",
+            "text": "I"
+          },
+          {
+            "prefix": 48,
+            "hex": "4e",
+            "text": "N"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "0d",
+            "text": "\r"
+          },
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          },
+          {
+            "prefix": 48,
+            "hex": "1b5b3e303b3237363b3063",
+            "text": "\u001b[>0;276;0c"
+          },
+          {
+            "prefix": 48,
+            "hex": "70",
+            "text": "p"
+          },
+          {
+            "prefix": 48,
+            "hex": "72",
+            "text": "r"
+          },
+          {
+            "prefix": 48,
+            "hex": "69",
+            "text": "i"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "74",
+            "text": "t"
+          },
+          {
+            "prefix": 48,
+            "hex": "66",
+            "text": "f"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "52",
+            "text": "R"
+          },
+          {
+            "prefix": 48,
+            "hex": "45",
+            "text": "E"
+          },
+          {
+            "prefix": 48,
+            "hex": "47",
+            "text": "G"
+          },
+          {
+            "prefix": 48,
+            "hex": "5f",
+            "text": "_"
+          },
+          {
+            "prefix": 48,
+            "hex": "25",
+            "text": "%"
+          },
+          {
+            "prefix": 48,
+            "hex": "73",
+            "text": "s"
+          },
+          {
+            "prefix": 48,
+            "hex": "5c",
+            "text": "\\"
+          },
+          {
+            "prefix": 48,
+            "hex": "6e",
+            "text": "n"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "20",
+            "text": " "
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "54",
+            "text": "T"
+          },
+          {
+            "prefix": 48,
+            "hex": "4d",
+            "text": "M"
+          },
+          {
+            "prefix": 48,
+            "hex": "55",
+            "text": "U"
+          },
+          {
+            "prefix": 48,
+            "hex": "58",
+            "text": "X"
+          },
+          {
+            "prefix": 48,
+            "hex": "27",
+            "text": "'"
+          },
+          {
+            "prefix": 48,
+            "hex": "0d",
+            "text": "\r"
+          }
+        ],
+        "prefixes": {
+          "52": 2,
+          "53": 34
+        },
+        "controls": [
+          {
+            "features": [
+              "deflate"
+            ],
+            "type": "hello"
+          },
+          {
+            "features": [
+              "deflate"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ]
+      }
+    }
+  }
+]

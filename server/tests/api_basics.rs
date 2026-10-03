@@ -306,3 +306,102 @@ async fn file_diff_with_empty_filename_returns_400() {
     let body = body_json(resp).await;
     assert_eq!(body["error"], "missing_file");
 }
+
+// ─── Static cache and compression ─────────────────────────────────────────
+
+async fn static_request(
+    app: axum::Router,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> axum::response::Response {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    let mut request = Request::get(path);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    app.oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn static_files_send_no_cache_and_etag() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("index.html"), "hello static".repeat(100)).unwrap();
+    let response = send_get(common::test_app_with_static_dir(temp.path().into()), "/").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-cache");
+    assert!(response.headers()["etag"]
+        .to_str()
+        .unwrap()
+        .starts_with("W/\""));
+}
+
+#[tokio::test]
+async fn static_files_return_304_for_matching_etag() {
+    use http_body_util::BodyExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let index = temp.path().join("index.html");
+    std::fs::write(&index, "cached html".repeat(100)).unwrap();
+    let app = common::test_app_with_static_dir(temp.path().into());
+    let first = send_get(app.clone(), "/").await;
+    let etag = first.headers()["etag"].to_str().unwrap().to_owned();
+    for path in ["/", "/some/route"] {
+        for value in [etag.clone(), format!("W/\"other\", {etag}"), "*".into()] {
+            let response = static_request(app.clone(), path, &[("if-none-match", &value)]).await;
+            assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+            assert_eq!(response.headers()["etag"], etag);
+            assert_eq!(response.headers()["cache-control"], "no-cache");
+            assert!(response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .is_empty());
+        }
+    }
+    std::fs::write(&index, "changed html, different length".repeat(100)).unwrap();
+    let response = static_request(app, "/", &[("if-none-match", &etag)]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_ne!(response.headers()["etag"], etag);
+}
+
+#[tokio::test]
+async fn static_files_are_gzipped_when_accepted() {
+    use http_body_util::BodyExt;
+    use std::io::Read;
+
+    let temp = tempfile::tempdir().unwrap();
+    let content = "<html>terminal 中文</html>".repeat(100);
+    std::fs::write(temp.path().join("index.html"), &content).unwrap();
+    let response = static_request(
+        common::test_app_with_static_dir(temp.path().into()),
+        "/",
+        &[("accept-encoding", "gzip")],
+    )
+    .await;
+    assert_eq!(response.headers()["content-encoding"], "gzip");
+    let compressed = response.into_body().collect().await.unwrap().to_bytes();
+    let mut decoded = String::new();
+    flate2::read::GzDecoder::new(compressed.as_ref())
+        .read_to_string(&mut decoded)
+        .unwrap();
+    assert_eq!(decoded, content);
+}
+
+#[tokio::test]
+async fn api_and_sse_responses_are_not_compressed() {
+    for path in ["/api/health", "/api/events?mux=herdr"] {
+        let response = static_request(test_app(), path, &[("accept-encoding", "gzip")]).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key("content-encoding"));
+        assert!(!response.headers().contains_key("etag"));
+        if path.contains("events") {
+            assert_eq!(response.headers()["content-type"], "text/event-stream");
+        }
+    }
+}

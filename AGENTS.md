@@ -179,7 +179,7 @@ Order within a file:
 ### API Communication
 
 - `fetch()` for all HTTP requests (no axios)
-- WebSocket for terminal I/O (ttyd binary protocol with command byte prefix)
+- WebSocket for terminal I/O (ttyd: client `0` input, `1` resize, `2`/`3` PTY pause/resume; server `0` raw output, `4` negotiated control, `5` raw-deflate output; client `4` cumulative byte acknowledgements)
 - SSE (`EventSource`) for real-time status updates, with polling fallback
 - Always use `AbortSignal.timeout(3000)` on fetch calls for resilience
 
@@ -208,10 +208,12 @@ Order within a file:
 - `clap` 4 — CLI argument parsing
 - `tracing` / `tracing-subscriber` — structured logging
 - `serde` / `serde_json` — serialization
-- `tower-http` 0.6 — CORS middleware
+- `tower-http` 0.6 — CORS middleware and static-only gzip compression
+- `flate2` 1 — connection-local raw-deflate terminal output
 
 ### Frontend
 - `@xterm/xterm` 5.5 — terminal emulator (with WebGL, Canvas, Fit addons)
+- `fflate` ^0.8.3 — synchronous streaming raw-deflate decoding
 - `react` 18 / `react-dom` 18 — UI framework
 - `react-diff-viewer-continued` — git diff display
 - `tailwindcss` 3 — utility-first CSS

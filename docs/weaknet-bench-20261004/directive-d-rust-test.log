@@ -1,0 +1,199 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/rust_terminal-cdb72f3707b55a4b)
+
+running 64 tests
+test herdr::tests::supported_protocol_accepts_min_and_newer ... ok
+test herdr::tests::request_envelope_always_includes_method_and_params ... ok
+test tests::herdr_bracketed_paste_preserves_text_without_pressing_enter ... ok
+test herdr::tests::parses_success_and_error_responses ... ok
+test herdr::tests::decodes_terminal_frames_and_preserves_close_reason ... ok
+test tests::dump_file_creates_directory_and_preserves_bytes ... ok
+test tests::herdr_snapshot_helper_sorts_pane_ids ... ok
+test tests::herdr_git_context_uses_the_requested_pane_foreground_cwd ... ok
+test tests::test_bounded_channel_capacity ... ok
+test tests::test_init_message_deserialization ... ok
+test tests::test_parse_init_message_binary_valid ... ok
+test tests::test_output_frame_starts_with_0x30 ... ok
+test tests::test_parse_init_message_invalid_returns_defaults ... ok
+test tests::read_init_message_times_out_without_input ... ok
+test tests::test_parse_porcelain_status_both_staged_and_unstaged ... ok
+test tests::test_parse_init_message_close_returns_defaults ... ok
+test tests::test_parse_init_message_ping_returns_defaults ... ok
+test tests::test_parse_init_message_zero_columns_clamped_to_one ... ok
+test tests::test_parse_init_message_zero_rows_clamped_to_one ... ok
+test tests::read_init_message_accepts_features_and_defaults ... ok
+test tests::test_parse_porcelain_status_ignored_files_excluded ... ok
+test tests::test_parse_porcelain_status_renamed ... ok
+test tests::test_parse_porcelain_status_short_lines_skipped ... ok
+test tests::test_parse_porcelain_status_multiple_mixed ... ok
+test tests::test_parse_porcelain_status_added_and_deleted ... ok
+test tests::test_parse_init_message_text_valid ... ok
+test tests::test_parse_porcelain_status_untracked ... ok
+test tests::test_parse_porcelain_status_staged_modified ... ok
+test tests::test_parse_porcelain_status_empty ... ok
+test tests::test_parse_porcelain_status_unstaged_modified ... ok
+test tests::test_parse_unified_diff_empty ... ok
+test tests::test_parse_unified_diff_binary_file ... ok
+test tests::dump_file_never_overwrites_and_is_unique_under_concurrency ... ok
+test tests::test_parse_unified_diff_multiple_files ... ok
+test tests::test_resize_message_deserialization ... ok
+test tests::test_parse_unified_diff_multiple_hunks_in_file ... ok
+test tests::test_parse_unified_diff_simple_modification ... ok
+test tests::test_parse_unified_diff_uses_provided_status ... ok
+test tests::test_parse_unified_diff_line_numbers_tracked ... ok
+test tests::test_parse_unified_diff_status_falls_back_to_modified ... ok
+test tests::test_parse_unified_diff_new_file ... ok
+test tests::test_resize_message_without_auth_token ... ok
+test tests::tmux_snapshot_only_reports_semantic_changes ... ok
+test tmux_discovery::tests::cache_covers_positive_negative_and_ttl_expiry ... ok
+test tmux_discovery::tests::groups_subdirectories_and_keeps_same_named_roots_separate ... ok
+test tmux_discovery::tests::parses_only_active_window_and_pane_with_unicode_and_spaces ... ok
+test tmux_discovery::tests::path_change_moves_session_between_snapshots ... ok
+test tmux_discovery::tests::skips_missing_or_invalid_fields ... ok
+test ws_link::tests::control_frames_preserve_the_wire_contract ... ok
+test ws_link::tests::gate_clamps_acks_and_does_not_move_backwards ... ok
+test tests::tmux_scanner_runs_immediately_then_every_five_seconds ... ok
+test ws_link::tests::gate_obeys_window_and_age_boundaries ... ok
+test ws_link::tests::gate_permanently_disables_without_full_metadata ... ok
+test ws_link::tests::negotiates_only_features_supported_by_the_mode ... ok
+test ws_link::tests::gate_waits_for_ack_then_retries_until_a_full_frame ... ok
+test ws_link::tests::gate_tick_requests_after_dropping_aged_frames_and_gives_up ... ok
+test ws_link::tests::parses_only_valid_cumulative_acknowledgements ... ok
+test tmux_discovery::tests::cache_evicts_oldest_over_capacity ... ok
+test ws_link::tests::flate2_fixture_matches_browser_contract ... ok
+test tmux_discovery::tests::nonexistent_tmux_socket_returns_error_without_panicking ... ok
+test tests::tmux_list_api_keeps_flat_sessions_and_adds_group_fields ... ok
+test ws_link::tests::deflate_frames_decode_incrementally ... ok
+test tmux_discovery::tests::isolated_tmux_discovers_moves_switches_windows_and_removes_sessions ... FAILED
+test tmux_discovery::tests::resolves_nested_repositories_worktrees_and_invalid_paths ... ok
+
+failures:
+
+---- tmux_discovery::tests::isolated_tmux_discovers_moves_switches_windows_and_removes_sessions stdout ----
+
+thread 'tmux_discovery::tests::isolated_tmux_discovers_moves_switches_windows_and_removes_sessions' (2707826) panicked at src/tmux_discovery.rs:430:13:
+tmux ["send-keys", "-t", "任意 session", "cd '/data00/home/fengliang.975/tmp/.tmpAr04kL/repo-b'", "Enter"] failed: no current client
+no current client
+no current client
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tmux_discovery::tests::isolated_tmux_discovers_moves_switches_windows_and_removes_sessions
+
+test result: FAILED. 63 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--lib`
+     Running unittests src/main.rs (target/debug/deps/rust_terminal-3c91c80df19755a9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/api_basics.rs (target/debug/deps/api_basics-c982dd892c632663)
+
+running 27 tests
+test health_returns_ok_status ... ok
+test json_error_envelope_for_invalid_branch_checkout ... ok
+test git_commit_with_whitespace_message_returns_400 ... ok
+test json_error_envelope_for_invalid_herdr_close ... ok
+test file_diff_with_empty_filename_returns_400 ... ok
+test herdr_paste_rejects_empty_text_before_contacting_herdr ... ok
+test git_commit_with_empty_message_returns_400 ... ok
+test json_error_envelope_for_invalid_herdr_create ... ok
+test herdr_paste_requires_a_target_pane ... ok
+test api_and_sse_responses_are_not_compressed ... ok
+test herdr_git_context_requires_a_known_pane_and_never_falls_back ... ok
+test client_tty_returns_null_when_no_session_active ... ok
+test cwd_returns_path_and_is_git_flag ... ok
+test dump_file_creates_promptgoal_and_preserves_body ... ok
+test json_error_envelope_for_invalid_tmux_create ... ok
+test json_error_envelope_for_invalid_tmux_kill ... ok
+test json_error_envelope_for_invalid_tmux_switch ... ok
+test upload_with_empty_body_returns_400 ... ok
+test json_error_envelope_for_invalid_herdr_focus ... ok
+test options_request_includes_cors_headers ... ok
+test unknown_route_falls_back_to_static_404_when_no_dist ... ok
+test static_files_send_no_cache_and_etag ... ok
+test static_files_are_gzipped_when_accepted ... ok
+test static_files_return_304_for_matching_etag ... ok
+test dump_file_rejects_only_a_zero_length_body ... ok
+test user_config_get_returns_empty_when_file_does_not_exist ... ok
+test user_config_post_then_get_round_trips ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/api_git.rs (target/debug/deps/api_git-caf91dcd53a3fef4)
+
+running 18 tests
+test cwd_endpoint_reports_git_repo ... ok
+test diff_endpoint_returns_branch_and_files_for_clean_repo ... ok
+test cwd_endpoint_returns_exact_tempdir_path ... ok
+test diff_in_non_git_dir_returns_not_git_repo ... ok
+test diff_endpoint_returns_unstaged_modification ... ok
+test git_branches_in_non_git_dir_returns_400 ... ok
+test git_branches_returns_local_branches ... ok
+test git_checkout_switches_branch ... ok
+test git_checkout_unknown_branch_returns_500 ... ok
+test git_commit_diff_rejects_unknown_commit ... ok
+test git_commit_diff_returns_files_and_hunks ... ok
+test git_commit_diff_uses_log_repository_context_after_cwd_changes ... ok
+test git_commit_succeeds_with_staged_changes ... ok
+test git_file_diff_returns_empty_hunks_for_unchanged_file ... ok
+test git_file_diff_returns_hunks_for_modified_file ... ok
+test git_status_returns_branch_and_porcelain_breakdown ... ok
+test git_log_returns_recent_commits ... ok
+test git_stage_and_unstage_round_trip ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+     Running tests/api_goal_workspace.rs (target/debug/deps/api_goal_workspace-476cd8b9bab723ae)
+
+running 9 tests
+test get_repairs_old_per_prompt_migration_when_no_working_copies_exist ... ok
+test clean_workspace_is_not_resynced_from_legacy_prompt_library ... ok
+test first_get_merges_each_goal_group_without_modifying_source ... ok
+test get_moves_existing_test_hints_into_templates_and_working_copies ... ok
+test goal_dump_is_copy_scoped_preserves_bytes_and_rejects_empty_text ... ok
+test goal_file_history_round_trips_with_real_dump_and_legacy_workspace ... ok
+test goal_dump_rejects_text_over_fifty_megabytes ... ok
+test goal_workspace_rejects_invalid_json_ids_and_variable_names ... ok
+test goal_workspace_round_trips_and_uses_atomic_file ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+     Running tests/concurrent_load.rs (target/debug/deps/concurrent_load-b627e334a7f19220)
+
+running 3 tests
+test fifty_concurrent_health_complete_quickly ... ok
+test concurrent_pane_mode_does_not_block_health ... ok
+test fifty_concurrent_cwd_dont_serialize_each_other ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/ws_link.rs (target/debug/deps/ws_link-1dd6b6b404cadef6)
+
+running 11 tests
+test compressed_flow_resync_preserves_the_connection_dictionary ... ok
+test flow_drops_stale_frames_and_resyncs_with_keyframe ... ok
+test legacy_client_gets_no_hello_and_raw_output ... ok
+test flow_disabled_without_full_field ... ok
+test legacy_client_receives_all_frames ... ok
+test heartbeat_arrives_within_interval ... ok
+test silent_herdr_client_is_reclaimed_after_ten_minutes ... ok
+test upgrade_works_with_accept_encoding_gzip ... ok
+test modern_client_receives_deflated_output ... ok
+test modern_client_gets_hello_before_output ... ok
+test takeover_sends_closed_control_before_close ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.19s
+
+   Doc-tests rust_terminal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `--lib`

@@ -1,0 +1,12 @@
+
+> rust-terminal@1.0.0 test
+> vitest run
+
+
+ RUN  v4.1.4 /data00/home/fengliang.975/project/mobile-terminal-weaknet/frontend
+
+
+ Test Files  15 passed (15)
+      Tests  148 passed (148)
+   Start at  05:06:26
+   Duration  3.20s (transform 1.64s, setup 888ms, import 2.98s, tests 5.89s, environment 7.39s)

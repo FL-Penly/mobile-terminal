@@ -19,6 +19,7 @@ A mobile-optimized web terminal powered by a single Rust binary. Access your dev
 - Single-finger touch scroll in TUI apps (tmux, vim)
 - iTerm2-style drag-to-select text in tmux
 - Copy viewport overlay for mobile text selection
+- Weak-network optimization: compressed pages/output, automatic retries, herdr heartbeats and stale-frame recovery
 - Predictive echo for reduced input latency
 - WebGL/Canvas accelerated rendering with auto-fallback
 
@@ -71,6 +72,28 @@ cp .env.example .env
 | `PORT` | Server port | 7682 |
 
 ## Features Detail
+
+### Weak Networks
+
+Static pages use gzip and `Cache-Control: no-cache` with ETag revalidation, so reopening an unchanged page needs only a 304 response. Terminal output uses a connection-local raw-deflate stream when both ends support it; older pages and servers keep the original output protocol.
+
+Connections retry indefinitely with backoffs of 0.5/1/2/3/5 seconds. If a connection fails before opening, time already spent connecting is deducted from the next backoff, down to zero; a connection that opened still waits the full backoff after disconnecting. Opening a socket has a 10/15/20 second timeout, and the retry count resets only after ten stable seconds. Retries pause in the background and resume when the page or network returns. Input is never queued for later replay.
+
+In herdr mode, negotiated heartbeats detect approximately 15 seconds of silence. Acknowledgements cap stale output: under congestion, the server skips old differential frames and requests the latest full screen. Plain shell and tmux output is compressed without dropping bytes or adding a silence timeout. Herdr still releases its controller when the page is hidden. A takeover notice stops automatic reconnect until you explicitly take control again.
+
+| Direction | Prefix | Payload |
+|---|---|---|
+| Client → server | none | Init JSON with optional `features: ["heartbeat", "deflate", "flow"]` |
+| Client → server | `0` / `1` | Input bytes / resize JSON (unchanged) |
+| Client → server | `2` / `3` | Pause / resume for plain/tmux (unchanged) |
+| Client → server | `4` | `{"type":"ack","bytes":N}`; cumulative received `0`/`5` message lengths including prefixes |
+| Server → client | `0` | Raw terminal output; error and close notices always use this prefix |
+| Server → client | `4` | `hello`, herdr `heartbeat`, or `closed` control JSON |
+| Server → client | `5` | Raw-deflate output with a sync flush per message |
+
+The server sends hello before output only when it accepts a requested feature. Plain/tmux accepts only deflate; herdr accepts all three. Every mode also sends a standard WebSocket Ping every 30 seconds. See [the isolated weak-network harness](scripts/weaknet/README.md) for comparison measurements and reproduction commands.
+
+Proactive reconnection can add recovery delay when a silent connection could otherwise survive an outage. See the [measured comparison and remaining acceptance failures](docs/weaknet-bench-20261004.md) before switching an existing service.
 
 ### Combination Keys
 

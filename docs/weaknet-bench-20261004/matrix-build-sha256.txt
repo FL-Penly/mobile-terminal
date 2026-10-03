@@ -1,0 +1,2 @@
+f27289f8cf7d2eb635eebafad37badc12d6238f0aba0ab699f08b37acc06224b  frontend/dist/index.html
+29940150fa6a310b50b312dd01d3e88be119e42d87a93398f9a2a0fb1c8e9a66  server/target/release/rust-terminal

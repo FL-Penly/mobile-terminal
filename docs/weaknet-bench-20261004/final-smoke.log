@@ -1,0 +1,62 @@
+
+[34m── 1. Static checks ──[0m
+  [32m✓[0m cargo build (debug) succeeds
+  [31m✗[0m cargo test FAILED — investigate before proceeding
+  [32m✓[0m cargo clippy clean
+  [32m✓[0m frontend tsc --noEmit clean
+  [32m✓[0m frontend vitest passes
+
+[34m── 2. Live HTTP API checks (requires server running on http://127.0.0.1:7702) ──[0m
+  [32m✓[0m server reachable
+  [32m✓[0m GET /api/health → 200
+  [32m✓[0m GET /api/cwd → 200
+  [32m✓[0m GET /api/client-tty → 200
+  [32m✓[0m GET /api/tmux/list → 200
+  [32m✓[0m GET /api/git/status → 400
+  [32m✓[0m /api/health returns expected JSON
+
+[34m── 3. Manual smoke (human verification required) ──[0m
+  Open http://127.0.0.1:7702 in browser. Tick each:
+
+  [ ] 1. Terminal renders, prompt shows
+  [ ] 2. Type a command (ls), output appears with no lag
+  [ ] 3. Long output (find / 2>/dev/null | head -200) streams smoothly
+  [ ] 4. tmux works — switch windows, split panes, no freeze
+  [ ] 5. Branch selector (top-right) lists branches; checkout works
+  [ ] 6. Git panel — stage, unstage, commit a small change end-to-end
+  [ ] 7. Git diff renders correctly for modified file
+  [ ] 8. File upload (paste image) works; file appears in /tmp/ttyd_uploads
+  [ ] 9. Resize browser window — terminal resizes without distortion
+  [ ] 10. Kill server (Ctrl+C in run.sh), reload page — connection overlay shows
+  [ ] 11. Restart server, page auto-reconnects
+  [ ] 12. Mobile view (DevTools mobile emulator) — keyboard appears, no scroll jank
+  [ ] 13. Pinch-to-zoom on mobile changes font size
+  [ ] 14. Long-press on session tab opens kill confirmation
+  [ ] 15. CopyMode (transcript view) — page-up captures history correctly
+
+  Phase-specific verification (additionally check after each phase):
+
+  Phase 0:
+  [ ] All automated tests still green (above)
+
+  Phase 1:
+  [ ] No new compile warnings
+  [ ] macOS PTY tty (e.g. /dev/ttys012) is detected by the frontend (was broken)
+
+  Phase 2:
+  [ ] Concurrent API requests (open multiple browser tabs) don't block each other
+  [ ] /api/git/branches under load doesn't stall other endpoints
+
+  Phase 3:
+  [ ] PTY throughput >= baseline (yes | head -c 100M test)
+  [ ] No keystroke loss in vim/htop
+
+  Phase 4:
+  [ ] SSE branch changes still propagate to frontend
+  [ ] git review with N>10 changed files loads quickly
+
+  Phase 5:
+  [ ] Typing in commit composer doesn't lag the diff view
+
+
+[34mDone.[0m Verify the manual items above before signing off this phase.

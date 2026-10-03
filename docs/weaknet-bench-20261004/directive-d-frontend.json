@@ -1,0 +1,31 @@
+[
+  {
+    "name": "tsc",
+    "command": [
+      "npx",
+      "tsc",
+      "--noEmit"
+    ],
+    "exit_code": 0,
+    "log": "directive-d-frontend-tsc.log"
+  },
+  {
+    "name": "test",
+    "command": [
+      "npm",
+      "test"
+    ],
+    "exit_code": 0,
+    "log": "directive-d-frontend-test.log"
+  },
+  {
+    "name": "build",
+    "command": [
+      "npm",
+      "run",
+      "build"
+    ],
+    "exit_code": 0,
+    "log": "directive-d-frontend-build.log"
+  }
+]

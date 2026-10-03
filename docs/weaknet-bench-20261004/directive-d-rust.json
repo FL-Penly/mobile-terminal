@@ -1,0 +1,45 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "directive-d-rust-fmt.log"
+  },
+  {
+    "name": "test",
+    "command": [
+      "cargo",
+      "test",
+      "--no-fail-fast"
+    ],
+    "exit_code": 101,
+    "log": "directive-d-rust-test.log"
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "log": "directive-d-rust-clippy.log"
+  },
+  {
+    "name": "release",
+    "command": [
+      "cargo",
+      "build",
+      "--release"
+    ],
+    "exit_code": 0,
+    "log": "directive-d-rust-release.log"
+  }
+]

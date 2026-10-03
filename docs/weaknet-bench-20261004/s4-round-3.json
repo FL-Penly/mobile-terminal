@@ -1,0 +1,370 @@
+{
+  "started": "2026-10-03T20:35:28.790Z",
+  "config": {
+    "ports": [
+      7701,
+      7702,
+      7703
+    ],
+    "profiles": [
+      "P0",
+      "P2"
+    ],
+    "scenes": [
+      "S4"
+    ],
+    "viewport": "390x844",
+    "serviceWorkers": "block"
+  },
+  "cases": [
+    {
+      "port": 7701,
+      "profile": "P0",
+      "scene": "S4",
+      "ms": 738,
+      "probes": 6,
+      "restore_started_at": 1791059744709,
+      "restored_at": 1791059744713,
+      "ws_down_bytes": 18374,
+      "elapsed_ms": 16558,
+      "traffic": {
+        "bytes": 885123,
+        "frames": 309,
+        "prefixes": {
+          "0": 309
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791059729390
+          },
+          {
+            "type": "handshake",
+            "at": 1791059729427,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791059744722
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791059745219
+          },
+          {
+            "type": "handshake",
+            "at": 1791059745271,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7701,
+      "profile": "P2",
+      "scene": "S4",
+      "ms": 3706,
+      "probes": 32,
+      "restore_started_at": 1791059788122,
+      "restored_at": 1791059788126,
+      "ws_down_bytes": 54306,
+      "elapsed_ms": 46394,
+      "traffic": {
+        "bytes": 218282,
+        "frames": 88,
+        "prefixes": {
+          "0": 88
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791059771084
+          },
+          {
+            "type": "handshake",
+            "at": 1791059771800,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791059788130
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791059788647
+          },
+          {
+            "type": "handshake",
+            "at": 1791059789228,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S4",
+      "ms": 725,
+      "probes": 6,
+      "restore_started_at": 1791059807653,
+      "restored_at": 1791059807656,
+      "ws_down_bytes": 1852,
+      "elapsed_ms": 16519,
+      "traffic": {
+        "bytes": 55574,
+        "frames": 310,
+        "prefixes": {
+          "4": 3,
+          "5": 307
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791059792291
+          },
+          {
+            "type": "handshake",
+            "at": 1791059792329,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791059807659
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791059808159
+          },
+          {
+            "type": "handshake",
+            "at": 1791059808212,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S4",
+      "ms": 2477,
+      "probes": 22,
+      "restore_started_at": 1791059833533,
+      "restored_at": 1791059833536,
+      "ws_down_bytes": 4269,
+      "elapsed_ms": 27700,
+      "traffic": {
+        "bytes": 58058,
+        "frames": 324,
+        "prefixes": {
+          "4": 3,
+          "5": 321
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow"
+            ],
+            "type": "hello"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791059816541
+          },
+          {
+            "type": "handshake",
+            "at": 1791059817173,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791059833539
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791059834044
+          },
+          {
+            "type": "handshake",
+            "at": 1791059834861,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7703,
+      "profile": "P0",
+      "scene": "S4",
+      "ms": 726,
+      "probes": 6,
+      "restore_started_at": 1791059851801,
+      "restored_at": 1791059851805,
+      "ws_down_bytes": 18408,
+      "elapsed_ms": 16447,
+      "traffic": {
+        "bytes": 879219,
+        "frames": 307,
+        "prefixes": {
+          "0": 307
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791059836510
+          },
+          {
+            "type": "handshake",
+            "at": 1791059836552,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791059851809
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791059852328
+          },
+          {
+            "type": "handshake",
+            "at": 1791059852381,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7703,
+      "profile": "P2",
+      "scene": "S4",
+      "ms": 3013,
+      "probes": 27,
+      "restore_started_at": 1791059878062,
+      "restored_at": 1791059878065,
+      "ws_down_bytes": 21388,
+      "elapsed_ms": 28626,
+      "traffic": {
+        "bytes": 184714,
+        "frames": 75,
+        "prefixes": {
+          "0": 75
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1791059860625
+          },
+          {
+            "type": "handshake",
+            "at": 1791059861463,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1791059878069
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1791059878576
+          },
+          {
+            "type": "handshake",
+            "at": 1791059879518,
+            "status": 101
+          }
+        ]
+      }
+    }
+  ],
+  "finished": "2026-10-03T20:38:01.178Z"
+}

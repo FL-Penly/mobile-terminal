@@ -1,0 +1,11 @@
+{"starting": "directive-c-cal-01-coarse-100"}
+Traceback (most recent call last):
+  File "/data00/home/fengliang.975/project/mobile-terminal-weaknet/scripts/weaknet/calibrate.py", line 52, in <module>
+    coarse = [measure(rate, 'coarse') for rate in grid]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data00/home/fengliang.975/project/mobile-terminal-weaknet/scripts/weaknet/calibrate.py", line 52, in <listcomp>
+    coarse = [measure(rate, 'coarse') for rate in grid]
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data00/home/fengliang.975/project/mobile-terminal-weaknet/scripts/weaknet/calibrate.py", line 41, in measure
+    raise RuntimeError(f'Invalid calibration sample: {raw}')
+RuntimeError: Invalid calibration sample: /home/fengliang.975/.local/share/mt-weaknet/logs/directive-c-cal-01-coarse-100.json

@@ -1,0 +1,2 @@
+{"starting":{"port":7701,"profile":"P0","scene":"CAL","time":"2026-10-04T03:54:39.141Z"}}
+{"port":7701,"profile":"P0","scene":"CAL","rate":6,"measured_ms":10000.556438,"ws_down_bytes":179620,"bytes_per_second":17961.000581675835,"elapsed_ms":15770,"traffic":{"bytes":218223,"frames":94,"prefixes":{"0":94},"opens":1,"closes":0,"controls":[],"errors":["WebGL2 not supported null\n\nError: WebGL2 not supported null"],"link_events":[{"attempt":1,"type":"created","at":1791086079584},{"type":"handshake","at":1791086079620,"status":101}]}}

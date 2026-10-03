@@ -1,0 +1,18 @@
+[
+  {
+    "case": "authorized finite S2u replaces four censored gates",
+    "status": "passed"
+  },
+  {
+    "case": "mismatched rates cannot pass",
+    "status": "passed"
+  },
+  {
+    "case": "censored S2u candidate cannot pass",
+    "status": "passed"
+  },
+  {
+    "case": "missing S2u cannot fall back to saturated S2",
+    "status": "passed"
+  }
+]

@@ -1,0 +1,8 @@
+{"starting": "fmt", "command": ["cargo", "fmt", "--check"]}
+{"name": "fmt", "command": ["cargo", "fmt", "--check"], "exit_code": 0, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-rust-fmt.log"}
+{"starting": "test", "command": ["cargo", "test", "--no-fail-fast"]}
+{"name": "test", "command": ["cargo", "test", "--no-fail-fast"], "exit_code": 101, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-rust-test.log"}
+{"starting": "clippy", "command": ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"]}
+{"name": "clippy", "command": ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"], "exit_code": 0, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-rust-clippy.log"}
+{"starting": "release", "command": ["cargo", "build", "--release"]}
+{"name": "release", "command": ["cargo", "build", "--release"], "exit_code": 0, "log": "/home/fengliang.975/.local/share/mt-weaknet/logs/directive-d-rust-release.log"}
