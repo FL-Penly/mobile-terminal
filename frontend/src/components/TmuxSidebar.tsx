@@ -124,6 +124,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const [optimisticSession, setOptimisticSession] = useState<string | null>(null)
   const [switchingSession, setSwitchingSession] = useState<string | null>(null)
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
+  const [newTabWorkspace, setNewTabWorkspace] = useState<{ id: string; name: string } | null>(null)
   const [quickShellLoading, setQuickShellLoading] = useState(false)
   const [killTarget, setKillTarget] = useState<string | null>(null)
   const [draggedGroup, setDraggedGroup] = useState<string | null>(null)
@@ -645,6 +646,14 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
                 <span className={`truncate ${active ? 'text-accent-purple' : ''}`} title={group.projectRoot}>{group.displayName}</span>
                 <span className="ml-auto pr-2 text-text-muted">{group.sessions.length}</span>
               </button>
+              {browserMux === 'herdr' && (
+                <button
+                  onClick={() => setNewTabWorkspace({ id: group.projectRoot, name: group.displayName })}
+                  className="mr-1 rounded px-2 py-1 text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
+                  aria-label={`New tab in ${group.displayName}`}
+                  title="New tab in this workspace"
+                >+</button>
+              )}
             </div>
             {!collapsedGroups.has(group.projectRoot) && (
               <div className="space-y-1">
@@ -687,7 +696,17 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
         <button onClick={() => { void quickShell() }} disabled={!browsingConnectedMux || (mux === 'herdr' ? !paneId : !clientTty) || quickShellLoading} className="rounded-lg bg-bg-tertiary px-2 py-2 disabled:opacity-50">{quickShellLoading ? 'Opening…' : 'Quick Shell'}</button>
         <button onClick={() => { void detach() }} disabled={!browsingConnectedMux} className="col-span-2 rounded-lg bg-bg-tertiary px-2 py-2 text-text-secondary disabled:opacity-50">Detach to Shell</button>
       </div>
-      <NewSessionModal isOpen={isNewSessionOpen} onClose={() => setIsNewSessionOpen(false)} cwd={path || undefined} onCreated={() => browsingConnectedMux ? refresh() : void loadDiscovery(browserMux)} targetMux={browserMux} />
+      <NewSessionModal
+        isOpen={isNewSessionOpen || newTabWorkspace !== null}
+        onClose={() => {
+          setIsNewSessionOpen(false)
+          setNewTabWorkspace(null)
+        }}
+        cwd={newTabWorkspace ? undefined : path || undefined}
+        onCreated={() => browsingConnectedMux ? refresh() : void loadDiscovery(browserMux)}
+        targetMux={browserMux}
+        herdrWorkspace={newTabWorkspace ?? undefined}
+      />
       {killTarget && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={event => event.target === event.currentTarget && setKillTarget(null)}>
           <div className="w-full max-w-sm rounded-xl bg-bg-secondary p-4">

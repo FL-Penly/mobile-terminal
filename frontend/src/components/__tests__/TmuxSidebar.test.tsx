@@ -220,6 +220,27 @@ describe('TmuxSidebar', () => {
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith('/api/herdr/focus')).length).toBe(0)
   })
 
+  it('creates a Herdr tab inside the chosen workspace and attaches to its pane', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      const body = url === '/api/herdr/list'
+        ? { workspaces: [{ workspace_id: 'w3', label: 'rust-terminal' }], panes: [], agents: [] }
+        : { success: true, tabId: 'w3:t2', paneId: 'w3:p9' }
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
+    await user.click(await screen.findByRole('button', { name: 'New tab in rust-terminal' }))
+    expect(screen.getByText('New Tab in rust-terminal')).toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText(/Tab name/), 'shell')
+    await user.click(screen.getByText('Create & Attach'))
+
+    await waitFor(() => expect(switchTerminal).toHaveBeenCalledWith('herdr', 'w3:p9'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/herdr/create?name=shell&workspace=w3', expect.anything())
+  })
+
   it('shows an actionable Herdr unavailable state', async () => {
     const user = userEvent.setup()
     vi.spyOn(console, 'error').mockImplementation(() => undefined)

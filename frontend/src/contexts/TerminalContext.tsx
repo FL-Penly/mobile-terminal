@@ -5,6 +5,7 @@ import {
   type ControlMessage,
 } from '../utils/terminal-protocol'
 import type { EncodedKey, TerminalKeystroke } from '../utils/terminal-keys'
+import { findHerdrFallbackPane, isMissingHerdrPaneReason } from '../utils/terminal-api'
 
 const encoder = new TextEncoder()
 const MAX_EARLY_CHUNKS = 200
@@ -258,6 +259,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [])
 
   const connectRef = useRef<(nextTarget: TerminalTarget, generation: number, reconnecting: boolean) => void>(() => undefined)
+  const switchTerminalRef = useRef<(mux: TerminalMux, paneId?: string) => void>(() => undefined)
 
   const connect = useCallback((nextTarget: TerminalTarget, generation: number, reconnecting: boolean) => {
     if (generation !== connectionGenerationRef.current) return
@@ -305,6 +307,14 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setTakeoverDetected(wasTakenOver)
       setDisconnectReason(reason)
       setConnectionState('disconnected')
+      if (nextTarget.mux === 'herdr' && nextTarget.paneId && isMissingHerdrPaneReason(reason)) {
+        const missingPaneId = nextTarget.paneId
+        void findHerdrFallbackPane(missingPaneId).then(fallbackPaneId => {
+          if (!fallbackPaneId || pendingTargetRef.current || !sameTerminalTarget(targetRef.current, nextTarget)) return
+          console.warn(`[Terminal] Herdr pane ${missingPaneId} is gone; switching to ${fallbackPaneId}`)
+          switchTerminalRef.current('herdr', fallbackPaneId)
+        })
+      }
       if (automaticReconnectBlockedRef.current) {
         reconnectAttemptRef.current = 0
         setReconnectAttempt(0)
@@ -537,6 +547,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       replaceConnection(nextTarget, false)
     }, TARGET_SWITCH_DELAY)
   }, [replaceConnection])
+
+  switchTerminalRef.current = switchTerminal
 
   const reconnect = useCallback(() => {
     replaceConnection(targetRef.current, true)

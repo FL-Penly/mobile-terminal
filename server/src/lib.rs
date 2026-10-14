@@ -2940,6 +2940,7 @@ struct HerdrPaneQuery {
 struct HerdrCreateQuery {
     name: Option<String>,
     cwd: Option<String>,
+    workspace: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3049,6 +3050,9 @@ async fn api_herdr_create(Query(query): Query<HerdrCreateQuery>) -> Response {
             )
         }
     };
+    let workspace_id = query
+        .workspace
+        .filter(|workspace_id| !workspace_id.trim().is_empty());
     let mut params = serde_json::json!({
         "label": name,
         "focus": true,
@@ -3056,15 +3060,45 @@ async fn api_herdr_create(Query(query): Query<HerdrCreateQuery>) -> Response {
     if let Some(cwd) = query.cwd.filter(|cwd| !cwd.trim().is_empty()) {
         params["cwd"] = serde_json::Value::String(cwd);
     }
-    match herdr::request("workspace.create", params).await {
-        Ok(result) => Json(serde_json::json!({
-            "success": true,
-            "paneId": find_herdr_pane_id(&result),
-            "result": result,
-        }))
-        .into_response(),
-        Err(error) => herdr_operation_error("create_failed", error),
-    }
+    let Some(workspace_id) = workspace_id else {
+        return match herdr::request("workspace.create", params).await {
+            Ok(result) => Json(serde_json::json!({
+                "success": true,
+                "paneId": find_herdr_pane_id(&result),
+                "result": result,
+            }))
+            .into_response(),
+            Err(error) => herdr_operation_error("create_failed", error),
+        };
+    };
+
+    // tab.create only returns tab metadata, so resolve the new tab's root pane separately.
+    params["workspace_id"] = serde_json::Value::String(workspace_id.clone());
+    let result = match herdr::request("tab.create", params).await {
+        Ok(result) => result,
+        Err(error) => return herdr_operation_error("create_failed", error),
+    };
+    let tab_id = result
+        .pointer("/tab/tab_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let pane_id = match tab_id.as_deref() {
+        Some(tab_id) => herdr::request(
+            "pane.list",
+            serde_json::json!({ "workspace_id": workspace_id }),
+        )
+        .await
+        .ok()
+        .and_then(|panes| find_herdr_tab_pane_id(&panes, tab_id)),
+        None => None,
+    };
+    Json(serde_json::json!({
+        "success": true,
+        "tabId": tab_id,
+        "paneId": pane_id,
+        "result": result,
+    }))
+    .into_response()
 }
 
 async fn api_herdr_close(Query(query): Query<HerdrCloseQuery>) -> Response {
@@ -3311,6 +3345,17 @@ fn find_herdr_pane_id(value: &serde_json::Value) -> Option<String> {
         serde_json::Value::Array(values) => values.iter().find_map(find_herdr_pane_id),
         _ => None,
     }
+}
+
+fn find_herdr_tab_pane_id(panes: &serde_json::Value, tab_id: &str) -> Option<String> {
+    panes
+        .get("panes")?
+        .as_array()?
+        .iter()
+        .filter(|pane| pane.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab_id))
+        .max_by_key(|pane| pane.get("focused").and_then(serde_json::Value::as_bool) == Some(true))
+        .and_then(|pane| pane.get("pane_id").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
 }
 
 fn get_current_tmux_session(client_tty: Option<&str>) -> Option<String> {
@@ -6030,6 +6075,22 @@ mod tests {
             herdr_snapshot_status(&snapshot, "w2:p1").as_deref(),
             Some("blocked")
         );
+    }
+
+    #[test]
+    fn herdr_tab_pane_lookup_prefers_the_focused_pane_in_the_new_tab() {
+        let panes = serde_json::json!({
+            "panes": [
+                { "pane_id": "w1:p1", "tab_id": "w1:t1", "focused": true },
+                { "pane_id": "w1:p2", "tab_id": "w1:t2", "focused": false },
+                { "pane_id": "w1:p3", "tab_id": "w1:t2", "focused": true },
+            ],
+        });
+        assert_eq!(
+            find_herdr_tab_pane_id(&panes, "w1:t2").as_deref(),
+            Some("w1:p3")
+        );
+        assert_eq!(find_herdr_tab_pane_id(&panes, "w1:t9"), None);
     }
 
     #[test]

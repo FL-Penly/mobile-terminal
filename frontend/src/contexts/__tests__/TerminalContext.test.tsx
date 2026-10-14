@@ -568,6 +568,26 @@ describe('TerminalContext', () => {
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 
+  it('switches to a live Herdr pane when the requested pane no longer exists', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w1%3Ap18')
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => Promise.resolve(new Response(
+      String(input) === '/api/herdr/list'
+        ? JSON.stringify({ panes: [{ pane_id: 'w2:p1', workspace_id: 'w2' }, { pane_id: 'w1:p3', workspace_id: 'w1' }] })
+        : '{}',
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )))
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+
+    act(() => MockWebSocket.instances[0].onclose?.({ reason: 'terminal session control failed: terminal target w1:p18 not found' }))
+
+    await vi.waitFor(() => expect(getContext().paneId).toBe('w1:p3'))
+    expect(MockWebSocket.instances[MockWebSocket.instances.length - 1].url).toMatch(/\/ws\?mux=herdr&pane=w1%3Ap3$/)
+    expect(window.location.search).toBe('?mux=herdr&pane=w1%3Ap3')
+  })
+
   it('honors retry false even for a close reason other than takeover', () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', MockWebSocket)

@@ -7,9 +7,10 @@ interface NewSessionModalProps {
   cwd?: string
   onCreated?: () => void
   targetMux?: TerminalMux
+  herdrWorkspace?: { id: string; name: string }
 }
 
-export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClose, cwd, onCreated, targetMux }) => {
+export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClose, cwd, onCreated, targetMux, herdrWorkspace }) => {
   const { sendInput, clientTty, mux: connectedMux, switchTerminal } = useTerminal()
   const mux = targetMux ?? connectedMux
   const [sessionName, setSessionName] = useState('')
@@ -30,7 +31,8 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
     try {
       if (mux === 'herdr') {
         const cwdParam = cwd ? `&cwd=${encodeURIComponent(cwd)}` : ''
-        const response = await fetch(`/api/herdr/create?name=${encodeURIComponent(name)}${cwdParam}`, { signal: AbortSignal.timeout(3000) })
+        const workspaceParam = herdrWorkspace ? `&workspace=${encodeURIComponent(herdrWorkspace.id)}` : ''
+        const response = await fetch(`/api/herdr/create?name=${encodeURIComponent(name)}${cwdParam}${workspaceParam}`, { signal: AbortSignal.timeout(3000) })
         if (!response.ok) throw new Error(await response.text())
         const data = await response.json() as { paneId?: string }
         if (!data.paneId) throw new Error('Herdr did not return the new pane id')
@@ -76,7 +78,7 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="w-full max-w-sm bg-bg-secondary rounded-xl p-4">
-        <h3 className="text-lg font-semibold mb-4">{mux === 'herdr' ? 'New Herdr Workspace' : 'New Tmux Session'}</h3>
+        <h3 className="text-lg font-semibold mb-4">{mux === 'herdr' ? (herdrWorkspace ? `New Tab in ${herdrWorkspace.name}` : 'New Herdr Workspace') : 'New Tmux Session'}</h3>
         
         <input
           ref={inputRef}
@@ -84,7 +86,7 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
           value={sessionName}
           onChange={(e) => setSessionName(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={mux === 'herdr' ? 'Workspace name (e.g. work, claude)' : 'Session name (e.g. work, claude)'}
+          placeholder={mux === 'herdr' ? (herdrWorkspace ? 'Tab name (e.g. shell, claude)' : 'Workspace name (e.g. work, claude)') : 'Session name (e.g. work, claude)'}
           className="w-full px-3 py-2 bg-bg-tertiary border border-border-subtle rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-purple mb-4"
         />
         
