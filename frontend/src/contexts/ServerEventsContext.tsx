@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTerminal } from './TerminalContext'
+import { mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions'
 import { withTerminalTarget } from '../utils/terminal-api'
 
 const POLL_INTERVAL = 5000
@@ -21,6 +22,10 @@ interface RawDiscoveredSession {
   windows: number
   lastActivity: number
   agentStatus?: AgentStatus
+  displayName?: string
+  detail?: string
+  tabId?: string
+  tabLabel?: string
 }
 
 interface RawProjectGroup {
@@ -39,34 +44,6 @@ interface RawTmuxPayload {
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 
-interface RawHerdrPane {
-  pane_id: string
-  workspace_id: string
-  agent?: string
-  cwd?: string
-  foreground_cwd?: string
-  focused?: boolean
-  revision?: number
-  agent_status?: AgentStatus
-}
-
-interface RawHerdrWorkspace {
-  workspace_id: string
-  label?: string
-}
-
-interface RawHerdrAgent {
-  pane_id: string
-  agent?: string
-  agent_status?: AgentStatus
-}
-
-interface RawHerdrPayload {
-  panes?: RawHerdrPane[]
-  workspaces?: RawHerdrWorkspace[]
-  agents?: RawHerdrAgent[]
-}
-
 export interface TmuxSession {
   name: string
   windows: number
@@ -80,6 +57,10 @@ export interface DiscoveredTmuxSession extends TmuxSession {
   path: string
   relativePath: string
   command: string
+  displayName?: string
+  detail?: string
+  tabId?: string
+  tabLabel?: string
 }
 
 export interface TmuxProjectGroup {
@@ -108,7 +89,7 @@ interface EventPayload {
   path?: string
   tuiActive?: boolean
   tmux?: RawTmuxPayload
-  herdr?: RawHerdrPayload
+  herdr?: HerdrListPayload
   event?: unknown
 }
 
@@ -182,9 +163,8 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setSessionsLoaded(true)
   }, [])
 
-  const applyHerdr = useCallback((payload: RawHerdrPayload) => {
+  const applyHerdr = useCallback((payload: HerdrListPayload) => {
     const panes = payload.panes ?? []
-    const workspaces = payload.workspaces ?? []
     const agents = new Map((payload.agents ?? []).map(agent => [agent.pane_id, agent]))
     const nextStatuses = Object.fromEntries(panes.map(pane => [
       pane.pane_id,
@@ -213,28 +193,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }, 1500)
     }
     agentStatusesRef.current = nextStatuses
-    const toSession = (pane: RawHerdrPane): RawDiscoveredSession => {
-      const agent = agents.get(pane.pane_id)
-      const sessionPath = pane.foreground_cwd ?? pane.cwd ?? ''
-      const pathParts = sessionPath.split('/').filter(Boolean)
-      return {
-        name: pane.pane_id,
-        path: sessionPath,
-        relativePath: pathParts[pathParts.length - 1] ?? sessionPath,
-        command: agent?.agent ?? 'shell',
-        attached: pane.focused ?? false,
-        windows: 1,
-        lastActivity: pane.revision ?? 0,
-        agentStatus: agent?.agent_status ?? pane.agent_status ?? 'unknown',
-      }
-    }
-    const workspaceIds = new Set(workspaces.map(workspace => workspace.workspace_id))
-    const groups = workspaces.map(workspace => ({
-      projectRoot: workspace.workspace_id,
-      displayName: workspace.label ?? workspace.workspace_id,
-      sessions: panes.filter(pane => pane.workspace_id === workspace.workspace_id).map(toSession),
-    }))
-    const other = panes.filter(pane => !workspaceIds.has(pane.workspace_id)).map(toSession)
+    const { projectGroups: groups, otherSessions: other } = mapHerdrSessions(payload)
     setRawSessions(panes.map(pane => ({
       name: pane.pane_id,
       windows: 1,
@@ -277,7 +236,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
           setBranch(data.branch ?? '')
           setPath(data.git_root ?? data.cwd ?? '')
         }
-        if (herdrRes.ok) applyHerdr(await herdrRes.json() as RawHerdrPayload)
+        if (herdrRes.ok) applyHerdr(await herdrRes.json() as HerdrListPayload)
         setIsOffline(!herdrRes.ok)
       } catch (error) {
         console.error('[ServerEvents] Herdr poll failed:', error)

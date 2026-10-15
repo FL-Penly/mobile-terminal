@@ -241,6 +241,115 @@ describe('TmuxSidebar', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/herdr/create?name=shell&workspace=w3', expect.anything())
   })
 
+  const mockRenamableHerdr = (renameResponses: Array<() => Promise<Response>> = []) => {
+    const labels: Record<string, string> = { w3: 'rust-terminal', 'w3:t1': '1', 'w3:t2': 'logs' }
+    const renames: Array<{ kind: string; id: string; label: string }> = []
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url === '/api/herdr/rename') {
+        const body = JSON.parse(String(init?.body)) as { kind: string; id: string; label: string }
+        renames.push(body)
+        const scripted = renameResponses.shift()
+        if (scripted) return scripted()
+        labels[body.id] = body.label
+        return Promise.resolve(json({ success: true }))
+      }
+      if (url === '/api/herdr/list') {
+        return Promise.resolve(json({
+          workspaces: [{ workspace_id: 'w3', label: labels.w3 }],
+          tabs: [
+            { tab_id: 'w3:t1', workspace_id: 'w3', label: labels['w3:t1'] },
+            { tab_id: 'w3:t2', workspace_id: 'w3', label: labels['w3:t2'] },
+          ],
+          panes: [
+            { pane_id: 'w3:p1', workspace_id: 'w3', tab_id: 'w3:t1', terminal_title_stripped: 'Clean git state' },
+            { pane_id: 'w3:p2', workspace_id: 'w3', tab_id: 'w3:t2', terminal_title_stripped: 'tail -f' },
+          ],
+          agents: [],
+        }))
+      }
+      return Promise.resolve(json({}))
+    })
+    return renames
+  }
+
+  it('shows Herdr names and renames workspaces and tabs by id without changing the pane target', async () => {
+    const user = userEvent.setup()
+    const renames = mockRenamableHerdr()
+    render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
+
+    expect(await screen.findByText('Clean git state')).toHaveAttribute('title', 'w3:p1')
+    expect(screen.getByText('Tab 1')).toBeInTheDocument()
+    expect(screen.getByText('logs')).toBeInTheDocument()
+    expect(screen.queryByText('w3:p1')).not.toBeInTheDocument()
+
+    await user.type(screen.getByPlaceholderText('Search workspaces or panes'), 'w3:p2')
+    expect(screen.getByText('logs')).toBeInTheDocument()
+    expect(screen.queryByText('Clean git state')).not.toBeInTheDocument()
+    await user.clear(screen.getByPlaceholderText('Search workspaces or panes'))
+
+    await user.click(screen.getByRole('button', { name: 'Rename workspace rust-terminal' }))
+    const workspaceInput = screen.getByRole('textbox', { name: 'Workspace name' })
+    expect(workspaceInput).toHaveValue('rust-terminal')
+    await user.clear(workspaceInput)
+    await user.type(workspaceInput, 'api{Enter}')
+    expect(await screen.findByText('api')).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Pane actions for w3:p1'))
+    await user.click(screen.getByText('Rename Tab'))
+    const tabInput = screen.getByRole('textbox', { name: 'Tab name' })
+    expect(tabInput).toHaveValue('1')
+    await user.clear(tabInput)
+    await user.type(tabInput, 'deploy')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('deploy')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    expect(renames).toEqual([
+      { kind: 'workspace', id: 'w3', label: 'api' },
+      { kind: 'tab', id: 'w3:t1', label: 'deploy' },
+    ])
+    await user.click(screen.getByText('deploy'))
+    expect(switchTerminal).toHaveBeenCalledWith('herdr', 'w3:p1')
+    expect(JSON.parse(localStorage.getItem('tmux_sidebar_session_order') ?? '{}')).toMatchObject({
+      'herdr:w3': ['w3:p1', 'w3:p2'],
+    })
+  })
+
+  it('keeps the typed Herdr name after a failed rename, blocks double submit, and retries', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let rejectFirst: (response: Response) => void = () => undefined
+    const renames = mockRenamableHerdr([
+      () => new Promise(resolve => { rejectFirst = resolve }),
+    ])
+    render(<TmuxSidebar mobile onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
+    await user.click(await screen.findByLabelText('Pane actions for w3:p2'))
+    await user.click(screen.getByText('Rename Tab'))
+    const input = screen.getByRole('textbox', { name: 'Tab name' })
+    await user.clear(input)
+    await user.type(input, 'errors')
+    const save = screen.getByRole('button', { name: 'Save' })
+    fireEvent.click(save)
+    fireEvent.click(save)
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeDisabled()
+    expect(renames).toHaveLength(1)
+
+    rejectFirst(new Response(JSON.stringify({ error: 'rename_failed', message: 'tab_not_found: tab w3:t2 not found' }), { status: 502 }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('tab_not_found: tab w3:t2 not found')
+    expect(screen.getByRole('textbox', { name: 'Tab name' })).toHaveValue('errors')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('errors')).toBeInTheDocument()
+    expect(renames).toEqual([
+      { kind: 'tab', id: 'w3:t2', label: 'errors' },
+      { kind: 'tab', id: 'w3:t2', label: 'errors' },
+    ])
+  })
+
   it('shows an actionable Herdr unavailable state', async () => {
     const user = userEvent.setup()
     vi.spyOn(console, 'error').mockImplementation(() => undefined)

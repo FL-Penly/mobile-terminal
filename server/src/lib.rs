@@ -225,6 +225,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/herdr/focus", get(api_herdr_focus))
         .route("/api/herdr/create", get(api_herdr_create))
         .route("/api/herdr/close", get(api_herdr_close))
+        .route("/api/herdr/rename", post(api_herdr_rename))
         .route("/api/herdr/release", get(api_herdr_release))
         .route("/api/herdr/quick-shell", get(api_herdr_quick_shell))
         .route("/api/herdr/pane-mode", get(api_herdr_pane_mode))
@@ -3154,6 +3155,73 @@ async fn api_herdr_close(Query(query): Query<HerdrCloseQuery>) -> Response {
         .into_response(),
         Err(error) => herdr_operation_error("close_failed", error),
     }
+}
+
+// ─── POST /api/herdr/rename ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HerdrRenameKind {
+    Workspace,
+    Tab,
+}
+
+#[derive(Deserialize)]
+struct HerdrRenameRequest {
+    kind: HerdrRenameKind,
+    id: String,
+    label: String,
+}
+
+/// Maps a rename request onto the one Herdr method that owns that name; pane ids never qualify.
+fn herdr_rename_call(
+    request: &HerdrRenameRequest,
+) -> Result<(&'static str, serde_json::Value), &'static str> {
+    let id = request.id.trim();
+    let label = request.label.trim();
+    if id.is_empty() {
+        return Err("A workspace or tab id is required");
+    }
+    if label.is_empty() {
+        return Err("Name cannot be empty");
+    }
+    Ok(match request.kind {
+        HerdrRenameKind::Workspace => (
+            "workspace.rename",
+            serde_json::json!({ "workspace_id": id, "label": label }),
+        ),
+        HerdrRenameKind::Tab => (
+            "tab.rename",
+            serde_json::json!({ "tab_id": id, "label": label }),
+        ),
+    })
+}
+
+async fn api_herdr_rename(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<HerdrRenameRequest>,
+) -> Response {
+    let (method, params) = match herdr_rename_call(&body) {
+        Ok(call) => call,
+        Err(message) => return json_error("invalid_rename", message, StatusCode::BAD_REQUEST),
+    };
+    let result = match herdr::request(method, params).await {
+        Ok(result) => result,
+        Err(error) => return herdr_operation_error("rename_failed", error),
+    };
+    // Push the new name to SSE clients now instead of waiting for Herdr's event round-trip.
+    match herdr::list().await {
+        Ok(snapshot) => publish_herdr_snapshot(&state, snapshot, None),
+        Err(error) => tracing::warn!("Failed to refresh herdr snapshot after rename: {}", error),
+    }
+    Json(serde_json::json!({
+        "success": true,
+        "kind": body.kind,
+        "id": body.id.trim(),
+        "label": body.label.trim(),
+        "result": result,
+    }))
+    .into_response()
 }
 
 async fn api_herdr_release(
@@ -6334,6 +6402,46 @@ mod tests {
             Some("w1:p3")
         );
         assert_eq!(find_herdr_tab_pane_id(&panes, "w1:t9"), None);
+    }
+
+    #[test]
+    fn herdr_rename_targets_only_the_requested_workspace_or_tab() {
+        let parse = |body: serde_json::Value| -> HerdrRenameRequest {
+            serde_json::from_value(body).unwrap()
+        };
+
+        let (method, params) = herdr_rename_call(&parse(serde_json::json!({
+            "kind": "tab", "id": "w1:t2", "label": "  build logs ",
+        })))
+        .unwrap();
+        assert_eq!(method, "tab.rename");
+        assert_eq!(
+            params,
+            serde_json::json!({ "tab_id": "w1:t2", "label": "build logs" })
+        );
+
+        let (method, params) = herdr_rename_call(&parse(serde_json::json!({
+            "kind": "workspace", "id": "w1", "label": "api",
+        })))
+        .unwrap();
+        assert_eq!(method, "workspace.rename");
+        assert_eq!(
+            params,
+            serde_json::json!({ "workspace_id": "w1", "label": "api" })
+        );
+
+        for body in [
+            serde_json::json!({ "kind": "tab", "id": "w1:t2", "label": "  " }),
+            serde_json::json!({ "kind": "tab", "id": " ", "label": "name" }),
+        ] {
+            assert!(herdr_rename_call(&parse(body)).is_err());
+        }
+        assert!(
+            serde_json::from_value::<HerdrRenameRequest>(serde_json::json!({
+                "kind": "pane", "id": "w1:p1", "label": "name",
+            }))
+            .is_err()
+        );
     }
 
     #[test]

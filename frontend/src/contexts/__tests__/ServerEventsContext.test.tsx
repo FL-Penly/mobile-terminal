@@ -100,4 +100,35 @@ describe('ServerEventsProvider', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
     expect(notifications).toEqual([{ title: 'Rust Terminal agent update', body: 'w4:p1 is idle' }])
   })
+
+  it('applies Herdr workspace and tab renames pushed over SSE while keeping pane ids', async () => {
+    terminalState.clientTty = null
+    terminalState.mux = 'herdr'
+    terminalState.paneId = 'w4:p1'
+    const snapshot = (workspaceLabel: string, tabLabel: string) => ({
+      workspaces: [{ workspace_id: 'w4', label: workspaceLabel }],
+      tabs: [{ tab_id: 'w4:t1', workspace_id: 'w4', label: tabLabel }],
+      panes: [{ pane_id: 'w4:p1', workspace_id: 'w4', tab_id: 'w4:t1', terminal_title_stripped: 'Claude Code' }],
+      agents: [],
+    })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve(new Response(JSON.stringify(
+      String(input).startsWith('/api/diff') ? { branch: '', cwd: '/tmp' } : snapshot('test', '1'),
+    )))))
+    const NameProbe = () => {
+      const { projectGroups } = useServerEvents()
+      const group = projectGroups[0]
+      const session = group?.sessions[0]
+      return <div>{group ? `${group.displayName}/${session?.displayName}/${session?.name}` : 'empty'}</div>
+    }
+
+    render(<ServerEventsProvider><NameProbe /></ServerEventsProvider>)
+    expect(await screen.findByText('test/Claude Code/w4:p1')).toBeInTheDocument()
+    act(() => {
+      EventSourceMock.instances[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify({
+        herdr: snapshot('api', 'review'),
+        event: { event: 'tab.renamed', data: { tab_id: 'w4:t1', workspace_id: 'w4', label: 'review' } },
+      }) }))
+    })
+    expect(await screen.findByText('api/review/w4:p1')).toBeInTheDocument()
+  })
 })

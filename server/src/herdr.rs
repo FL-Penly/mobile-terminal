@@ -201,9 +201,10 @@ pub async fn request(method: &str, params: Value) -> Result<Value, String> {
 }
 
 pub async fn list() -> Result<Value, String> {
-    let (panes, workspaces, agents) = tokio::try_join!(
+    let (panes, workspaces, tabs, agents) = tokio::try_join!(
         request("pane.list", json!({})),
         request("workspace.list", json!({})),
+        request("tab.list", json!({})),
         request("agent.list", json!({})),
     )?;
 
@@ -212,6 +213,7 @@ pub async fn list() -> Result<Value, String> {
         "protocol": MIN_SUPPORTED_PROTOCOL,
         "panes": panes.get("panes").cloned().unwrap_or_else(|| json!([])),
         "workspaces": workspaces.get("workspaces").cloned().unwrap_or_else(|| json!([])),
+        "tabs": tabs.get("tabs").cloned().unwrap_or_else(|| json!([])),
         "agents": agents.get("agents").cloned().unwrap_or_else(|| json!([])),
     }))
 }
@@ -281,7 +283,12 @@ impl EventSubscription {
             "rust-terminal-events:{}",
             NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
         );
-        let mut subscriptions = vec![json!({ "type": "pane.agent_detected" })];
+        // Renames from any Herdr client must reach the sidebar without waiting for maintenance.
+        let mut subscriptions = vec![
+            json!({ "type": "pane.agent_detected" }),
+            json!({ "type": "workspace.renamed" }),
+            json!({ "type": "tab.renamed" }),
+        ];
         subscriptions.extend(pane_ids.iter().map(|pane_id| {
             json!({
                 "type": "pane.agent_status_changed",
