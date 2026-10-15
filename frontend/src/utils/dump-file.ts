@@ -27,29 +27,38 @@ export const dumpTextToFile = async (text: string): Promise<string> => {
   return data.path
 }
 
-export const copyTextToClipboard = async (text: string): Promise<boolean> => {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // Fall through for browsers that expose Clipboard API but block its use.
-  }
-
+// The legacy path runs synchronously so it still counts as part of the user's tap
+// when the Clipboard API is missing, as it is on plain-HTTP pages.
+const copyWithTextarea = (text: string): boolean => {
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.setAttribute('readonly', '')
   textarea.setAttribute('aria-hidden', 'true')
-  textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none'
+  textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;font-size:16px'
   document.body.appendChild(textarea)
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
   try {
-    textarea.focus()
+    textarea.focus({ preventScroll: true })
     textarea.select()
-    return document.execCommand('copy')
+    // iOS Safari ignores select() on a textarea; an explicit range is required.
+    textarea.setSelectionRange(0, text.length)
+    return document.execCommand('copy') === true
   } catch {
     return false
   } finally {
     textarea.remove()
+    activeElement?.focus({ preventScroll: true })
   }
+}
+
+export const copyTextToClipboard = async (text: string): Promise<boolean> => {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Permission denied or document not focused: try the legacy path below.
+    }
+  }
+  return copyWithTextarea(text)
 }

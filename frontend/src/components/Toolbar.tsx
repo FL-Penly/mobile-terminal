@@ -6,6 +6,7 @@ import { SettingsModal, UserConfig, UserCommand, DEFAULT_CONFIG, loadUserConfig,
 import { TextInputModal } from './TextInputModal'
 import { GitPanel } from './GitPanel'
 import { ComboKeyPanel } from './ComboKeyPanel'
+import { INSERT_TEXT_EVENT } from './CopyModeOverlay'
 
 const hapticTap = () => { try { navigator.vibrate?.(8) } catch {} }
 
@@ -16,6 +17,7 @@ export const Toolbar: React.FC = () => {
   const [config, setConfig] = useState<UserConfig>(DEFAULT_CONFIG)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isInputOpen, setIsInputOpen] = useState(false)
+  const [inputPrefill, setInputPrefill] = useState<{ id: number; text: string } | null>(null)
   const [isGitOpen, setIsGitOpen] = useState(false)
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(() => {
@@ -32,6 +34,17 @@ export const Toolbar: React.FC = () => {
 
   useEffect(() => {
     loadUserConfig().then(setConfig)
+  }, [])
+
+  useEffect(() => {
+    const handleInsert = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text
+      if (typeof text !== 'string' || !text) return
+      setInputPrefill(previous => ({ id: (previous?.id ?? 0) + 1, text }))
+      setIsInputOpen(true)
+    }
+    window.addEventListener(INSERT_TEXT_EVENT, handleInsert)
+    return () => window.removeEventListener(INSERT_TEXT_EVENT, handleInsert)
   }, [])
 
   useEffect(() => {
@@ -110,6 +123,7 @@ export const Toolbar: React.FC = () => {
           isOpen={isInputOpen}
           onClose={() => setIsInputOpen(false)}
           onSend={submitText}
+          prefill={inputPrefill}
           presetGroups={config.presetGroups}
           activePresetGroupId={config.activePresetGroupId}
           onActivePresetGroupChange={setActivePresetGroup}

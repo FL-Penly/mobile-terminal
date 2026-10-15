@@ -140,6 +140,7 @@ interface TextInputBarProps {
   activePresetGroupId: string
   onActivePresetGroupChange: (groupId: string) => void
   onPresetGroupsChange: (groups: UserPresetGroup[], activeGroupId: string) => void
+  prefill?: { id: number; text: string } | null
 }
 
 export const TextInputModal: React.FC<TextInputBarProps> = ({
@@ -150,6 +151,7 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   activePresetGroupId,
   onActivePresetGroupChange,
   onPresetGroupsChange,
+  prefill = null,
 }) => {
   const [text, setText] = useState(() => sessionStorage.getItem(DRAFT_KEY) || '')
   const [history, setHistory] = useState<string[]>(loadHistory)
@@ -191,8 +193,12 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
       const draft = sessionStorage.getItem(DRAFT_KEY)
       if (draft) setText(draft)
       setTimeout(() => {
-        textareaRef.current?.focus()
+        const textarea = textareaRef.current
+        if (!textarea) return
+        textarea.focus()
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length)
         autoResize()
+        textarea.scrollTop = textarea.scrollHeight
       }, 50)
     } else {
       setShowHistory(false)
@@ -205,6 +211,25 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
   useEffect(() => {
     autoResize()
   }, [text, autoResize])
+
+  const lastPrefillIdRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!prefill || prefill.id === lastPrefillIdRef.current) return
+    lastPrefillIdRef.current = prefill.id
+    // Keep the user's unsent draft and add the quote after it.
+    const draft = sessionStorage.getItem(DRAFT_KEY) ?? ''
+    const nextText = draft.trim() ? `${draft.replace(/\s+$/, '')}\n\n${prefill.text}` : prefill.text
+    setText(nextText)
+    setSendError(null)
+    sessionStorage.setItem(DRAFT_KEY, nextText)
+    setTimeout(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(nextText.length, nextText.length)
+      textarea.scrollTop = textarea.scrollHeight
+    }, 60)
+  }, [prefill])
 
   useEffect(() => {
     setShowVariables(false)

@@ -42,6 +42,7 @@ use tower_http::{compression::CompressionLayer, cors::CorsLayer};
 
 mod herdr;
 mod tmux_discovery;
+pub mod transcript;
 mod ws_link;
 
 use tmux_discovery::{DiscoverySnapshot, GitRootCache};
@@ -230,6 +231,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/herdr/capture-pane", get(api_herdr_capture_pane))
         .route("/api/herdr/page-up", get(api_herdr_page_up))
         .route("/api/herdr/paste", post(api_herdr_paste))
+        .route("/api/herdr/transcript", get(api_herdr_transcript))
         .route("/api/events", get(api_events))
         .route("/api/dump-file", post(api_dump_file))
         .route(
@@ -616,7 +618,6 @@ async fn ws_handler(
 enum HerdrInput {
     Data(bytes::Bytes),
     Resize { cols: u16, rows: u16 },
-    Scroll { direction: String, lines: u32 },
     RequestKeyframe,
     Release,
 }
@@ -702,9 +703,6 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
                 }
                 HerdrInput::RequestKeyframe => {
                     terminal_writer.resize(last_size.0, last_size.1).await
-                }
-                HerdrInput::Scroll { direction, lines } => {
-                    terminal_writer.scroll(&direction, lines).await
                 }
                 HerdrInput::Release => {
                     let result = terminal_writer.release().await;
@@ -2971,12 +2969,22 @@ struct HerdrCaptureQuery {
 #[derive(Deserialize)]
 struct HerdrPageQuery {
     pane: Option<String>,
-    page: Option<u32>,
+    before: Option<u64>,
 }
 
 #[derive(Deserialize)]
 struct HerdrPasteRequest {
     text: String,
+    #[serde(default)]
+    submit: bool,
+}
+
+#[derive(Deserialize)]
+struct HerdrTranscriptQuery {
+    pane: Option<String>,
+    before: Option<u64>,
+    limit: Option<usize>,
+    session: Option<String>,
 }
 
 async fn api_herdr_focus(Query(query): Query<HerdrPaneQuery>) -> Response {
@@ -3014,7 +3022,7 @@ async fn api_herdr_paste(
     }
 
     let byte_length = body.text.len();
-    match herdr::request(
+    let result = match herdr::request(
         "pane.send_text",
         serde_json::json!({
             "pane_id": pane_id,
@@ -3023,16 +3031,32 @@ async fn api_herdr_paste(
     )
     .await
     {
-        Ok(result) => Json(serde_json::json!({
-            "success": true,
-            "paneId": pane_id,
-            "byteLength": byte_length,
-            "result": result,
-        }))
-        .into_response(),
-        Err(error) => herdr_operation_error("paste_failed", error),
+        Ok(result) => result,
+        Err(error) => return herdr_operation_error("paste_failed", error),
+    };
+    if body.submit {
+        // Give the agent a moment to finish handling the paste before Enter arrives.
+        tokio::time::sleep(HERDR_SUBMIT_DELAY).await;
+        if let Err(error) = herdr::request(
+            "pane.send_keys",
+            serde_json::json!({ "pane_id": pane_id, "keys": ["enter"] }),
+        )
+        .await
+        {
+            return herdr_operation_error("submit_failed", error);
+        }
     }
+    Json(serde_json::json!({
+        "success": true,
+        "paneId": pane_id,
+        "byteLength": byte_length,
+        "submitted": body.submit,
+        "result": result,
+    }))
+    .into_response()
 }
+
+const HERDR_SUBMIT_DELAY: Duration = Duration::from_millis(150);
 
 fn bracketed_paste_text(text: &str) -> String {
     let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
@@ -3253,63 +3277,273 @@ async fn api_herdr_capture_pane(Query(query): Query<HerdrCaptureQuery>) -> Respo
     }
 }
 
-async fn api_herdr_page_up(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    Query(query): Query<HerdrPageQuery>,
-) -> Response {
+// Herdr's `recent` reads never exceed this many rows, whatever `lines` asks for.
+const HERDR_RECENT_ROWS: u32 = 1000;
+const HISTORY_PAGE_ROWS: u64 = 200;
+
+/// `before` counts rows already loaded from the bottom; 0 asks for the newest window.
+async fn api_herdr_page_up(Query(query): Query<HerdrPageQuery>) -> Response {
     let pane_id = match required_herdr_pane(query.pane) {
         Ok(pane_id) => pane_id,
         Err(()) => return missing_herdr_pane_response(),
     };
-    let page = query.page.unwrap_or(1).clamp(1, 100);
-    let scroll_lines = page.saturating_mul(24);
-    let sender = match active_herdr_controller(&state, &pane_id) {
-        Some(sender) => sender,
-        None => {
-            return json_error(
-                "controller_not_found",
-                "No active rust-terminal controller for this pane",
-                StatusCode::CONFLICT,
-            )
-        }
+    let scroll = match herdr_pane_scroll(&pane_id).await {
+        Ok(scroll) => scroll,
+        Err(error) => return herdr_operation_error("capture_failed", error),
     };
-    if let Err(error) = sender
-        .send(HerdrInput::Scroll {
-            direction: "up".to_string(),
-            lines: scroll_lines,
-        })
-        .await
-    {
-        return herdr_operation_error("scroll_failed", error.to_string());
+    let before = query.before.unwrap_or(0);
+    let outcome = if before == 0 {
+        herdr_recent_window(&pane_id, scroll).await
+    } else {
+        herdr_history_page(&pane_id, scroll, before).await
+    };
+    match outcome {
+        Ok((lines, cursor)) => Json(serde_json::json!({
+            "success": true,
+            "paneId": pane_id,
+            "lines": lines,
+            "cursor": cursor,
+            "hasMore": cursor < scroll.total_rows(),
+        }))
+        .into_response(),
+        Err(error) => herdr_operation_error("capture_failed", error),
     }
-    let capture_lines = page.saturating_mul(200).clamp(1, 10000);
-    match herdr::request(
-        "pane.read",
-        serde_json::json!({
-            "pane_id": pane_id,
-            "source": "recent",
-            "lines": capture_lines,
-            "strip_ansi": true,
-            "format": "text",
-        }),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HerdrScroll {
+    offset: u64,
+    max_offset: u64,
+    rows: u64,
+}
+
+impl HerdrScroll {
+    fn total_rows(self) -> u64 {
+        self.max_offset + self.rows
+    }
+}
+
+async fn herdr_pane_scroll(pane_id: &str) -> Result<HerdrScroll, String> {
+    let result = herdr::request("pane.get", serde_json::json!({ "pane_id": pane_id })).await?;
+    let scroll = result
+        .pointer("/pane/scroll")
+        .ok_or_else(|| "herdr pane.get did not include scroll state".to_string())?;
+    let field = |key: &str| scroll.get(key).and_then(serde_json::Value::as_u64);
+    Ok(HerdrScroll {
+        offset: field("offset_from_bottom").unwrap_or(0),
+        max_offset: field("max_offset_from_bottom").unwrap_or(0),
+        rows: field("viewport_rows").unwrap_or(24).max(1),
+    })
+}
+
+async fn herdr_read_text(
+    pane_id: &str,
+    source: &str,
+    lines: Option<u32>,
+) -> Result<String, String> {
+    let mut params = serde_json::json!({
+        "pane_id": pane_id,
+        "source": source,
+        "strip_ansi": true,
+        "format": "text",
+    });
+    if let Some(lines) = lines {
+        params["lines"] = serde_json::json!(lines);
+    }
+    let result = herdr::request("pane.read", params).await?;
+    Ok(result
+        .pointer("/read/text")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string())
+}
+
+/// Newest rows as logical lines, read without touching the live viewport.
+async fn herdr_recent_window(
+    pane_id: &str,
+    scroll: HerdrScroll,
+) -> Result<(Vec<String>, u64), String> {
+    let (unwrapped, wrapped) = tokio::try_join!(
+        herdr_read_text(pane_id, "recent_unwrapped", Some(HERDR_RECENT_ROWS)),
+        herdr_read_text(pane_id, "recent", Some(HERDR_RECENT_ROWS)),
+    )?;
+    let loaded_rows = (wrapped.lines().count() as u64).min(scroll.total_rows());
+    Ok((
+        unwrapped
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .collect(),
+        loaded_rows,
+    ))
+}
+
+/// Rows older than `recent` are only reachable through `visible`, so scroll there,
+/// read screen by screen and put the viewport back where the user left it.
+async fn herdr_history_page(
+    pane_id: &str,
+    scroll: HerdrScroll,
+    before: u64,
+) -> Result<(Vec<String>, u64), String> {
+    let total = scroll.total_rows();
+    let windows = history_windows(total, scroll.rows, before, HISTORY_PAGE_ROWS);
+    if windows.is_empty() {
+        return Ok((Vec::new(), total));
+    }
+    let mut chunks = Vec::new();
+    let mut read_error = None;
+    for window in &windows {
+        let read = async {
+            herdr::request(
+                "pane.scroll",
+                serde_json::json!({ "pane_id": pane_id, "offset_from_bottom": window.offset }),
+            )
+            .await?;
+            herdr_read_text(pane_id, "visible", None).await
+        };
+        match read.await {
+            Ok(text) => {
+                let rows: Vec<&str> = text.lines().collect();
+                chunks.push(
+                    (window.skip..window.skip + window.take)
+                        .map(|index| {
+                            rows.get(index)
+                                .copied()
+                                .unwrap_or("")
+                                .trim_end()
+                                .to_string()
+                        })
+                        .collect::<Vec<_>>(),
+                );
+            }
+            Err(error) => {
+                read_error = Some(error);
+                break;
+            }
+        }
+    }
+    if let Err(error) = herdr::request(
+        "pane.scroll",
+        serde_json::json!({ "pane_id": pane_id, "offset_from_bottom": scroll.offset }),
     )
     .await
     {
-        Ok(result) => {
-            let text = result
-                .get("read")
-                .and_then(|read| read.get("text"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            Json(serde_json::json!({
-                "success": true,
-                "paneId": pane_id,
-                "page": page,
-                "lines": text.lines().collect::<Vec<_>>(),
-            }))
-            .into_response()
+        tracing::warn!(
+            "Failed to restore herdr viewport for {}: {}",
+            pane_id,
+            error
+        );
+    }
+    if let Some(error) = read_error {
+        return Err(error);
+    }
+    let loaded: u64 = windows.iter().map(|window| window.take as u64).sum();
+    chunks.reverse();
+    Ok((chunks.concat(), before + loaded))
+}
+
+#[derive(Debug, PartialEq)]
+struct HistoryWindow {
+    /// Scroll position whose visible screen contains the rows.
+    offset: u64,
+    /// Rows to drop from the top of that screen, then rows to keep.
+    skip: usize,
+    take: usize,
+}
+
+/// Splits the `page` rows just above the `before` rows already loaded into screens,
+/// newest first. Rows are indexed from the top of the scrollback.
+fn history_windows(total: u64, rows: u64, before: u64, page: u64) -> Vec<HistoryWindow> {
+    let rows = rows.max(1);
+    let hi = total.saturating_sub(before);
+    let lo = hi.saturating_sub(page);
+    let mut windows = Vec::new();
+    let mut cursor = hi;
+    while cursor > lo {
+        let start = cursor.saturating_sub(rows);
+        let keep_from = start.max(lo);
+        windows.push(HistoryWindow {
+            offset: total.saturating_sub(start + rows),
+            skip: (keep_from - start) as usize,
+            take: (cursor - keep_from) as usize,
+        });
+        cursor = keep_from;
+    }
+    windows
+}
+
+// ─── GET /api/herdr/transcript ─────────────────────────────────────────────
+
+async fn api_herdr_transcript(Query(query): Query<HerdrTranscriptQuery>) -> Response {
+    let pane_id = match required_herdr_pane(query.pane) {
+        Ok(pane_id) => pane_id,
+        Err(()) => return missing_herdr_pane_response(),
+    };
+    let pane = match herdr::request("pane.get", serde_json::json!({ "pane_id": pane_id })).await {
+        Ok(result) => result
+            .get("pane")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        Err(error) => return herdr_operation_error("herdr_unavailable", error),
+    };
+    let agent_status = pane
+        .get("agent_status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let pane_agent = transcript::pane_agent_from_herdr(&pane);
+    let Some(roots) = transcript::Roots::from_env() else {
+        return json_error(
+            "transcript_io_failed",
+            "HOME is not set",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        );
+    };
+    let before = query.before;
+    let expected_session = query.session;
+    let limit = query.limit.unwrap_or(transcript::DEFAULT_PAGE_BLOCKS);
+    let outcome = tokio::task::spawn_blocking(move || {
+        transcript::load(
+            &pane_agent,
+            &roots,
+            before,
+            limit,
+            expected_session.as_deref(),
+        )
+    })
+    .await;
+
+    match outcome {
+        Ok(Ok(loaded)) => Json(serde_json::json!({
+            "paneId": pane_id,
+            "agent": loaded.agent,
+            "agentStatus": agent_status,
+            "session": loaded.path.to_string_lossy(),
+            "blocks": loaded.page.blocks,
+            "cursor": loaded.page.cursor,
+            "hasMore": loaded.page.cursor.is_some(),
+        }))
+        .into_response(),
+        Ok(Err(error)) => {
+            let status = match error {
+                transcript::TranscriptError::NoAgent | transcript::TranscriptError::NotFound(_) => {
+                    StatusCode::NOT_FOUND
+                }
+                transcript::TranscriptError::UnsupportedAgent(_) => {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                }
+                transcript::TranscriptError::SessionChanged => StatusCode::CONFLICT,
+                transcript::TranscriptError::Io(_) | transcript::TranscriptError::Parse(_) => {
+                    tracing::warn!("Transcript for {} failed: {}", pane_id, error.message());
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            };
+            json_error(error.code(), &error.message(), status)
         }
-        Err(error) => herdr_operation_error("scroll_failed", error),
+        Err(error) => json_error(
+            "task_failed",
+            &error.to_string(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
@@ -3840,7 +4074,7 @@ async fn api_tmux_capture_pane(
             }
         };
         let target = format!("{}:", session);
-        run_cmd("tmux", &["capture-pane", "-t", &target, "-pS", "-"]).map_err(|e| {
+        run_cmd("tmux", &["capture-pane", "-t", &target, "-pJS", "-"]).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "capture_failed".into(),
@@ -3852,7 +4086,7 @@ async fn api_tmux_capture_pane(
 
     match outcome {
         Ok(Ok(content)) => {
-            let lines: Vec<&str> = content.lines().collect();
+            let lines: Vec<&str> = content.lines().map(str::trim_end).collect();
             Json(serde_json::json!({ "lines": lines })).into_response()
         }
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
@@ -3869,37 +4103,38 @@ async fn api_tmux_capture_pane(
 #[derive(Deserialize)]
 struct PageUpQuery {
     client_tty: Option<String>,
-    page: Option<i32>,
+    before: Option<u64>,
 }
 
+const TMUX_RECENT_ROWS: u64 = 1000;
+
+/// Same cursor contract as herdr: `before` rows from the bottom are already loaded.
+/// `-J` joins rows tmux wrapped, so long lines come back whole.
 async fn api_tmux_page_up(
     axum::extract::State(state): axum::extract::State<AppState>,
     Query(query): Query<PageUpQuery>,
 ) -> Response {
-    let page = query.page.unwrap_or(1).max(1);
+    let before = query.before.unwrap_or(0);
     let outcome =
-        tokio::task::spawn_blocking(move || -> Result<(Vec<String>, i32, i32), ApiError> {
-            let client_tty = match get_effective_client_tty(&state, query.client_tty) {
-                Some(t) => t,
-                None => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        "no_tty".into(),
-                        "No client TTY available".into(),
-                    ))
-                }
-            };
-            let session = match get_current_tmux_session(Some(&client_tty)) {
-                Some(s) => s,
-                None => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        "no_session".into(),
-                        "No tmux session found".into(),
-                    ))
-                }
-            };
+        tokio::task::spawn_blocking(move || -> Result<(Vec<String>, u64, u64), ApiError> {
+            let client_tty = get_effective_client_tty(&state, query.client_tty).ok_or((
+                StatusCode::BAD_REQUEST,
+                "no_tty".to_string(),
+                "No client TTY available".to_string(),
+            ))?;
+            let session = get_current_tmux_session(Some(&client_tty)).ok_or((
+                StatusCode::BAD_REQUEST,
+                "no_session".to_string(),
+                "No tmux session found".to_string(),
+            ))?;
             let target = format!("{}:", session);
+            let capture_failed = |e: String| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "capture_failed".to_string(),
+                    e,
+                )
+            };
             let info = run_cmd(
                 "tmux",
                 &[
@@ -3910,60 +4145,51 @@ async fn api_tmux_page_up(
                     "#{pane_height} #{history_size}",
                 ],
             )
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "capture_failed".into(),
-                    e,
-                )
-            })?;
+            .map_err(capture_failed)?;
             let parts: Vec<&str> = info.trim().split(' ').collect();
-            let rows: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(40);
-            let history: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let height: u64 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(40);
+            let history: u64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let total = history + height;
 
-            if history == 0 {
-                return Ok((Vec::new(), 0, 0));
-            }
-
-            let end_line = -((page - 1) * rows + 1);
-            let start_line = -(page * rows);
-            let clamped_start = start_line.max(-history);
-
-            if clamped_start > end_line {
-                return Ok((Vec::new(), history, rows));
-            }
-
+            let Some((start, end)) = tmux_page_range(history, height, before) else {
+                return Ok((Vec::new(), total, total));
+            };
+            let start = start.to_string();
+            let end = end.to_string();
             let content = run_cmd(
                 "tmux",
                 &[
                     "capture-pane",
                     "-t",
                     &target,
-                    "-p",
+                    "-pJ",
                     "-S",
-                    &clamped_start.to_string(),
+                    &start,
                     "-E",
-                    &end_line.to_string(),
+                    &end,
                 ],
             )
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "capture_failed".into(),
-                    e,
-                )
-            })?;
-
-            let lines: Vec<String> = content.lines().map(String::from).collect();
-            Ok((lines, history, rows))
+            .map_err(capture_failed)?;
+            let lines = content
+                .lines()
+                .map(|line| line.trim_end().to_string())
+                .collect();
+            let loaded = if before == 0 {
+                total.min(TMUX_RECENT_ROWS)
+            } else {
+                (before + HISTORY_PAGE_ROWS).min(total)
+            };
+            Ok((lines, loaded, total))
         })
         .await;
 
     match outcome {
-        Ok(Ok((lines, history, rows))) => {
-            Json(serde_json::json!({ "lines": lines, "history": history, "rows": rows }))
-                .into_response()
-        }
+        Ok(Ok((lines, cursor, total))) => Json(serde_json::json!({
+            "lines": lines,
+            "cursor": cursor,
+            "hasMore": cursor < total,
+        }))
+        .into_response(),
         Ok(Err((status, code, msg))) => json_error(&code, &msg, status),
         Err(e) => json_error(
             "task_failed",
@@ -3971,6 +4197,23 @@ async fn api_tmux_page_up(
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
     }
+}
+
+/// tmux line numbers (`-S`/`-E`) for the next page: 0 is the top visible row and
+/// negative numbers reach into history.
+fn tmux_page_range(history: u64, height: u64, before: u64) -> Option<(i64, i64)> {
+    let total = history + height;
+    if before >= total {
+        return None;
+    }
+    let (history, height, before) = (history as i64, height as i64, before as i64);
+    if before == 0 {
+        let rows = (total as i64).min(TMUX_RECENT_ROWS as i64);
+        return Some((height - rows, height - 1));
+    }
+    let end = height - before - 1;
+    let start = (end - HISTORY_PAGE_ROWS as i64 + 1).max(-history);
+    Some((start, end))
 }
 
 // ─── GET /api/events (SSE) ─────────────────────────────────────────────────
@@ -6091,6 +6334,53 @@ mod tests {
             Some("w1:p3")
         );
         assert_eq!(find_herdr_tab_pane_id(&panes, "w1:t9"), None);
+    }
+
+    #[test]
+    fn history_windows_cover_the_page_above_loaded_rows_exactly_once() {
+        // 100 rows, 10 per screen, 30 newest rows already loaded, pages of 25.
+        let windows = history_windows(100, 10, 30, 25);
+        assert_eq!(
+            windows,
+            vec![
+                HistoryWindow {
+                    offset: 30,
+                    skip: 0,
+                    take: 10
+                },
+                HistoryWindow {
+                    offset: 40,
+                    skip: 0,
+                    take: 10
+                },
+                HistoryWindow {
+                    offset: 50,
+                    skip: 5,
+                    take: 5
+                },
+            ]
+        );
+        // Near the top the last screen is pinned at the maximum offset.
+        assert_eq!(
+            history_windows(100, 10, 95, 25),
+            vec![HistoryWindow {
+                offset: 90,
+                skip: 0,
+                take: 5
+            }]
+        );
+        assert!(history_windows(100, 10, 100, 25).is_empty());
+    }
+
+    #[test]
+    fn tmux_page_range_walks_history_from_the_bottom() {
+        // 40 visible rows and 2000 rows of history.
+        assert_eq!(tmux_page_range(2000, 40, 0), Some((-960, 39)));
+        assert_eq!(tmux_page_range(2000, 40, 1000), Some((-1160, -961)));
+        assert_eq!(tmux_page_range(2000, 40, 1900), Some((-2000, -1861)));
+        assert_eq!(tmux_page_range(2000, 40, 2040), None);
+        // Short history fits in the first window.
+        assert_eq!(tmux_page_range(5, 40, 0), Some((-5, 39)));
     }
 
     #[test]

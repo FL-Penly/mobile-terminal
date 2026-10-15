@@ -11,6 +11,7 @@ import { useServerEvents } from '../contexts/ServerEventsContext'
 import { ZerolagInputAddon } from 'xterm-zerolag-input'
 import { CopyModeOverlay } from './CopyModeOverlay'
 import { AltScreenTranscript } from '../utils/alt-screen-transcript'
+import { readLogicalLines, trimTrailingBlankLines } from '../utils/copy-lines'
 import { createTerminalPasteHandler, type PasteResultCapture } from '../utils/terminal-paste'
 import { createTerminalKeyHandler } from '../utils/terminal-key-input'
 import { observeTerminalResize } from '../utils/terminal-resize'
@@ -23,7 +24,7 @@ export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux, paneId } = useTerminal()
+  const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux } = useTerminal()
   const { tuiActive } = useServerEvents()
   const setClientTtyRef = useRef(setClientTty)
   
@@ -624,18 +625,13 @@ export const Terminal = () => {
           viewportLine = Math.max(0, lines.length - term.rows)
         } else {
           const buf = isAlt ? term.buffer.active : term.buffer.normal
-          lines = []
-          for (let i = 0; i < buf.length; i++) {
-            const line = buf.getLine(i)
-            if (line) lines.push(line.translateToString(true))
-          }
-          viewportLine = isAlt ? 0 : buf.viewportY
+          lines = readLogicalLines(buf)
+          // The view scrolls by logical line, so count the lines above the viewport the same way.
+          viewportLine = isAlt || buf.viewportY >= buf.baseY ? 0 : readLogicalLines(buf, 0, buf.viewportY - 1).length
         }
 
-        while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
-        if (lines.length === 0) return
-
-        setCopyModeData(prev => prev ?? { lines, viewportLine })
+        // The overlay still opens on an empty screen: tmux and herdr history comes from the server.
+        setCopyModeData(prev => prev ?? { lines: trimTrailingBlankLines(lines), viewportLine })
       } catch (err) {
         console.error('[Sel] failed:', err)
       }
@@ -698,17 +694,6 @@ export const Terminal = () => {
           lines={copyModeData.lines}
           initialScrollLine={copyModeData.viewportLine}
           onClose={() => setCopyModeData(null)}
-          onFetchMore={async (page: number) => {
-            try {
-              const url = mux === 'herdr'
-                ? `/api/herdr/page-up?pane=${encodeURIComponent(paneId ?? '')}&page=${page}`
-                : `/api/tmux/page-up?page=${page}`
-              const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
-              if (!res.ok) return null
-              const data = await res.json() as { lines: string[] }
-              return data.lines.length > 0 ? data.lines : null
-            } catch { return null }
-          }}
         />
       )}
     </div>

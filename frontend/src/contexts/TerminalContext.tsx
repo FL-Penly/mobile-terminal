@@ -22,6 +22,13 @@ export type KeyInputHandler = (stroke: TerminalKeystroke) => KeyInputResult
 
 export type TerminalMux = 'tmux' | 'herdr'
 
+export interface SubmitTextOptions {
+  /** Press Enter after the paste, e.g. to send a prompt to the agent. */
+  submit?: boolean
+}
+
+const SUBMIT_DELAY_MS = 120
+
 export interface TerminalContextValue {
   connectionState: 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
   
@@ -29,7 +36,7 @@ export interface TerminalContextValue {
 
   pasteInput: (text: string) => InputSendResult
 
-  submitText: (text: string) => Promise<InputSendResult>
+  submitText: (text: string, options?: SubmitTextOptions) => Promise<InputSendResult>
 
   registerPasteHandler: (handler: PasteInputHandler) => () => void
   registerKeyHandler: (handler: KeyInputHandler) => () => void
@@ -665,10 +672,16 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return handler(text)
   }, [])
 
-  const submitText = useCallback(async (text: string): Promise<InputSendResult> => {
+  const submitText = useCallback(async (text: string, options: SubmitTextOptions = {}): Promise<InputSendResult> => {
     const currentTarget = targetRef.current
-    if (currentTarget.mux !== 'herdr' || !/\r|\n/.test(text)) {
-      return pasteInput(text)
+    const submit = options.submit === true
+    if (currentTarget.mux !== 'herdr' || (!submit && !/\r|\n/.test(text))) {
+      const result = pasteInput(text)
+      if (!result.ok || !submit) return result
+      // Let the program finish reading the bracketed paste before Enter arrives.
+      await new Promise(resolve => window.setTimeout(resolve, SUBMIT_DELAY_MS))
+      const enter = sendInput('\r')
+      return enter.ok ? result : enter
     }
     if (!currentTarget.paneId) {
       return { ok: false, reason: 'terminalUnavailable' }
@@ -682,7 +695,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify(submit ? { text, submit } : { text }),
           signal: AbortSignal.timeout(30000),
         },
       )
@@ -707,7 +720,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         message: '无法将内容粘贴到 Herdr pane，内容已保留，请重试。',
       }
     }
-  }, [pasteInput])
+  }, [pasteInput, sendInput])
 
   const registerPasteHandler = useCallback((handler: PasteInputHandler) => {
     pasteHandlerRef.current = handler

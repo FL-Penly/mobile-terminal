@@ -138,6 +138,51 @@ describe('TerminalContext', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('asks the Herdr paste API to press Enter when submitting a prompt', async () => {
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ success: true, byteLength: 5, submitted: true }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+
+    await expect(getContext().submitText('a\nb c', { submit: true })).resolves.toEqual({ ok: true, byteLength: 5 })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/herdr/paste?pane=w4%3Ap1',
+      expect.objectContaining({ body: JSON.stringify({ text: 'a\nb c', submit: true }) }),
+    )
+  })
+
+  it('pastes then sends Enter over the socket when submitting outside Herdr', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    const pasteHandler = vi.fn((): InputSendResult => ({ ok: true, byteLength: 9 }))
+    getContext().registerPasteHandler(pasteHandler)
+
+    const sentBytes = () => ws.send.mock.calls.map(([data]) => Array.from(data as Uint8Array))
+    const pending = getContext().submitText('explain\nx', { submit: true })
+    expect(pasteHandler).toHaveBeenCalledWith('explain\nx')
+    expect(sentBytes()).not.toContainEqual([0x30, 0x0d])
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(pending).resolves.toEqual({ ok: true, byteLength: 9 })
+    expect(sentBytes()).toContainEqual([0x30, 0x0d])
+  })
+
+  it('does not press Enter when the paste itself failed', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    getContext().registerPasteHandler(() => ({ ok: false, reason: 'unsafeMultiline' }))
+
+    await expect(getContext().submitText('a\nb', { submit: true })).resolves.toEqual({ ok: false, reason: 'unsafeMultiline' })
+    expect(ws.send.mock.calls.some(([data]) => Array.from(data as Uint8Array).join() === '48,13')).toBe(false)
+  })
+
   it('does not weaken the multiline safety gate outside Herdr', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
     const fetchMock = vi.spyOn(globalThis, 'fetch')

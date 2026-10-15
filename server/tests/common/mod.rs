@@ -6,6 +6,9 @@ use rust_terminal::{build_router, AppState};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixListener;
 use tower::ServiceExt;
 
 #[allow(dead_code)]
@@ -125,4 +128,43 @@ impl Drop for EnvGuard {
             }
         }
     }
+}
+
+#[allow(dead_code)]
+pub struct FakeHerdr {
+    _dir: tempfile::TempDir,
+    pub calls: Arc<Mutex<Vec<Value>>>,
+}
+
+/// Serves herdr's socket protocol, answering each request with `respond(method, params)`.
+#[allow(dead_code)]
+pub fn fake_herdr(respond: impl Fn(&str, &Value) -> Value + Send + Sync + 'static) -> FakeHerdr {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("herdr.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::env::set_var("HERDR_SOCKET_PATH", &socket);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let recorded = calls.clone();
+    let respond = Arc::new(respond);
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let respond = respond.clone();
+            let recorded = recorded.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    recorded.lock().unwrap().push(request.clone());
+                    let method = request["method"].as_str().unwrap_or("");
+                    let result = respond(method, &request["params"]);
+                    let reply = serde_json::json!({"id": request["id"], "result": result});
+                    let mut encoded = serde_json::to_vec(&reply).unwrap();
+                    encoded.push(b'\n');
+                    let _ = write.write_all(&encoded).await;
+                }
+            });
+        }
+    });
+    FakeHerdr { _dir: dir, calls }
 }

@@ -142,15 +142,6 @@ impl TerminalWriter {
         .await
     }
 
-    pub async fn scroll(&mut self, direction: &str, lines: u32) -> Result<(), String> {
-        self.write_command(json!({
-            "type": "terminal.scroll",
-            "direction": direction,
-            "lines": lines.max(1),
-        }))
-        .await
-    }
-
     pub async fn release(&mut self) -> Result<(), String> {
         self.write_command(json!({ "type": "terminal.release" }))
             .await
@@ -249,18 +240,31 @@ fn herdr_binary() -> PathBuf {
     if let Some(path) = std::env::var_os("HERDR_BIN_PATH").filter(|path| !path.is_empty()) {
         return PathBuf::from(path);
     }
+    herdr_binary_candidates(
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("PATH"),
+    )
+    .into_iter()
+    .find(|path| path.is_file())
+    .unwrap_or_else(|| PathBuf::from("herdr"))
+}
 
-    let mut candidates = vec![
-        PathBuf::from("/opt/homebrew/bin/herdr"),
-        PathBuf::from("/usr/local/bin/herdr"),
-    ];
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(PathBuf::from(home).join(".local/bin/herdr"));
+// `herdr update` installs to ~/.local/bin, so a package-manager copy elsewhere may be
+// an older release whose controller cannot talk to the running server.
+fn herdr_binary_candidates(
+    home: Option<PathBuf>,
+    path_var: Option<std::ffi::OsString>,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(home) = home {
+        candidates.push(home.join(".local/bin/herdr"));
     }
+    if let Some(path_var) = path_var {
+        candidates.extend(std::env::split_paths(&path_var).map(|dir| dir.join("herdr")));
+    }
+    candidates.push(PathBuf::from("/opt/homebrew/bin/herdr"));
+    candidates.push(PathBuf::from("/usr/local/bin/herdr"));
     candidates
-        .into_iter()
-        .find(|path| path.is_file())
-        .unwrap_or_else(|| PathBuf::from("herdr"))
 }
 
 impl EventSubscription {
@@ -403,6 +407,24 @@ fn socket_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn herdr_update_location_wins_over_path_and_homebrew() {
+        let candidates = herdr_binary_candidates(
+            Some(PathBuf::from("/home/u")),
+            Some(std::ffi::OsString::from("/opt/homebrew/bin:/usr/bin")),
+        );
+        assert_eq!(
+            candidates,
+            vec![
+                PathBuf::from("/home/u/.local/bin/herdr"),
+                PathBuf::from("/opt/homebrew/bin/herdr"),
+                PathBuf::from("/usr/bin/herdr"),
+                PathBuf::from("/opt/homebrew/bin/herdr"),
+                PathBuf::from("/usr/local/bin/herdr"),
+            ]
+        );
+    }
 
     #[test]
     fn supported_protocol_accepts_min_and_newer() {

@@ -18,7 +18,7 @@ A mobile-optimized web terminal powered by a single Rust binary. Access your dev
 - Pinch-to-zoom with persistent font size
 - Single-finger touch scroll in TUI apps (tmux, vim)
 - iTerm2-style drag-to-select text in tmux
-- Copy viewport overlay for mobile text selection
+- Copy view for mobile: agent conversation blocks or unwrapped terminal lines
 - Weak-network optimization: compressed pages/output, automatic retries, herdr heartbeats and stale-frame recovery
 - Predictive echo for reduced input latency
 - WebGL/Canvas accelerated rendering with auto-fallback
@@ -149,9 +149,14 @@ The ⚙️ button in the toolbar allows you to:
 
 Configuration is saved in browser localStorage.
 
-### Copy Viewport
+### Copy View
 
-The purple "Sel" button opens a full-screen text overlay of the terminal buffer, allowing you to select and copy text on mobile — where native terminal text selection is difficult.
+The purple "Sel" button opens a full-screen copy view with two tabs:
+
+- **对话 (conversation)** — for herdr panes running Claude Code or Codex. The server reads the agent's local session file (`~/.claude/projects/…` or `~/.codex/sessions/…`, found through herdr's `agent_session` or the pane's cwd) and shows your prompts, replies, code blocks and commands as cards. Tap cards to select several; code, commands, outputs and replies also have their own copy buttons. Older blocks load as you scroll up. When herdr reports the agent as blocked, a banner links to the terminal tab, because the pending confirmation is not in the session file. This is the default for agent panes.
+- **终端 (terminal)** — logical lines with soft wraps joined (xterm `isWrapped`, tmux `capture-pane -J`, herdr `recent_unwrapped`), wrapped to the phone width. Drag up and down on the line-number gutter to select; dragging past an edge scrolls. After lifting your finger, drag the blue handles to adjust either end. Search and scroll-to-top paging of older history are kept.
+
+The bottom sheet offers four formats (raw, prefixes stripped, Markdown, one line) and three actions: copy, quote the selection into the text input, or send "请解释或处理下面这段内容：…" to the agent and press Enter. The last action is disabled while the agent is blocked or when the pane is not running an agent. If the browser refuses clipboard access (common over plain HTTP), the text is shown pre-selected so you can copy it by hand.
 
 ## File Structure
 
@@ -183,5 +188,9 @@ The purple "Sel" button opens a full-screen text overlay of the terminal buffer,
 | `/api/tmux/create` | GET | Create tmux session |
 | `/api/tmux/kill` | GET | Kill tmux session |
 | `/api/tmux/detach` | GET | Detach from tmux |
+| `/api/tmux/page-up` | GET | Terminal history, `before` = rows already loaded (0 = newest) |
+| `/api/herdr/page-up` | GET | Same for a herdr pane; never moves the live viewport for the newest rows |
+| `/api/herdr/transcript` | GET | Agent conversation blocks for `pane`, paged with `before`/`session` |
+| `/api/herdr/paste` | POST | Bracketed paste into a pane; `submit: true` also presses Enter |
 | `/api/events` | GET | SSE status stream |
 | `/api/upload-image` | POST | Upload image file |

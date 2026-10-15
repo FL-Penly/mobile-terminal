@@ -1,323 +1,263 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTerminal } from '../contexts/TerminalContext'
+import { useServerEvents } from '../contexts/ServerEventsContext'
+import { ClipboardFallback } from './ClipboardFallback'
+import { CopyChatView } from './CopyChatView'
+import { CopySheet, type CopySelection } from './CopySheet'
+import { CopyTerminalView } from './CopyTerminalView'
+import { askAgentPrompt, countLines, quoteForInput, type CopyFormat } from '../utils/copy-format'
+import { copyTextToClipboard } from '../utils/dump-file'
+import { fetchHistory, fetchTranscript, type TranscriptPage } from '../utils/transcript-api'
 
 interface CopyModeOverlayProps {
   lines: string[]
   initialScrollLine: number
   onClose: () => void
-  onFetchMore?: (page: number) => Promise<string[] | null>
 }
 
-// Matches $ > % ❯ ➜ # λ → prompt chars, or user@host:path patterns
-const PROMPT_RE = /^\s*[\]$>%❯➜#λ→]\s|^\S+@\S+[:%#$]|\$\s*$/
+type CopyView = 'chat' | 'terminal'
 
-const fallbackCopy = (text: string) => {
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0'
-  document.body.appendChild(ta)
-  ta.focus()
-  ta.select()
-  try { document.execCommand('copy') } catch { /* noop */ }
-  document.body.removeChild(ta)
+type ChatState =
+  | { status: 'loading' }
+  | { status: 'ready'; page: TranscriptPage }
+  | { status: 'unavailable'; reason: string }
+
+interface Toast {
+  id: number
+  message: string
+  tone: 'ok' | 'warn'
 }
 
-// leading-5 = 1.25rem = 20px at default font size
-const LINE_HEIGHT = 20
+export const INSERT_TEXT_EVENT = 'terminal-insert-text'
 
-function findOverlap(upper: string[], lower: string[]): number {
-  const maxCheck = Math.min(upper.length, lower.length)
-  for (let overlap = maxCheck; overlap >= 2; overlap--) {
-    let match = true
-    for (let i = 0; i < overlap; i++) {
-      if (upper[upper.length - overlap + i] !== lower[i]) { match = false; break }
-    }
-    if (match) return overlap
-  }
-  return 0
-}
+const TMUX_CHAT_REASON = '对话视图需要 herdr pane：只有 herdr 能告诉我们 pane 里跑的是哪个 agent'
 
-export const CopyModeOverlay: React.FC<CopyModeOverlayProps> = ({ lines: initialLines, initialScrollLine, onClose, onFetchMore }) => {
-  const [allLines, setAllLines] = useState(initialLines)
-  const [fetching, setFetching] = useState(false)
-  const [noMore, setNoMore] = useState(false)
-  const pageRef = useRef(1)
-  const [selStart, setSelStart] = useState<number | null>(null)
-  const [selEnd, setSelEnd] = useState<number | null>(null)
-  const [search, setSearch] = useState('')
-  const [searchNavIdx, setSearchNavIdx] = useState(0)
-  const [showCopied, setShowCopied] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const copiedTimer = useRef<number | null>(null)
-  const lineEls = useRef<(HTMLDivElement | null)[]>([])
-  const searchInputRef = useRef<HTMLInputElement>(null)
+export const CopyModeOverlay: React.FC<CopyModeOverlayProps> = ({ lines, initialScrollLine, onClose }) => {
+  const { mux, paneId, clientTty, submitText } = useTerminal()
+  const { tmuxSessions, projectGroups, otherSessions, tuiActive } = useServerEvents()
+  const herdrPane = mux === 'herdr' && paneId ? paneId : null
 
-  const commandLines = useMemo(() => {
-    const set = new Set<number>()
-    for (let i = 0; i < allLines.length; i++) {
-      if (PROMPT_RE.test(allLines[i])) set.add(i)
-    }
-    return set
-  }, [allLines])
+  const paneCommand = useMemo(() => {
+    if (!herdrPane) return null
+    const sessions = [...projectGroups.flatMap(group => group.sessions), ...otherSessions]
+    return sessions.find(session => session.name === herdrPane)?.command ?? null
+  }, [herdrPane, projectGroups, otherSessions])
+  const agentStatus = herdrPane ? tmuxSessions.find(session => session.name === herdrPane)?.agentStatus : undefined
+  const paneRunsAgent = herdrPane ? Boolean(paneCommand && paneCommand !== 'shell') : tuiActive
 
-  const findNextCommand = useCallback((from: number): number => {
-    for (let i = from + 1; i < allLines.length; i++) {
-      if (commandLines.has(i)) return i
-    }
-    return allLines.length
-  }, [allLines.length, commandLines])
+  const [view, setView] = useState<CopyView>(() => (herdrPane && paneRunsAgent ? 'chat' : 'terminal'))
+  const [chat, setChat] = useState<ChatState>(() => (
+    herdrPane ? { status: 'loading' } : { status: 'unavailable', reason: TMUX_CHAT_REASON }
+  ))
+  const [selections, setSelections] = useState<Record<CopyView, CopySelection | null>>({ chat: null, terminal: null })
+  const [format, setFormat] = useState<CopyFormat>('raw')
+  const [sheetHeight, setSheetHeight] = useState(0)
+  const [toast, setToast] = useState<Toast | null>(null)
+  const [fallbackText, setFallbackText] = useState<string | null>(null)
+  const [asking, setAsking] = useState(false)
+  const [focusSearchSignal, setFocusSearchSignal] = useState(0)
+  const toastTimerRef = useRef<number | null>(null)
+  const closeTimerRef = useRef<number | null>(null)
 
-  const selRange = useMemo(() => {
-    if (selStart === null || selEnd === null) return null
-    return {
-      from: Math.min(selStart, selEnd),
-      to: Math.max(selStart, selEnd),
-    }
-  }, [selStart, selEnd])
-
-  const selectedCount = selRange ? selRange.to - selRange.from + 1 : 0
-
-  const searchResults = useMemo(() => {
-    if (!search.trim()) return { hits: new Set<number>(), indices: [] as number[] }
-    const lower = search.toLowerCase()
-    const hits = new Set<number>()
-    const indices: number[] = []
-    for (let i = 0; i < allLines.length; i++) {
-      if (allLines[i].toLowerCase().includes(lower)) {
-        hits.add(i)
-        indices.push(i)
-      }
-    }
-    return { hits, indices }
-  }, [allLines, search])
-
-  const handleLineTap = useCallback((idx: number) => {
-    const isCmd = commandLines.has(idx)
-
-    if (selStart === null || selRange !== null) {
-      if (isCmd) {
-        const nextCmd = findNextCommand(idx)
-        setSelStart(idx)
-        setSelEnd(nextCmd - 1)
-      } else {
-        setSelStart(idx)
-        setSelEnd(null)
-      }
-    } else {
-      setSelEnd(idx)
-    }
-  }, [selStart, selRange, commandLines, findNextCommand])
-
-  const handleFetchMore = useCallback(async () => {
-    if (!onFetchMore || fetching || noMore) return
-    setFetching(true)
-    try {
-      const newLines = await onFetchMore(pageRef.current)
-      if (!newLines || newLines.length === 0) {
-        setNoMore(true)
-        return
-      }
-      pageRef.current++
-      setAllLines(prev => {
-        const overlap = findOverlap(newLines, prev)
-        if (overlap > 0) return [...newLines.slice(0, newLines.length - overlap), ...prev]
-        return [...newLines, ...prev]
-      })
-      requestAnimationFrame(() => { scrollRef.current?.scrollTo(0, 0) })
-    } finally {
-      setFetching(false)
-    }
-  }, [onFetchMore, fetching, noMore])
-
-  const getTextToCopy = useCallback(() => {
-    if (selRange) {
-      return allLines.slice(selRange.from, selRange.to + 1).join('\n')
-    }
-    return allLines.join('\n')
-  }, [allLines, selRange])
-
-  const handleCopy = useCallback(() => {
-    const text = getTextToCopy()
-    if (window.isSecureContext && navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(text)
-    } else {
-      fallbackCopy(text)
-    }
-    setShowCopied(true)
-    if (copiedTimer.current) clearTimeout(copiedTimer.current)
-    copiedTimer.current = window.setTimeout(() => setShowCopied(false), 1500)
-  }, [getTextToCopy])
-
-  const handleClearSelection = useCallback(() => {
-    setSelStart(null)
-    setSelEnd(null)
+  const showToast = useCallback((message: string, tone: Toast['tone'] = 'ok') => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    setToast({ id: Date.now(), message, tone })
+    toastTimerRef.current = window.setTimeout(() => setToast(null), tone === 'ok' ? 1600 : 2600)
   }, [])
 
-  const navigateSearch = useCallback((dir: 1 | -1) => {
-    const { indices } = searchResults
-    if (indices.length === 0) return
-    const next = (searchNavIdx + dir + indices.length) % indices.length
-    setSearchNavIdx(next)
-    const el = lineEls.current[indices[next]]
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [searchResults, searchNavIdx])
+  useEffect(() => () => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
+  }, [])
 
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el || initialScrollLine <= 0) return
-    requestAnimationFrame(() => {
-      el.scrollTop = initialScrollLine * LINE_HEIGHT
+    if (!herdrPane) return
+    let cancelled = false
+    void fetchTranscript(herdrPane).then(result => {
+      if (cancelled) return
+      if (result.ok) {
+        setChat({ status: 'ready', page: result.page })
+        return
+      }
+      setChat({ status: 'unavailable', reason: result.message })
+      setView('terminal')
     })
-  }, [initialScrollLine])
+    return () => { cancelled = true }
+  }, [herdrPane])
+
+  const loadHistory = useCallback(
+    (before: number) => fetchHistory(mux, paneId, clientTty, before),
+    [mux, paneId, clientTty],
+  )
+
+  const setTerminalSelection = useCallback((selection: CopySelection | null) => {
+    setSelections(previous => ({ ...previous, terminal: selection }))
+  }, [])
+  const setChatSelection = useCallback((selection: CopySelection | null) => {
+    setSelections(previous => ({ ...previous, chat: selection }))
+  }, [])
+
+  const copy = useCallback(async (text: string, what = '') => {
+    const copied = await copyTextToClipboard(text)
+    if (!copied) {
+      setFallbackText(text)
+      return
+    }
+    try { navigator.vibrate?.(12) } catch { /* unsupported */ }
+    showToast(`已复制${what} · ${countLines(text)} 行`)
+  }, [showToast])
+
+  const insertIntoInput = useCallback((text: string) => {
+    window.dispatchEvent(new CustomEvent(INSERT_TEXT_EVENT, { detail: { text: quoteForInput(text) } }))
+    onClose()
+  }, [onClose])
+
+  const askBlockedReason = agentStatus === 'blocked'
+    ? 'agent 正在等待确认，先在终端里处理'
+    : !paneRunsAgent ? '当前 pane 没有运行 agent，不会把内容当命令发出去' : null
+
+  const askAgent = useCallback(async (text: string) => {
+    if (askBlockedReason) {
+      showToast(askBlockedReason, 'warn')
+      return
+    }
+    if (asking) return
+    setAsking(true)
+    const result = await submitText(askAgentPrompt(text), { submit: true })
+    setAsking(false)
+    if (!result.ok) {
+      showToast(result.message ?? '发送失败，请重试', 'warn')
+      return
+    }
+    showToast('已发给 agent')
+    closeTimerRef.current = window.setTimeout(onClose, 700)
+  }, [askBlockedReason, asking, submitText, showToast, onClose])
+
+  const switchView = (next: CopyView) => {
+    if (next === 'chat' && chat.status === 'unavailable') {
+      showToast(chat.reason, 'warn')
+      return
+    }
+    setView(next)
+  }
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose() }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); searchInputRef.current?.focus() }
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        if (fallbackText !== null) setFallbackText(null)
+        else onClose()
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+        event.preventDefault()
+        setView('terminal')
+        setFocusSearchSignal(signal => signal + 1)
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, fallbackText])
 
-  useEffect(() => {
-    return () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }
-  }, [])
-
-  useEffect(() => {
-    setSearchNavIdx(0)
-    if (searchResults.indices.length > 0) {
-      const el = lineEls.current[searchResults.indices[0]]
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [searchResults.indices])
-
-  const highlightSearch = (text: string): React.ReactNode => {
-    if (!search.trim() || !text) return text || '\u00A0'
-    const lower = text.toLowerCase()
-    const sLower = search.toLowerCase()
-    const parts: React.ReactNode[] = []
-    let last = 0
-    let pos = lower.indexOf(sLower)
-    let key = 0
-    while (pos !== -1) {
-      if (pos > last) parts.push(text.slice(last, pos))
-      parts.push(
-        <span key={key++} className="bg-accent-orange/50 text-white rounded-sm px-px">{text.slice(pos, pos + search.length)}</span>
-      )
-      last = pos + search.length
-      pos = lower.indexOf(sLower, last)
-    }
-    if (last < text.length) parts.push(text.slice(last))
-    return parts.length > 0 ? <>{parts}</> : (text || '\u00A0')
-  }
+  const activeSelection = selections[view]
+  const chatDisabled = chat.status === 'unavailable'
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-bg-primary animate-in fade-in">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle shrink-0">
-        <div className="flex-1 relative">
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); navigateSearch(e.shiftKey ? -1 : 1) }
-            }}
-            placeholder="Search..."
-            className="w-full bg-bg-tertiary text-text-primary text-sm rounded-lg pl-3 pr-20 py-1.5 border border-border-subtle outline-none focus:border-accent-blue placeholder:text-text-muted"
-          />
-          {search && (
-            <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              <span className="text-xs text-text-muted mr-0.5">
-                {searchResults.indices.length > 0 ? `${searchNavIdx + 1}/${searchResults.indices.length}` : '0'}
-              </span>
-              <button onClick={() => navigateSearch(-1)} className="text-text-muted active:text-text-primary p-0.5 text-xs">▲</button>
-              <button onClick={() => navigateSearch(1)} className="text-text-muted active:text-text-primary p-0.5 text-xs">▼</button>
-            </div>
-          )}
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-bg-primary pt-[env(safe-area-inset-top)] animate-in fade-in">
+      <div className="flex min-h-12 shrink-0 items-center gap-2.5 border-b border-border-subtle px-3 py-2">
+        <span className="text-base font-semibold text-text-primary">复制</span>
+        <span className="min-w-0 flex-1" />
+        <div role="group" aria-label="视图" className="flex rounded-lg border border-border-subtle bg-bg-tertiary p-0.5">
+          <button
+            aria-pressed={view === 'chat'}
+            aria-disabled={chatDisabled}
+            title={chatDisabled ? chat.reason : undefined}
+            onClick={() => switchView('chat')}
+            className={`rounded-md px-3 py-1 text-[13px] ${
+              view === 'chat' ? 'bg-bg-primary text-text-primary shadow' : chatDisabled ? 'text-text-muted line-through' : 'text-text-secondary'
+            }`}
+          >
+            对话
+          </button>
+          <button
+            aria-pressed={view === 'terminal'}
+            onClick={() => switchView('terminal')}
+            className={`rounded-md px-3 py-1 text-[13px] ${view === 'terminal' ? 'bg-bg-primary text-text-primary shadow' : 'text-text-secondary'}`}
+          >
+            终端
+          </button>
         </div>
         <button
-          onClick={handleCopy}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-accent-blue text-white active:scale-95 transition-transform shrink-0"
-        >
-          {selRange ? `Copy (${selectedCount})` : 'Copy All'}
-        </button>
-        <button
           onClick={onClose}
-          className="min-w-[32px] py-1.5 rounded-lg text-sm bg-bg-tertiary text-text-secondary border border-border-subtle active:scale-95 transition-transform"
+          aria-label="关闭复制界面"
+          className="h-8 min-w-[32px] rounded-lg border border-border-subtle bg-bg-tertiary text-sm text-text-secondary active:scale-95"
         >
           ✕
         </button>
       </div>
 
-      {selRange && (
-        <div className="flex items-center justify-between px-3 py-1 bg-accent-blue/10 border-b border-accent-blue/30 shrink-0">
-          <span className="text-xs text-accent-blue">
-            {selectedCount} line{selectedCount !== 1 ? 's' : ''} selected
-          </span>
-          <button onClick={handleClearSelection} className="text-xs text-text-muted active:text-text-primary">
-            Clear
-          </button>
+      {view === 'terminal' && chatDisabled && herdrPane && (
+        <div className="shrink-0 truncate border-b border-border-subtle px-3 py-1 text-[11.5px] text-text-muted">
+          对话视图不可用：{chat.reason}
         </div>
       )}
 
-      {!selRange && !search && (
-        <div className="px-3 py-1 border-b border-border-subtle shrink-0">
-          <span className="text-xs text-text-muted">
-            Tap a line to start selecting · Tap a{' '}
-            <span className="text-accent-purple">command</span> to select its block
-          </span>
-        </div>
-      )}
-
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-auto overscroll-contain">
-        {onFetchMore && !noMore && (
-          <button
-            onClick={handleFetchMore}
-            disabled={fetching}
-            className="w-full py-2 text-xs text-accent-blue bg-accent-blue/10 border-b border-accent-blue/20 active:bg-accent-blue/20 disabled:opacity-50 shrink-0"
-          >
-            {fetching ? 'Loading...' : '▲ Fetch previous page'}
-          </button>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {view === 'chat' && chat.status === 'loading' && (
+          <div className="flex flex-1 items-center justify-center text-sm text-text-muted">正在读取会话记录…</div>
         )}
-        {allLines.map((line, i) => {
-          const isCmd = commandLines.has(i)
-          const inSel = selRange !== null && i >= selRange.from && i <= selRange.to
-          const isAnchor = i === selStart || i === selEnd
-          const isSearchHit = searchResults.hits.has(i)
-          const isCurrentSearchHit = searchResults.indices[searchNavIdx] === i
+        {chat.status === 'ready' && herdrPane && (
+          <CopyChatView
+            active={view === 'chat'}
+            paneId={herdrPane}
+            initialPage={chat.page}
+            agentStatus={agentStatus}
+            bottomInset={view === 'chat' ? sheetHeight : 0}
+            onSelectionChange={setChatSelection}
+            onCopy={(text, what) => { void copy(text, what) }}
+            onShowTerminal={() => setView('terminal')}
+          />
+        )}
+        <CopyTerminalView
+          active={view === 'terminal'}
+          initialLines={lines}
+          initialScrollLine={initialScrollLine}
+          loadHistory={loadHistory}
+          bottomInset={view === 'terminal' ? sheetHeight : 0}
+          focusSearchSignal={focusSearchSignal}
+          onSelectionChange={setTerminalSelection}
+        />
 
-          return (
-            <div
-              key={i}
-              ref={el => { lineEls.current[i] = el }}
-              onClick={() => handleLineTap(i)}
-              className={[
-                'px-3 font-mono text-xs leading-5 border-l-2 select-none cursor-pointer whitespace-nowrap',
-                inSel
-                  ? isAnchor
-                    ? 'bg-accent-blue/25 border-l-accent-blue text-text-primary'
-                    : 'bg-accent-blue/15 border-l-accent-blue/60 text-text-primary'
-                  : isCurrentSearchHit
-                    ? 'bg-accent-orange/20 border-l-accent-orange text-text-primary'
-                    : isSearchHit
-                      ? 'bg-accent-orange/10 border-l-accent-orange/40 text-text-primary'
-                      : isCmd
-                        ? 'border-l-accent-purple/50 text-text-primary'
-                        : 'border-l-transparent text-text-secondary',
-                'active:bg-accent-blue/20',
-              ].join(' ')}
-            >
-              {highlightSearch(line)}
-            </div>
-          )
-        })}
+        {activeSelection && (
+          <CopySheet
+            selection={activeSelection}
+            format={format}
+            onFormatChange={setFormat}
+            onCopy={text => { void copy(text) }}
+            onInsert={insertIntoInput}
+            onAsk={text => { void askAgent(text) }}
+            askBlockedReason={askBlockedReason}
+            askBusy={asking}
+            onHeightChange={setSheetHeight}
+          />
+        )}
+
+        {toast && (
+          <div
+            key={toast.id}
+            role="status"
+            className={`pointer-events-none absolute left-1/2 top-3 z-40 max-w-[calc(100%-32px)] -translate-x-1/2 rounded-full border bg-tint-surface/95 px-3.5 py-1.5 text-center text-[13px] shadow-lg ${
+              toast.tone === 'ok' ? 'border-tint-green/50 text-text-primary' : 'border-tint-orange/60 text-accent-orange'
+            }`}
+          >
+            {toast.tone === 'ok' && <span className="mr-1 font-bold text-accent-green">✓</span>}
+            {toast.message}
+          </div>
+        )}
+
+        {fallbackText !== null && (
+          <ClipboardFallback text={fallbackText} onClose={() => setFallbackText(null)} />
+        )}
       </div>
-
-      {showCopied && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-accent-green/80 backdrop-blur-sm border border-accent-green/50 text-white text-sm font-mono pointer-events-none select-none z-10">
-          Copied!
-        </div>
-      )}
     </div>
   )
 }

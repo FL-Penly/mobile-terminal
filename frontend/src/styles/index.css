@@ -16,6 +16,13 @@
   --text-muted: #6e7681;
   --border-subtle: #30363d;
   --glow-ai: rgba(163, 113, 247, 0.15);
+  /* RGB channels for the tint-* colors, which support Tailwind opacity modifiers. */
+  --tint-blue: 88 166 255;
+  --tint-green: 63 185 80;
+  --tint-red: 248 81 73;
+  --tint-purple: 163 113 247;
+  --tint-orange: 210 153 34;
+  --tint-surface: 22 27 34;
 }
 
 @layer base {
