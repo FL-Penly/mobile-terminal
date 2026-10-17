@@ -223,6 +223,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tmux/page-up", get(api_tmux_page_up))
         .route("/api/herdr/list", get(api_herdr_list))
         .route("/api/herdr/focus", get(api_herdr_focus))
+        .route("/api/herdr/scroll", get(api_herdr_scroll))
         .route("/api/herdr/create", get(api_herdr_create))
         .route("/api/herdr/close", get(api_herdr_close))
         .route("/api/herdr/rename", post(api_herdr_rename))
@@ -2968,6 +2969,12 @@ struct HerdrCaptureQuery {
 }
 
 #[derive(Deserialize)]
+struct HerdrScrollQuery {
+    pane: Option<String>,
+    lines: i64,
+}
+
+#[derive(Deserialize)]
 struct HerdrPageQuery {
     pane: Option<String>,
     before: Option<u64>,
@@ -3002,6 +3009,40 @@ async fn api_herdr_focus(Query(query): Query<HerdrPaneQuery>) -> Response {
         .into_response(),
         Err(error) => herdr_operation_error("focus_failed", error),
     }
+}
+
+// ─── GET /api/herdr/scroll ─────────────────────────────────────────────────
+
+// Positive `lines` move toward older output, matching Herdr's offset_from_bottom.
+async fn api_herdr_scroll(Query(query): Query<HerdrScrollQuery>) -> Response {
+    let pane_id = match required_herdr_pane(query.pane) {
+        Ok(pane_id) => pane_id,
+        Err(()) => return missing_herdr_pane_response(),
+    };
+    let pane = match herdr::request("pane.get", serde_json::json!({ "pane_id": pane_id })).await {
+        Ok(result) => result,
+        Err(error) => return herdr_operation_error("scroll_failed", error),
+    };
+    let scroll = &pane["pane"]["scroll"];
+    let offset = scroll["offset_from_bottom"].as_u64().unwrap_or(0);
+    let max_offset = scroll["max_offset_from_bottom"].as_u64().unwrap_or(0);
+    let target = herdr_scroll_target(offset, max_offset, query.lines);
+    if target != offset {
+        let params = serde_json::json!({ "pane_id": pane_id, "offset_from_bottom": target });
+        if let Err(error) = herdr::request("pane.scroll", params).await {
+            return herdr_operation_error("scroll_failed", error);
+        }
+    }
+    Json(serde_json::json!({
+        "success": true,
+        "paneId": pane_id,
+        "offsetFromBottom": target,
+    }))
+    .into_response()
+}
+
+fn herdr_scroll_target(offset: u64, max_offset: u64, lines: i64) -> u64 {
+    offset.saturating_add_signed(lines).min(max_offset)
 }
 
 // ─── POST /api/herdr/paste ─────────────────────────────────────────────────────
@@ -6535,5 +6576,15 @@ mod tests {
 
         assert_eq!(first, "/repo/one/subdir");
         assert_eq!(second, "/repo/two");
+    }
+
+    #[test]
+    fn herdr_scroll_target_clamps_to_scrollback_bounds() {
+        assert_eq!(herdr_scroll_target(0, 100, 3), 3);
+        assert_eq!(herdr_scroll_target(10, 100, -4), 6);
+        assert_eq!(herdr_scroll_target(2, 100, -5), 0);
+        assert_eq!(herdr_scroll_target(98, 100, 5), 100);
+        assert_eq!(herdr_scroll_target(0, 0, 1), 0);
+        assert_eq!(herdr_scroll_target(u64::MAX, u64::MAX, i64::MAX), u64::MAX);
     }
 }

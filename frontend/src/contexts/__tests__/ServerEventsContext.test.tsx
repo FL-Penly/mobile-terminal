@@ -20,9 +20,9 @@ class EventSourceMock {
 }
 
 const Probe = () => {
-  const { sessionsLoaded, projectGroups, isOffline, tuiActive } = useServerEvents()
+  const { sessionsLoaded, projectGroups, isOffline, tuiActive, herdrScrollback } = useServerEvents()
   const status = projectGroups[0]?.sessions[0]?.agentStatus
-  return <div data-tui-active={tuiActive ? 'true' : 'false'}>{sessionsLoaded ? 'loaded' : 'loading'}:{projectGroups.length}:{isOffline ? 'offline' : 'online'}{status ? `:${status}` : ''}</div>
+  return <div data-tui-active={tuiActive ? 'true' : 'false'} data-herdr-scrollback={herdrScrollback ? 'true' : 'false'}>{sessionsLoaded ? 'loaded' : 'loading'}:{projectGroups.length}:{isOffline ? 'offline' : 'online'}{status ? `:${status}` : ''}</div>
 }
 
 describe('ServerEventsProvider', () => {
@@ -85,6 +85,7 @@ describe('ServerEventsProvider', () => {
     render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
     await waitFor(() => expect(screen.getByText('loaded:1:online:working')).toBeInTheDocument())
     expect(screen.getByText('loaded:1:online:working')).toHaveAttribute('data-tui-active', 'true')
+    expect(screen.getByText('loaded:1:online:working')).toHaveAttribute('data-herdr-scrollback', 'false')
     expect(EventSourceMock.instances[0].url).toContain('mux=herdr')
     expect(fetch).toHaveBeenCalledWith('/api/diff?mux=herdr&pane=w4%3Ap1', expect.anything())
     act(() => {
@@ -99,6 +100,26 @@ describe('ServerEventsProvider', () => {
     await waitFor(() => expect(screen.getByText('loaded:1:online:idle')).toBeInTheDocument())
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
     expect(notifications).toEqual([{ title: 'Rust Terminal agent update', body: 'w4:p1 is idle' }])
+  })
+
+  it('routes Herdr agents without mouse reporting to Herdr scrollback', async () => {
+    terminalState.clientTty = null
+    terminalState.mux = 'herdr'
+    terminalState.paneId = 'w5:pV'
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve(new Response(JSON.stringify(
+      String(input).startsWith('/api/diff')
+        ? { branch: '', cwd: '/tmp' }
+        : {
+            panes: [{ pane_id: 'w5:pV', workspace_id: 'w5', cwd: '/tmp', agent_status: 'idle' }],
+            workspaces: [{ workspace_id: 'w5', label: 'test' }],
+            agents: [{ pane_id: 'w5:pV', agent: 'cursor', agent_status: 'idle' }],
+          },
+    )))))
+
+    render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    await waitFor(() => expect(screen.getByText('loaded:1:online:idle')).toBeInTheDocument())
+    expect(screen.getByText('loaded:1:online:idle')).toHaveAttribute('data-tui-active', 'false')
+    expect(screen.getByText('loaded:1:online:idle')).toHaveAttribute('data-herdr-scrollback', 'true')
   })
 
   it('applies Herdr workspace and tab renames pushed over SSE while keeping pane ids', async () => {

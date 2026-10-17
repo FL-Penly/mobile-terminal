@@ -4,6 +4,9 @@ import { mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions
 import { withTerminalTarget } from '../utils/terminal-api'
 
 const POLL_INTERVAL = 5000
+// Herdr hides pane mouse modes, so these agents scroll Herdr's scrollback instead of receiving
+// wheel sequences that would arrive as typed text.
+const NO_MOUSE_AGENTS = new Set(['cursor'])
 
 interface RawTmuxSession {
   name: string
@@ -73,6 +76,7 @@ interface ServerEventsContextValue {
   branch: string
   path: string
   tuiActive: boolean
+  herdrScrollback: boolean
   tmuxSessions: TmuxSession[]
   projectGroups: TmuxProjectGroup[]
   otherSessions: DiscoveredTmuxSession[]
@@ -113,6 +117,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [currentTmuxSession, setCurrentTmuxSession] = useState<string | null>(null)
   const [isOffline, setIsOffline] = useState(false)
   const [tuiActive, setTuiActive] = useState(false)
+  const [herdrScrollback, setHerdrScrollback] = useState(false)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [lastViewedMap, setLastViewedMap] = useState<Record<string, number>>({})
   const pollIntervalRef = useRef<number | null>(null)
@@ -207,7 +212,10 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setCurrentTmuxSession(paneId)
     const currentPane = panes.find(pane => pane.pane_id === paneId)
     const currentAgent = paneId ? agents.get(paneId) : undefined
-    setTuiActive(Boolean(currentAgent?.agent ?? currentPane?.agent))
+    const agent = currentAgent?.agent ?? currentPane?.agent
+    const noMouseAgent = NO_MOUSE_AGENTS.has(agent ?? '')
+    setTuiActive(Boolean(agent) && !noMouseAgent)
+    setHerdrScrollback(noMouseAgent)
     setSessionsLoaded(true)
   }, [paneId])
 
@@ -371,6 +379,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     branch,
     path,
     tuiActive,
+    herdrScrollback,
     tmuxSessions,
     projectGroups,
     otherSessions,
@@ -380,7 +389,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     clientTty,
     sessionsLoaded,
     refresh,
-  }), [branch, path, tuiActive, tmuxSessions, projectGroups, otherSessions, tmuxScannedAt, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
+  }), [branch, path, tuiActive, herdrScrollback, tmuxSessions, projectGroups, otherSessions, tmuxScannedAt, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
 
   return <ServerEventsContext.Provider value={value}>{children}</ServerEventsContext.Provider>
 }

@@ -24,8 +24,8 @@ export const Terminal = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux } = useTerminal()
-  const { tuiActive } = useServerEvents()
+  const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux, paneId } = useTerminal()
+  const { tuiActive, herdrScrollback } = useServerEvents()
   const setClientTtyRef = useRef(setClientTty)
   
   const [fontSize, setFontSize] = useState(() => {
@@ -46,6 +46,9 @@ export const Terminal = () => {
   const muxRef = useRef(mux)
   const wheelAccumRef = useRef(0)
   const selectionPolicyRef = useRef<'local' | 'pty'>('local')
+  const paneIdRef = useRef(paneId)
+  const herdrScrollbackRef = useRef(false)
+  const herdrScrollRef = useRef({ pendingLines: 0, inFlight: false })
   const clientTtyValueRef = useRef<string | null>(null)
   const [copyModeData, setCopyModeData] = useState<{ lines: string[]; viewportLine: number } | null>(null)
   const xtermScreenRef = useRef<HTMLElement | null>(null)
@@ -58,6 +61,32 @@ export const Terminal = () => {
   useEffect(() => { sendInputRef.current = sendInput }, [sendInput])
   useEffect(() => { muxRef.current = mux }, [mux])
   useEffect(() => { selectionPolicyRef.current = tuiActive ? 'pty' : 'local' }, [tuiActive])
+  useEffect(() => {
+    paneIdRef.current = paneId
+    herdrScrollRef.current.pendingLines = 0
+  }, [paneId])
+  useEffect(() => { herdrScrollbackRef.current = herdrScrollback }, [herdrScrollback])
+
+  const flushHerdrScroll = useCallback(async () => {
+    const scroll = herdrScrollRef.current
+    const pane = paneIdRef.current
+    if (scroll.inFlight || scroll.pendingLines === 0 || !pane) return
+    const lines = scroll.pendingLines
+    scroll.pendingLines = 0
+    scroll.inFlight = true
+    try {
+      await fetch(`/api/herdr/scroll?pane=${encodeURIComponent(pane)}&lines=${lines}`, { signal: AbortSignal.timeout(3000) })
+    } catch (err) {
+      console.error('[Terminal] Herdr scroll failed:', err)
+    } finally {
+      scroll.inFlight = false
+    }
+    void flushHerdrScroll()
+  }, [])
+
+  const isHerdrScrollTarget = useCallback(() => (
+    muxRef.current === 'herdr' && (selectionPolicyRef.current === 'pty' || herdrScrollbackRef.current)
+  ), [])
 
   const sendTerminalWheel = useCallback((direction: 'up' | 'down', clientX: number, clientY: number) => {
     const term = termRef.current
@@ -67,12 +96,15 @@ export const Terminal = () => {
     const col = Math.max(1, Math.min(term.cols, Math.floor((clientX - rect.left) / (rect.width / term.cols)) + 1))
     const row = Math.max(1, Math.min(term.rows, Math.floor((clientY - rect.top) / (rect.height / term.rows)) + 1))
     const button = direction === 'down' ? 65 : 64
-    if (muxRef.current === 'herdr' || mouseStateRef.current.sgrMode) {
+    if (muxRef.current === 'herdr' && herdrScrollbackRef.current) {
+      herdrScrollRef.current.pendingLines += direction === 'up' ? 1 : -1
+      void flushHerdrScroll()
+    } else if (muxRef.current === 'herdr' || mouseStateRef.current.sgrMode) {
       sendInputRef.current(`\x1b[<${button};${col};${row}M`)
     } else {
       sendInputRef.current(`\x1b[M${String.fromCharCode(button + 32)}${String.fromCharCode(col + 32)}${String.fromCharCode(row + 32)}`)
     }
-  }, [])
+  }, [flushHerdrScroll])
 
   const handleResize = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
@@ -160,7 +192,7 @@ export const Terminal = () => {
 
       // Forward TUI scrolling explicitly. Herdr full frames omit DEC mouse-mode setup,
       // so xterm cannot infer wheel reporting from the frame by itself.
-      if ((isAltBuffer && ms.mouseTracking) || (muxRef.current === 'herdr' && selectionPolicyRef.current === 'pty')) {
+      if ((isAltBuffer && ms.mouseTracking) || isHerdrScrollTarget()) {
         const y = e.touches[0].clientY
         const delta = t.lastY - y
         t.lastY = y
@@ -183,7 +215,7 @@ export const Terminal = () => {
       }
       // Shell panes still use xterm's native scrollback and selection.
     }
-  }, [sendTerminalWheel, updateFontSize])
+  }, [isHerdrScrollTarget, sendTerminalWheel, updateFontSize])
 
   const handleTouchEnd = useCallback((e: TouchEvent) => {
     const prevMode = touchRef.current.mode
@@ -562,7 +594,7 @@ export const Terminal = () => {
     container.addEventListener('touchend', handleTouchEnd, { passive: true })
 
     const handleWheel = (event: WheelEvent) => {
-      if (muxRef.current !== 'herdr' || selectionPolicyRef.current !== 'pty' || !xtermScreen) return
+      if (!isHerdrScrollTarget() || !xtermScreen) return
       event.preventDefault()
       event.stopImmediatePropagation()
       const rect = xtermScreen.getBoundingClientRect()
@@ -673,7 +705,7 @@ export const Terminal = () => {
       container.removeEventListener('paste', handlePaste, true)
       term.dispose()
     }
-  }, [subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd, sendTerminalWheel])
+  }, [subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd, isHerdrScrollTarget, sendTerminalWheel])
 
   const zoomPercent = Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)
 
