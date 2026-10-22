@@ -22,7 +22,10 @@ const workspace = {
   activeItem: { kind: 'copy', id: 'copy-test' },
 }
 
-const loadGoalBoard = async (fetchMock: ReturnType<typeof vi.fn>) => {
+const loadGoalBoard = async (
+  fetchMock: ReturnType<typeof vi.fn>,
+  isReady = () => expect(document.querySelectorAll('.expand-editor')).toHaveLength(3),
+) => {
   const script = goalBoardHtml.match(/<script>([\s\S]*)<\/script>/)?.[1]
   if (!script) throw new Error('Goal 工作台脚本缺失')
 
@@ -32,9 +35,7 @@ const loadGoalBoard = async (fetchMock: ReturnType<typeof vi.fn>) => {
   vi.stubGlobal('fetch', fetchMock)
   window.eval(script)
 
-  await waitFor(() => {
-    expect(document.querySelectorAll('.expand-editor')).toHaveLength(3)
-  })
+  await waitFor(isReady)
 }
 
 describe('Goal 工作台编辑入口', () => {
@@ -221,5 +222,93 @@ describe('Goal 移动工作流', () => {
     fireEvent.click(document.getElementById('select-result')!)
     const text = document.getElementById('result-text') as HTMLTextAreaElement
     expect(text.selectionEnd - text.selectionStart).toBe(text.value.length)
+  })
+})
+
+const templateWorkspace = {
+  version: 1,
+  templates: [{
+    id: 'template-meta',
+    title: '出GOAL｜元prompt',
+    variables: [
+      { name: '部署', defaultValue: 'ppe ppe_fl_dev4 CN' },
+      { name: '已知坑', defaultValue: '坑1' },
+    ],
+    body: '母版正文',
+    createdAt: '2026-10-22T00:00:00.000Z',
+    updatedAt: '2026-10-22T00:00:00.000Z',
+  }],
+  workingCopies: [{
+    id: 'copy-meta',
+    sourceTemplateId: 'template-meta',
+    sourceTemplateTitle: '出GOAL｜元prompt',
+    title: '本次副本',
+    variables: [
+      { name: '部署', value: 'ppe ppe_fl_dev4 CN' },
+      { name: '已知坑', value: '坑1' },
+    ],
+    body: '母版正文',
+    createdAt: '2026-10-22T00:00:00.000Z',
+    updatedAt: '2026-10-22T00:00:00.000Z',
+  }],
+  activeItem: { kind: 'copy', id: 'copy-meta' },
+}
+
+const createTemplateServer = (initial: object) => {
+  let saved = JSON.parse(JSON.stringify(initial))
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST') saved = JSON.parse(String(init.body))
+    return new Response(JSON.stringify(saved))
+  })
+  return { fetchMock, saved: () => saved }
+}
+
+describe('Goal 母版维护', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+  it('副本里的参数和正文经确认后存回母版，副本本身不变', async () => {
+    const server = createTemplateServer(templateWorkspace)
+    await loadGoalBoard(server.fetchMock, () => expect(document.querySelectorAll('.save-default')).toHaveLength(3))
+    fireEvent.input(document.querySelector('textarea[aria-label="已知坑 的值"]')!, { target: { value: '坑1\n坑2：新踩的' } })
+    fireEvent.input(document.getElementById('copy-body')!, { target: { value: '改过的正文' } })
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(document.querySelector('[data-save-default="1"]')!)
+    expect(server.saved().templates[0].variables[1].defaultValue).toBe('坑1')
+
+    confirmSpy.mockReturnValue(true)
+    fireEvent.click(document.querySelector('[data-save-default="1"]')!)
+    await waitFor(() => expect(server.saved().templates[0].variables[1].defaultValue).toBe('坑1\n坑2：新踩的'))
+    expect(server.saved().templates[0].variables[0].defaultValue).toBe('ppe ppe_fl_dev4 CN')
+    expect(server.saved().templates[0].body).toBe('母版正文')
+
+    fireEvent.click(document.getElementById('save-body-default')!)
+    await waitFor(() => expect(server.saved().templates[0].body).toBe('改过的正文'))
+    expect(server.saved().workingCopies[0].variables[1].value).toBe('坑1\n坑2：新踩的')
+  })
+
+  it('源母版已删除的副本不显示存回按钮', async () => {
+    const server = createTemplateServer({ ...templateWorkspace, templates: [] })
+    await loadGoalBoard(server.fetchMock, () => expect(document.getElementById('copy-body')).not.toBeNull())
+    expect(document.querySelector('.save-default')).toBeNull()
+  })
+
+  it('在母版页编辑并保存母版', async () => {
+    const server = createTemplateServer({ ...templateWorkspace, activeItem: { kind: 'template', id: 'template-meta' } })
+    await loadGoalBoard(server.fetchMock, () => expect(document.getElementById('edit-template')).not.toBeNull())
+    fireEvent.click(document.getElementById('edit-template')!)
+    fireEvent.input(document.querySelectorAll<HTMLTextAreaElement>('.draft-variable-value')[1], { target: { value: '坑1\n坑3' } })
+    fireEvent.input(document.getElementById('template-body')!, { target: { value: '新的母版正文' } })
+    fireEvent.click(document.getElementById('save-template')!)
+
+    await waitFor(() => expect(server.saved().templates[0]).toMatchObject({
+      id: 'template-meta',
+      body: '新的母版正文',
+      variables: [
+        { name: '部署', defaultValue: 'ppe ppe_fl_dev4 CN' },
+        { name: '已知坑', defaultValue: '坑1\n坑3' },
+      ],
+    }))
+    expect(document.getElementById('edit-template')).not.toBeNull()
   })
 })

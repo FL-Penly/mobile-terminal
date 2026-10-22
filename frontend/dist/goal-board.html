@@ -221,6 +221,17 @@
     font-size: 11px;
   }
   .row-actions { display: flex; gap: 5px; }
+  .variable-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+  .save-default {
+    min-height: 26px;
+    padding: 2px 8px;
+    border-color: rgba(255, 255, 255, .12);
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .section-head .section-label { margin-bottom: 0; }
   .row-actions button { min-width: 32px; padding: 4px 8px; }
   .body-editor { min-height: 48vh; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .field-label { display: block; margin: 0 0 6px; color: var(--muted); font-size: 12px; }
@@ -321,6 +332,7 @@
     .card-body { padding: 14px; }
     .variable-readonly, .variable-edit { grid-template-columns: 1fr; gap: 5px; }
     .variable-name { padding-top: 0; }
+    .variable-side { flex-direction: row; align-items: center; justify-content: space-between; }
     .variable-edit .row-actions { justify-content: flex-end; }
     .body-editor { min-height: 42vh; }
     .large-variable .copy-variable-value { min-height: 180px; }
@@ -852,16 +864,17 @@ function renderTemplateView(template) {
       '</div><pre class="variable-value">' + escapeHtml(variable.defaultValue) + '</pre></div>';
   }).join('');
   byId('detail').innerHTML =
-    '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">Goal 分组自动合并 · 只读</div>' +
+    '<article class="card"><div class="card-head"><div class="card-heading"><div class="eyebrow">Goal 母版</div>' +
     '<h2>' + escapeHtml(template.title || '未命名母版') + '</h2><div class="meta">更新于 ' +
-    escapeHtml(formatUpdated(template.updatedAt)) + ' · 已按 Prompt 库中的块顺序拼成完整内容</div></div>' +
+    escapeHtml(formatUpdated(template.updatedAt)) + ' · 改母版只影响之后新建的副本</div></div>' +
     '<div class="actions"><button id="create-copy" class="primary">新建工作副本</button>' +
-    '<button id="copy-template">复制完整 Goal</button></div></div>' +
+    '<button id="copy-template">复制完整 Goal</button><button id="edit-template">编辑母版</button></div></div>' +
     '<div class="card-body"><section class="section"><span class="section-label">变量默认值</span>' +
     '<div class="variable-list">' + (variables || '<div class="notice">此母版没有变量。</div>') + '</div></section>' +
     '<section class="section"><span class="section-label">完整 Goal 正文</span><pre class="readonly-body">' +
     escapeHtml(template.body) + '</pre></section></div></article>';
   byId('create-copy').addEventListener('click', () => createWorkingCopy(template));
+  byId('edit-template').addEventListener('click', () => startEditTemplate(template));
   byId('copy-template').addEventListener('click', () => copyCompleteGoal(
     template.variables.map((variable) => ({ name: variable.name, value: variable.defaultValue })),
     template.body
@@ -996,11 +1009,42 @@ function renderDumpFeedback(copy) {
   byId('undo-replacement')?.addEventListener('click', () => undoDumpReplacement(copy));
 }
 
+function sourceTemplate(copy) {
+  return workspace.templates.find((template) => template.id === copy.sourceTemplateId) || null;
+}
+
+function saveVariableAsDefault(copy, index) {
+  const template = sourceTemplate(copy);
+  const variable = copy.variables[index];
+  if (!template || !variable) return;
+  const existing = template.variables.find((item) => item.name === variable.name);
+  if (existing && existing.defaultValue === variable.value) return toast('母版里已经是这个内容');
+  if (!confirm('用当前「' + variable.name + '」的内容覆盖母版「' + template.title + '」的默认值？之后新建的副本都会用它。')) return;
+  if (existing) existing.defaultValue = variable.value;
+  else template.variables.push({ name: variable.name, defaultValue: variable.value });
+  template.updatedAt = nowIso();
+  renderSidebar();
+  persistNow().then(() => toast('已存为母版默认')).catch(() => toast('母版保存失败，可重试'));
+}
+
+function saveBodyToTemplate(copy) {
+  const template = sourceTemplate(copy);
+  if (!template) return;
+  if (template.body === copy.body) return toast('母版正文已经是这个内容');
+  if (!confirm('用当前正文覆盖母版「' + template.title + '」的正文？之后新建的副本都会用它。')) return;
+  template.body = copy.body;
+  template.updatedAt = nowIso();
+  renderSidebar();
+  persistNow().then(() => toast('正文已存回母版')).catch(() => toast('母版保存失败，可重试'));
+}
+
 function renderCopyView(copy) {
+  const canSaveBack = Boolean(sourceTemplate(copy));
   const variables = copy.variables.map((variable, index) => {
     const largeClass = isLargeVariableValue(variable.value) ? ' large-variable' : '';
     return '<div class="variable-readonly max-[780px]:rounded-xl max-[780px]:bg-[var(--panel)] max-[780px]:p-3' + largeClass + '" data-copy-variable-index="' + index + '">' +
-      '<div class="variable-name">' + escapeHtml(variable.name) + '</div>' +
+      '<div class="variable-side"><div class="variable-name">' + escapeHtml(variable.name) + '</div>' +
+      (canSaveBack ? '<button class="save-default" data-save-default="' + index + '" title="把这个参数的当前内容存成母版默认值">存为母版默认</button>' : '') + '</div>' +
       '<div class="editable-field">' +
       '<textarea rows="1" class="copy-variable-value max-[780px]:!min-h-11 max-[780px]:!h-11 max-[780px]:!pr-3" aria-label="' + escapeHtml(variable.name) +
       ' 的值" placeholder="本次变量值，可多行">' + escapeHtml(variable.value) + '</textarea>' +
@@ -1020,7 +1064,8 @@ function renderCopyView(copy) {
     '<div class="card-body"><div id="dump-feedback" role="status"></div>' +
     '<section id="panel-parameters" data-panel="parameters" class="section"><span class="section-label">本次参数 <span class="max-[780px]:!hidden">· 选中文字可提取为附件</span></span>' +
     '<div class="variable-list">' + (variables || '<div class="notice">此副本没有变量。</div>') + '</div><button id="more-parameters" class="!hidden min-[781px]:!hidden mt-3 w-full !text-xs"></button></section>' +
-    '<section id="panel-body" data-panel="body" class="section max-[780px]:!mt-0"><label class="section-label" for="copy-body">执行正文 · 可打开全屏编辑</label>' +
+    '<section id="panel-body" data-panel="body" class="section max-[780px]:!mt-0"><div class="section-head"><label class="section-label" for="copy-body">执行正文 · 可打开全屏编辑</label>' +
+    (canSaveBack ? '<button id="save-body-default" class="save-default">正文存回母版</button>' : '') + '</div>' +
     '<div class="editable-field"><textarea id="copy-body" class="body-editor max-[780px]:!pr-3" placeholder="在这里编辑本次完整 Goal...">' +
     escapeHtml(copy.body) + '</textarea><button id="expand-copy-body" class="expand-editor max-[780px]:!static max-[780px]:mt-3 max-[780px]:!w-full">打开编辑</button></div>' +
     '</section><section id="panel-files" data-panel="files" class="section max-[780px]:!mt-0"><div id="file-list"></div></section></div></article>';
@@ -1049,7 +1094,9 @@ function renderCopyView(copy) {
     row.querySelector('[data-expand-variable]').addEventListener('click', () => {
       openExpandedEditor(copy, target, copy.variables[index].name);
     });
+    row.querySelector('[data-save-default]')?.addEventListener('click', () => saveVariableAsDefault(copy, index));
   });
+  byId('save-body-default')?.addEventListener('click', () => saveBodyToTemplate(copy));
   const bodyTarget = { kind: 'body' };
   bodyEditor.addEventListener('input', (event) => {
     setEditTargetValue(copy, bodyTarget, event.target.value);
