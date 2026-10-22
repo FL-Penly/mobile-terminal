@@ -214,6 +214,51 @@
     outline: none;
     border-color: var(--accent);
   }
+  .detail-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .detail-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detail-head .title-input { flex: 1; min-width: 0; }
+  .detail-mode {
+    display: inline-flex;
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .detail-mode button {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+  }
+  .detail-mode button.active { background: var(--panel-3); color: var(--text); }
+  .detail-note {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .detail-note.dirty { color: var(--accent); }
+  .detail-note.warn { color: #e0b341; }
+  .detail-note.editing { color: #e0b341; }
+  .draft-badge {
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
   .variable-panel {
     display: none;
     border-bottom: 1px solid var(--border);
@@ -501,6 +546,11 @@ let selectedPrompt = -1;
 let groupDragFrom = -1;
 let promptDragFrom = -1;
 let variablePanelOpen = false;
+// 详情区默认是「使用」模式：编辑的是临时草稿，不写回模板；「编辑模板」才改模板本身。
+let detailMode = 'use';
+let detailKey = '';
+const DRAFT_STORE_KEY = 'promptBoardDrafts';
+let drafts = loadDrafts();
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -852,6 +902,13 @@ function renderPromptPane() {
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = preset.label || '(未命名)';
+    if (getDraft(group, idx)) {
+      const badge = document.createElement('span');
+      badge.className = 'draft-badge';
+      badge.textContent = '临时改动';
+      badge.title = '有没写回模板的临时改动';
+      label.appendChild(badge);
+    }
     const preview = document.createElement('div');
     preview.className = 'preview';
     preview.textContent = (preset.text || '').replace(/\s+/g, ' ').trim() || '空内容';
@@ -987,6 +1044,68 @@ function applyGroupVariables() {
   toast(`已应用到 ${group.presets.length} 个 prompt`);
 }
 
+// ---------- 临时草稿：只存在本浏览器，不写回模板 ----------
+function loadDrafts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DRAFT_STORE_KEY) || '{}');
+    return isRecord(raw) ? raw : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function persistDrafts() {
+  try {
+    localStorage.setItem(DRAFT_STORE_KEY, JSON.stringify(drafts));
+  } catch (e) {
+    // 存不进去只影响刷新后恢复，当前页面里的草稿仍然可用。
+  }
+}
+
+// 同一分组里可能有重名 prompt（比如多个「新标签」），用重名序号区分。
+function draftKey(group, index) {
+  const preset = group?.presets[index];
+  if (!preset) return '';
+  const label = preset.label || '';
+  let nth = 0;
+  for (let i = 0; i < index; i += 1) {
+    if ((group.presets[i].label || '') === label) nth += 1;
+  }
+  return JSON.stringify([group.id, label, nth]);
+}
+
+function getDraft(group, index) {
+  const draft = drafts[draftKey(group, index)];
+  return isRecord(draft) && typeof draft.text === 'string' ? draft : null;
+}
+
+function setDraft(group, index, text) {
+  const key = draftKey(group, index);
+  if (!key) return;
+  const template = group.presets[index].text || '';
+  if (text === template) {
+    delete drafts[key];
+  } else {
+    const base = typeof drafts[key]?.base === 'string' ? drafts[key].base : template;
+    drafts[key] = { text, base, updatedAt: Date.now() };
+  }
+  persistDrafts();
+}
+
+function clearDraft(group, index) {
+  const key = draftKey(group, index);
+  if (!key || !(key in drafts)) return;
+  delete drafts[key];
+  persistDrafts();
+}
+
+function moveDraft(fromKey, toKey) {
+  if (!fromKey || !toKey || fromKey === toKey || !(fromKey in drafts)) return;
+  drafts[toKey] = drafts[fromKey];
+  delete drafts[fromKey];
+  persistDrafts();
+}
+
 function renderDetail() {
   const d = $('detail');
   const group = currentGroup();
@@ -1002,25 +1121,176 @@ function renderDetail() {
     return;
   }
 
+  // 换了 prompt 就回到「使用」模式，避免顺手改坏模板。
+  const key = `${group.id}\u0000${selectedPrompt}`;
+  if (key !== detailKey) {
+    detailKey = key;
+    detailMode = 'use';
+  }
+
+  if (detailMode === 'edit') renderTemplateEditor(d, group, preset);
+  else renderDraftEditor(d, group, preset);
+}
+
+function makeModeSwitch() {
+  const wrap = document.createElement('div');
+  wrap.className = 'detail-mode';
+  [['use', '使用'], ['edit', '编辑模板']].forEach(([mode, text]) => {
+    const btn = document.createElement('button');
+    btn.textContent = text;
+    btn.dataset.mode = mode;
+    if (mode === detailMode) btn.className = 'active';
+    btn.addEventListener('click', () => {
+      if (detailMode === mode) return;
+      detailMode = mode;
+      renderDetail();
+    });
+    wrap.appendChild(btn);
+  });
+  return wrap;
+}
+
+function makeDumpControls(getText) {
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'primary';
+  copyBtn.textContent = '复制内容';
+  copyBtn.addEventListener('click', () => { void copy(getText()); });
+
+  const dumpBtn = document.createElement('button');
+  dumpBtn.textContent = '落盘并复制路径';
+  dumpBtn.disabled = !getText();
+
+  const dumpResult = document.createElement('div');
+  dumpResult.className = 'dump-result';
+  dumpResult.setAttribute('role', 'status');
+  dumpBtn.addEventListener('click', () => { void dumpText(getText(), dumpResult); });
+
+  const onTextChange = () => {
+    dumpBtn.disabled = !getText();
+    dumpResult.textContent = '';
+    dumpResult.className = 'dump-result';
+  };
+  return { copyBtn, dumpBtn, dumpResult, onTextChange };
+}
+
+function renderDraftEditor(d, group, preset) {
+  const index = selectedPrompt;
+
+  const head = document.createElement('div');
+  head.className = 'detail-head';
+  const title = document.createElement('div');
+  title.className = 'detail-title';
+  title.textContent = preset.label || '(未命名)';
+  head.append(title, makeModeSwitch());
+
+  const note = document.createElement('div');
+  note.setAttribute('role', 'status');
+
+  const ta = document.createElement('textarea');
+  ta.className = 'prompt-text';
+  ta.value = getDraft(group, index)?.text ?? (preset.text || '');
+  ta.placeholder = 'prompt 内容...';
+
+  const { copyBtn, dumpBtn, dumpResult, onTextChange } = makeDumpControls(() => ta.value);
+
+  const resetBtn = document.createElement('button');
+  resetBtn.textContent = '重置为模板';
+  resetBtn.addEventListener('click', () => {
+    if (!getDraft(group, index)) return;
+    if (!confirm('丢弃这次的临时改动，恢复成模板内容？')) return;
+    clearDraft(group, index);
+    renderPromptPane();
+    renderDetail();
+  });
+
+  const saveAsBtn = document.createElement('button');
+  saveAsBtn.textContent = '另存为新 prompt';
+  saveAsBtn.addEventListener('click', () => {
+    const label = window.prompt('新 prompt 名称', `${preset.label || '未命名'}（改）`);
+    if (!label || !label.trim()) return;
+    const text = ta.value;
+    clearDraft(group, index);
+    group.presets.splice(index + 1, 0, { label: label.trim(), text });
+    selectedPrompt = index + 1;
+    render();
+    save();
+    toast('已另存，原模板没变');
+  });
+
+  const saveBackBtn = document.createElement('button');
+  saveBackBtn.textContent = '写回模板';
+  saveBackBtn.addEventListener('click', () => {
+    if (!confirm(`用当前内容覆盖模板「${preset.label || '未命名'}」？原来的模板内容会被替换。`)) return;
+    preset.text = ta.value;
+    clearDraft(group, index);
+    renderPromptPane();
+    renderDetail();
+    save();
+    toast('已写回模板');
+  });
+
+  const updateState = () => {
+    const draft = getDraft(group, index);
+    const stale = !!draft && draft.base !== (preset.text || '');
+    note.className = 'detail-note' + (stale ? ' warn' : draft ? ' dirty' : '');
+    note.textContent = stale
+      ? '模板在你这次改动之后被修改过；想基于最新模板，点「重置为模板」。'
+      : draft
+        ? '已临时改动，模板没变。复制和落盘用的是当前内容。'
+        : '在这里改只影响这次使用，不会改动模板。';
+    resetBtn.disabled = !draft;
+    saveBackBtn.disabled = !draft;
+  };
+
+  ta.addEventListener('input', () => {
+    const hadDraft = !!getDraft(group, index);
+    setDraft(group, index, ta.value);
+    onTextChange();
+    updateState();
+    if (hadDraft !== !!getDraft(group, index)) renderPromptPane();
+  });
+  updateState();
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const spacer = document.createElement('div');
+  spacer.className = 'spacer';
+  actions.append(copyBtn, dumpBtn, spacer, resetBtn, saveAsBtn, saveBackBtn);
+  d.append(head, note, ta, actions, dumpResult);
+}
+
+function renderTemplateEditor(d, group, preset) {
+  const head = document.createElement('div');
+  head.className = 'detail-head';
   const title = document.createElement('input');
   title.className = 'title-input';
   title.value = preset.label || '';
   title.placeholder = '标签名';
   title.addEventListener('input', () => {
+    const oldKey = draftKey(group, selectedPrompt);
     preset.label = title.value;
+    moveDraft(oldKey, draftKey(group, selectedPrompt));
     renderPromptPane();
   });
   title.addEventListener('change', save);
+  head.append(title, makeModeSwitch());
+
+  const note = document.createElement('div');
+  note.className = 'detail-note editing';
+  note.textContent = getDraft(group, selectedPrompt)
+    ? '正在编辑模板本身，改动会自动保存。你还有一份没写回的临时改动，在「使用」里。'
+    : '正在编辑模板本身，改动会自动保存。只想这次用的时候改一下，请切回「使用」。';
 
   const ta = document.createElement('textarea');
   ta.className = 'prompt-text';
   ta.value = preset.text || '';
   ta.placeholder = 'prompt 内容...';
+
+  const { copyBtn, dumpBtn, dumpResult, onTextChange } = makeDumpControls(() => ta.value);
+
   ta.addEventListener('input', () => {
     preset.text = ta.value;
-    dumpBtn.disabled = !ta.value;
-    dumpResult.textContent = '';
-    dumpResult.className = 'dump-result';
+    onTextChange();
   });
   ta.addEventListener('change', () => {
     renderPromptPane();
@@ -1029,20 +1299,6 @@ function renderDetail() {
 
   const actions = document.createElement('div');
   actions.className = 'actions';
-
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'primary';
-  copyBtn.textContent = '复制内容';
-  copyBtn.addEventListener('click', () => { void copy(ta.value); });
-
-  const dumpBtn = document.createElement('button');
-  dumpBtn.textContent = '落盘并复制路径';
-  dumpBtn.disabled = !ta.value;
-
-  const dumpResult = document.createElement('div');
-  dumpResult.className = 'dump-result';
-  dumpResult.setAttribute('role', 'status');
-  dumpBtn.addEventListener('click', () => { void dumpText(ta.value, dumpResult); });
 
   const moveSelect = document.createElement('select');
   config.presetGroups.forEach(target => {
@@ -1082,7 +1338,7 @@ function renderDetail() {
   if (moveSelect.options.length > 0) actions.append(moveSelect, moveBtn);
   if (copyToSelect.options.length > 0) actions.append(copyToSelect, copyToBtn);
   actions.append(spacer, delBtn);
-  d.append(title, ta, actions, dumpResult);
+  d.append(head, note, ta, actions, dumpResult);
 }
 
 function makeGroupId(label) {
@@ -1128,6 +1384,9 @@ function addPreset() {
   if (!group) return;
   group.presets.push({ label: '新标签', text: '' });
   selectedPrompt = group.presets.length - 1;
+  // 新建的 prompt 直接进「编辑模板」，好填标题和内容。
+  detailKey = `${group.id}\u0000${selectedPrompt}`;
+  detailMode = 'edit';
   render();
   save();
   const t = document.querySelector('.detail input.title-input');
@@ -1138,6 +1397,7 @@ function removePreset(i) {
   const group = currentGroup();
   if (!group || i < 0 || i >= group.presets.length) return;
   if (!confirm(`删除「${group.presets[i].label || '未命名'}」？`)) return;
+  clearDraft(group, i);
   group.presets.splice(i, 1);
   if (selectedPrompt >= group.presets.length) selectedPrompt = group.presets.length - 1;
   render();
@@ -1148,10 +1408,12 @@ function movePreset(targetGroupId) {
   const source = currentGroup();
   const target = config.presetGroups.find(g => g.id === targetGroupId);
   if (!source || !target || selectedPrompt < 0) return;
+  const fromKey = draftKey(source, selectedPrompt);
   const moved = source.presets.splice(selectedPrompt, 1)[0];
   target.presets.push(moved);
   selectedGroupId = target.id;
   selectedPrompt = target.presets.length - 1;
+  moveDraft(fromKey, draftKey(target, selectedPrompt));
   render();
   save();
 }
