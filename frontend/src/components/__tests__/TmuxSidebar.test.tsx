@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TmuxSidebar } from '../TmuxSidebar'
@@ -28,6 +28,7 @@ const serverState = {
   otherSessions: [
     { name: 'loose', path: '/tmp', relativePath: '/tmp', command: 'bash', attached: false, windows: 1, lastActivity: 5, hasNewActivity: false },
   ],
+  herdrPayload: null,
   currentTmuxSession: 'current',
   clientTty: '/dev/ttys001',
   path: '/work/alpha',
@@ -158,154 +159,219 @@ describe('TmuxSidebar', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/tmux/kill?name=idle', expect.anything()))
   })
 
-  it('discovers Herdr workspaces and panes from the visible source switcher', async () => {
-    const user = userEvent.setup()
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      workspaces: [
-        { workspace_id: 'w3', label: 'rust-terminal' },
-        { workspace_id: 'w4', label: 'empty-workspace' },
-      ],
-      panes: [
-        { pane_id: 'w3:p1', workspace_id: 'w3', foreground_cwd: '/work/rust-terminal', revision: 7 },
-      ],
-      agents: [
-        { pane_id: 'w3:p1', agent: 'claude', agent_status: 'working' },
-      ],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+  const mockHerdr = (list: () => unknown, routes: Record<string, (url: string, init?: RequestInit) => Response | Promise<Response>> = {}) => (
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url === '/api/herdr/list') return Promise.resolve(json(list()))
+      const route = Object.keys(routes).find(prefix => url.startsWith(prefix))
+      if (route) return Promise.resolve(routes[route](url, init))
+      if (url === '/api/herdr/long-run') return Promise.resolve(json({ panes: {} }))
+      return Promise.resolve(json({}))
+    })
+  )
+
+  const openHerdr = async (user: ReturnType<typeof userEvent.setup>) => {
     render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
     await user.click(screen.getByRole('tab', { name: 'Herdr' }))
+  }
+
+  const herdrFleet = {
+    workspaces: [
+      { workspace_id: 'w9', label: 'shells', active_tab_id: 'w9:t2' },
+      { workspace_id: 'w3', label: 'rust-terminal' },
+      { workspace_id: 'w1', label: 'api' },
+    ],
+    tabs: [
+      { tab_id: 'w9:t1', workspace_id: 'w9', label: '1' },
+      { tab_id: 'w9:t2', workspace_id: 'w9', label: '2' },
+      { tab_id: 'w3:t1', workspace_id: 'w3', label: '1' },
+      { tab_id: 'w3:t2', workspace_id: 'w3', label: 'logs' },
+      { tab_id: 'w1:t1', workspace_id: 'w1', label: '1' },
+    ],
+    panes: [
+      { pane_id: 'w9:p1', workspace_id: 'w9', tab_id: 'w9:t1', terminal_title_stripped: 'me@host:/work/shells' },
+      { pane_id: 'w9:p2', workspace_id: 'w9', tab_id: 'w9:t2', terminal_title_stripped: 'me@host:/work/shells', focused: true },
+      { pane_id: 'w3:p1', workspace_id: 'w3', tab_id: 'w3:t1', agent: 'claude', foreground_cwd: '/home/me/work/rust-terminal' },
+      { pane_id: 'w3:p2', workspace_id: 'w3', tab_id: 'w3:t2', terminal_title_stripped: 'tail -f' },
+      { pane_id: 'w3:p3', workspace_id: 'w3', tab_id: 'w3:t2', terminal_title_stripped: 'htop' },
+      { pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1', agent: 'codex' },
+    ],
+    agents: [
+      { pane_id: 'w3:p1', agent: 'claude', agent_status: 'working', name: 'claude-2', terminal_title_stripped: 'Fix the sidebar' },
+      { pane_id: 'w1:p1', agent: 'codex', agent_status: 'blocked' },
+    ],
+  }
+
+  it('lists Herdr workspaces in Herdr order, tabs as rows, and terminal-only workspaces folded at the bottom', async () => {
+    const user = userEvent.setup()
+    mockHerdr(() => herdrFleet, { '/api/herdr/long-run': () => json({ panes: { 'w3:p1': 600000 } }) })
+    await openHerdr(user)
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/herdr/list', expect.objectContaining({ signal: expect.any(AbortSignal) })))
-    expect((await screen.findAllByText('rust-terminal')).length).toBeGreaterThan(0)
-    expect(screen.getByText('w3:p1')).toBeInTheDocument()
-    expect(screen.getByText('working')).toBeInTheDocument()
-    expect(screen.getByText('empty-workspace')).toBeInTheDocument()
-    expect(screen.getByText('No panes')).toBeInTheDocument()
+    const agentHeads = [await screen.findByText('rust-terminal'), screen.getByText('api')]
+    expect(agentHeads[0].compareDocumentPosition(agentHeads[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('Fix the sidebar')).toBeInTheDocument()
+    expect(screen.getByText('claude · @claude-2 · rust-terminal')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '工作中' })).toBeInTheDocument()
+    expect(await screen.findByText('600k')).toHaveAttribute('title', '上下文到 600k tokens 才自动压缩（long run）')
+    expect(screen.getByText('logs')).toBeInTheDocument()
+    expect(document.querySelector('[data-tab-id="w3:t2"]')?.querySelectorAll('[data-pane-id]')).toHaveLength(2)
+    expect(screen.queryByText('unknown')).not.toBeInTheDocument()
+
+    const terminals = screen.getByRole('button', { name: /只有终端/ })
+    expect(terminals).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('shells')).not.toBeInTheDocument()
+    await user.click(terminals)
+    await user.click(screen.getByText('shells'))
+    expect(switchTerminal).toHaveBeenCalledWith('herdr', 'w9:p2')
     expect(screen.getByText(/Choose a Herdr pane to connect/)).toBeInTheDocument()
     expect(screen.getByText('+ New Workspace')).toBeInTheDocument()
   })
 
+  it('collapses and expands every agent workspace at once and remembers it', async () => {
+    const user = userEvent.setup()
+    mockHerdr(() => herdrFleet)
+    await openHerdr(user)
+
+    await user.click(await screen.findByRole('button', { name: '全部收起' }))
+    expect(screen.queryByText('Fix the sidebar')).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '工作中' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('herdr_sidebar_folded') ?? '[]')).toEqual(['w3', 'w1'])
+    await user.click(screen.getByRole('button', { name: '全部展开' }))
+    expect(screen.getByText('Fix the sidebar')).toBeInTheDocument()
+  })
+
   it('accepts rapid Herdr clicks and forwards the latest target without blocking the list', async () => {
     const user = userEvent.setup()
-    const listPayload = {
-      workspaces: [{ workspace_id: 'w3', label: 'rust-terminal' }],
-      panes: [
-        { pane_id: 'w3:p1', workspace_id: 'w3', foreground_cwd: '/work/rust-terminal' },
-        { pane_id: 'w3:p2', workspace_id: 'w3', foreground_cwd: '/work/rust-terminal' },
-      ],
-      agents: [],
-    }
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input)
-      if (url === '/api/herdr/list') {
-        return Promise.resolve(new Response(JSON.stringify(listPayload), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }))
-      }
-      return Promise.resolve(new Response('{}', { status: 200 }))
-    })
-
-    render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
-    const firstPane = await screen.findByText('w3:p1')
+    const fetchMock = mockHerdr(() => herdrFleet)
+    await openHerdr(user)
+    const firstPane = await screen.findByText('Fix the sidebar')
     await user.click(firstPane)
-    fireEvent.click(screen.getByText('w3:p2'))
+    fireEvent.click(screen.getByText('logs'))
 
     expect(firstPane.closest('button')).not.toBeDisabled()
-    expect(screen.getByText('w3:p2').closest('button')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByText('logs').closest('button')).toHaveAttribute('aria-busy', 'true')
     expect(switchTerminal).toHaveBeenNthCalledWith(1, 'herdr', 'w3:p1')
     expect(switchTerminal).toHaveBeenNthCalledWith(2, 'herdr', 'w3:p2')
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith('/api/herdr/focus')).length).toBe(0)
   })
 
-  it('creates a Herdr tab inside the chosen workspace and attaches to its pane', async () => {
+  it('creates an unnamed Herdr tab straight from + and attaches to its pane', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input)
-      const body = url === '/api/herdr/list'
-        ? { workspaces: [{ workspace_id: 'w3', label: 'rust-terminal' }], panes: [], agents: [] }
-        : { success: true, tabId: 'w3:t2', paneId: 'w3:p9' }
-      return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    })
-
-    render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
+    const fetchMock = mockHerdr(() => herdrFleet, { '/api/herdr/create': () => json({ success: true, tabId: 'w3:t3', paneId: 'w3:p9' }) })
+    await openHerdr(user)
     await user.click(await screen.findByRole('button', { name: 'New tab in rust-terminal' }))
-    expect(screen.getByText('New Tab in rust-terminal')).toBeInTheDocument()
-    await user.type(screen.getByPlaceholderText(/Tab name/), 'shell')
-    await user.click(screen.getByText('Create & Attach'))
 
     await waitFor(() => expect(switchTerminal).toHaveBeenCalledWith('herdr', 'w3:p9'))
-    expect(fetchMock).toHaveBeenCalledWith('/api/herdr/create?name=shell&workspace=w3', expect.anything())
+    expect(fetchMock).toHaveBeenCalledWith('/api/herdr/create?workspace=w3', expect.anything())
+    expect(screen.queryByPlaceholderText(/Tab name/)).not.toBeInTheDocument()
   })
+
+  it('copies a pane id, agent name, and dispatch text from the row menu', async () => {
+    const user = userEvent.setup()
+    mockHerdr(() => herdrFleet)
+    await openHerdr(user)
+    const row = (await screen.findByText('Fix the sidebar')).closest('[data-pane-id]') as HTMLElement
+
+    fireEvent.contextMenu(row, { clientX: 20, clientY: 30 })
+    const menu = screen.getByRole('menu', { name: 'Fix the sidebar' })
+    expect(menu).toHaveTextContent('w3:p1')
+    expect(menu).toHaveTextContent('claude-2')
+    await user.click(screen.getByRole('menuitem', { name: /复制窗格 ID/ }))
+    expect(await navigator.clipboard.readText()).toBe('w3:p1')
+    expect(screen.getByRole('status')).toHaveTextContent('已复制窗格 ID')
+
+    await user.click(screen.getByLabelText('Actions for w3:p1'))
+    await user.click(screen.getByRole('menuitem', { name: '复制派活命令' }))
+    expect(await navigator.clipboard.readText()).toBe('herdr agent prompt claude-2 "这里写任务" --wait --timeout 600000')
+
+    await user.click(screen.getByLabelText('Actions for w3:p1'))
+    await user.click(screen.getByRole('menuitem', { name: '复制派活说明（贴给其他 agent）' }))
+    expect(await navigator.clipboard.readText()).toContain('herdr agent get claude-2')
+
+    await user.click(screen.getByLabelText('Actions for w3:p2'))
+    expect(screen.queryByRole('menuitem', { name: '复制派活命令' })).not.toBeInTheDocument()
+  })
+
+  it('writes tab and workspace moves back to Herdr', async () => {
+    const user = userEvent.setup()
+    const fetchMock = mockHerdr(() => herdrFleet, { '/api/herdr/move': () => json({ success: true }) })
+    await openHerdr(user)
+
+    await user.click(await screen.findByLabelText('Actions for w3:p2'))
+    await user.click(screen.getByRole('menuitem', { name: '标签页上移' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/herdr/move?tab=w3%3At2&index=0', expect.anything()))
+
+    const apiGroup = document.querySelector('[data-workspace-id="w1"]') as HTMLElement
+    fireEvent.dragStart(apiGroup.querySelector('[aria-expanded]') as HTMLElement)
+    fireEvent.dragOver(document.querySelector('[data-workspace-id="w3"]') as HTMLElement, { clientY: 0 })
+    fireEvent.drop(document.querySelector('[data-workspace-id="w3"]') as HTMLElement, { clientY: 0 })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/herdr/move?workspace=w1&index=1', expect.anything()))
+  })
+
+  // The rename modal selects its text 50ms after opening; typing before that would be overwritten.
+  const settleRenameModal = () => act(() => new Promise(resolve => window.setTimeout(resolve, 60)))
 
   const mockRenamableHerdr = (renameResponses: Array<() => Promise<Response>> = []) => {
     const labels: Record<string, string> = { w3: 'rust-terminal', 'w3:t1': '1', 'w3:t2': 'logs' }
     const renames: Array<{ kind: string; id: string; label: string }> = []
-    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-      const url = String(input)
-      if (url === '/api/herdr/rename') {
+    mockHerdr(() => ({
+      workspaces: [{ workspace_id: 'w3', label: labels.w3 }],
+      tabs: [
+        { tab_id: 'w3:t1', workspace_id: 'w3', label: labels['w3:t1'] },
+        { tab_id: 'w3:t2', workspace_id: 'w3', label: labels['w3:t2'] },
+      ],
+      panes: [
+        { pane_id: 'w3:p1', workspace_id: 'w3', tab_id: 'w3:t1', agent: 'claude', title: 'Clean git state' },
+        { pane_id: 'w3:p2', workspace_id: 'w3', tab_id: 'w3:t2', terminal_title_stripped: 'tail -f' },
+      ],
+      agents: [{ pane_id: 'w3:p1', agent: 'claude', agent_status: 'idle' }],
+    }), {
+      '/api/herdr/rename': (_url, init) => {
         const body = JSON.parse(String(init?.body)) as { kind: string; id: string; label: string }
         renames.push(body)
         const scripted = renameResponses.shift()
         if (scripted) return scripted()
         labels[body.id] = body.label
-        return Promise.resolve(json({ success: true }))
-      }
-      if (url === '/api/herdr/list') {
-        return Promise.resolve(json({
-          workspaces: [{ workspace_id: 'w3', label: labels.w3 }],
-          tabs: [
-            { tab_id: 'w3:t1', workspace_id: 'w3', label: labels['w3:t1'] },
-            { tab_id: 'w3:t2', workspace_id: 'w3', label: labels['w3:t2'] },
-          ],
-          panes: [
-            { pane_id: 'w3:p1', workspace_id: 'w3', tab_id: 'w3:t1', terminal_title_stripped: 'Clean git state' },
-            { pane_id: 'w3:p2', workspace_id: 'w3', tab_id: 'w3:t2', terminal_title_stripped: 'tail -f' },
-          ],
-          agents: [],
-        }))
-      }
-      return Promise.resolve(json({}))
+        return json({ success: true })
+      },
     })
     return renames
   }
 
-  it('shows Herdr names and renames workspaces and tabs by id without changing the pane target', async () => {
+  it('renames workspaces and tabs from their menus without changing the pane target', async () => {
     const user = userEvent.setup()
     const renames = mockRenamableHerdr()
-    render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
+    await openHerdr(user)
 
-    expect(await screen.findByText('Clean git state')).toHaveAttribute('title', 'w3:p1')
-    expect(screen.getByText('Tab 1')).toBeInTheDocument()
+    expect(await screen.findByText('Clean git state')).toBeInTheDocument()
     expect(screen.getByText('logs')).toBeInTheDocument()
-    expect(screen.queryByText('w3:p1')).not.toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText('Search workspaces or panes'), 'w3:p2')
     expect(screen.getByText('logs')).toBeInTheDocument()
     expect(screen.queryByText('Clean git state')).not.toBeInTheDocument()
     await user.clear(screen.getByPlaceholderText('Search workspaces or panes'))
 
-    await user.click(screen.getByRole('button', { name: 'Rename workspace rust-terminal' }))
+    await user.click(screen.getByRole('button', { name: 'Actions for workspace rust-terminal' }))
+    await user.click(screen.getByRole('menuitem', { name: '重命名工作区' }))
+    await settleRenameModal()
     const workspaceInput = screen.getByRole('textbox', { name: 'Workspace name' })
     expect(workspaceInput).toHaveValue('rust-terminal')
     await user.clear(workspaceInput)
     await user.type(workspaceInput, 'api{Enter}')
     expect(await screen.findByText('api')).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('Pane actions for w3:p1'))
-    await user.click(screen.getByText('Rename Tab'))
+    await user.click(screen.getByLabelText('Actions for w3:p1'))
+    await user.click(screen.getByRole('menuitem', { name: '重命名标签页' }))
+    await settleRenameModal()
     const tabInput = screen.getByRole('textbox', { name: 'Tab name' })
     expect(tabInput).toHaveValue('1')
     await user.clear(tabInput)
     await user.type(tabInput, 'deploy')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('deploy')).toBeInTheDocument()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     expect(renames).toEqual([
       { kind: 'workspace', id: 'w3', label: 'api' },
@@ -313,9 +379,6 @@ describe('TmuxSidebar', () => {
     ])
     await user.click(screen.getByText('deploy'))
     expect(switchTerminal).toHaveBeenCalledWith('herdr', 'w3:p1')
-    expect(JSON.parse(localStorage.getItem('tmux_sidebar_session_order') ?? '{}')).toMatchObject({
-      'herdr:w3': ['w3:p1', 'w3:p2'],
-    })
   })
 
   it('keeps the typed Herdr name after a failed rename, blocks double submit, and retries', async () => {
@@ -325,10 +388,10 @@ describe('TmuxSidebar', () => {
     const renames = mockRenamableHerdr([
       () => new Promise(resolve => { rejectFirst = resolve }),
     ])
-    render(<TmuxSidebar mobile onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Herdr' }))
-    await user.click(await screen.findByLabelText('Pane actions for w3:p2'))
-    await user.click(screen.getByText('Rename Tab'))
+    await openHerdr(user)
+    await user.click(await screen.findByLabelText('Actions for w3:p2'))
+    await user.click(screen.getByRole('menuitem', { name: '重命名标签页' }))
+    await settleRenameModal()
     const input = screen.getByRole('textbox', { name: 'Tab name' })
     await user.clear(input)
     await user.type(input, 'errors')
@@ -348,6 +411,17 @@ describe('TmuxSidebar', () => {
       { kind: 'tab', id: 'w3:t2', label: 'errors' },
       { kind: 'tab', id: 'w3:t2', label: 'errors' },
     ])
+  })
+
+  it('closes a Herdr pane only after confirming', async () => {
+    const user = userEvent.setup()
+    const fetchMock = mockHerdr(() => herdrFleet)
+    await openHerdr(user)
+    await user.click(await screen.findByLabelText('Actions for w3:p2'))
+    await user.click(screen.getByRole('menuitem', { name: '关闭窗格' }))
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith('/api/herdr/close'))).toBe(false)
+    await user.click(screen.getByRole('button', { name: '确认关闭' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/herdr/close?pane=w3%3Ap2', expect.anything()))
   })
 
   it('shows an actionable Herdr unavailable state', async () => {

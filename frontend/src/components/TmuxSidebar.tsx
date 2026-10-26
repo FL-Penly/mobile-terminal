@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useServerEvents, type AgentStatus, type DiscoveredTmuxSession, type TmuxProjectGroup } from '../contexts/ServerEventsContext'
+import { useServerEvents, type DiscoveredTmuxSession, type TmuxProjectGroup } from '../contexts/ServerEventsContext'
 import { useTerminal, type TerminalMux } from '../contexts/TerminalContext'
 import { HerdrRenameModal, type HerdrRenameTarget } from './HerdrRenameModal'
+import { HerdrTree } from './HerdrTree'
 import { NewSessionModal } from './TmuxManager'
 import { mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions'
 
@@ -10,14 +11,6 @@ const GROUP_ORDER_KEY = 'tmux_sidebar_group_order'
 const SESSION_ORDER_KEY = 'tmux_sidebar_session_order'
 const LONG_PRESS_DURATION = 1200
 const DISCOVERY_POLL_INTERVAL = 5000
-
-const AGENT_STATUS_STYLE: Record<AgentStatus, { label: string; dot: string; badge: string }> = {
-  idle: { label: 'idle', dot: 'bg-accent-green', badge: 'bg-accent-green/15 text-accent-green' },
-  working: { label: 'working', dot: 'bg-accent-blue animate-pulse', badge: 'bg-accent-blue/15 text-accent-blue' },
-  blocked: { label: 'blocked', dot: 'bg-accent-orange animate-pulse', badge: 'bg-accent-orange/15 text-accent-orange' },
-  done: { label: 'done', dot: 'bg-accent-purple', badge: 'bg-accent-purple/15 text-accent-purple' },
-  unknown: { label: 'unknown', dot: 'bg-text-muted', badge: 'bg-bg-tertiary text-text-muted' },
-}
 
 interface TmuxSidebarProps {
   mobile: boolean
@@ -36,6 +29,7 @@ interface DiscoveryState {
   projectGroups: TmuxProjectGroup[]
   otherSessions: DiscoveredTmuxSession[]
   currentSession: string | null
+  herdrPayload: HerdrListPayload | null
   loaded: boolean
   unavailable: boolean
 }
@@ -47,6 +41,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const {
     projectGroups,
     otherSessions,
+    herdrPayload,
     currentTmuxSession,
     clientTty,
     path,
@@ -60,6 +55,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
     projectGroups: [],
     otherSessions: [],
     currentSession: null,
+    herdrPayload: null,
     loaded: false,
     unavailable: false,
   })
@@ -67,7 +63,6 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const [optimisticSession, setOptimisticSession] = useState<string | null>(null)
   const [switchingSession, setSwitchingSession] = useState<string | null>(null)
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
-  const [newTabWorkspace, setNewTabWorkspace] = useState<{ id: string; name: string } | null>(null)
   const [quickShellLoading, setQuickShellLoading] = useState(false)
   const [killTarget, setKillTarget] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<HerdrRenameTarget | null>(null)
@@ -102,6 +97,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const browsingConnectedMux = browserMux === mux
   const sourceProjectGroups = browsingConnectedMux ? projectGroups : discovery.projectGroups
   const sourceOtherSessions = browsingConnectedMux ? otherSessions : discovery.otherSessions
+  const sourceHerdrPayload = browsingConnectedMux ? herdrPayload : discovery.herdrPayload
   const sourceCurrentSession = browsingConnectedMux ? currentTmuxSession : discovery.currentSession
   const sourceLoaded = browsingConnectedMux ? sessionsLoaded : discovery.mux === browserMux && discovery.loaded
   const sourceUnavailable = browsingConnectedMux ? isOffline : discovery.mux === browserMux && discovery.unavailable
@@ -137,14 +133,14 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
         signal: AbortSignal.timeout(3000),
       })
       if (!response.ok) throw new Error(await response.text())
-      const data: TmuxListPayload = targetMux === 'herdr'
-        ? mapHerdrSessions(await response.json() as HerdrListPayload)
-        : await response.json() as TmuxListPayload
+      const herdr = targetMux === 'herdr' ? await response.json() as HerdrListPayload : null
+      const data: TmuxListPayload = herdr ? mapHerdrSessions(herdr) : await response.json() as TmuxListPayload
       setDiscovery({
         mux: targetMux,
         projectGroups: data.projectGroups ?? [],
         otherSessions: data.otherSessions ?? [],
         currentSession: data.currentSession ?? null,
+        herdrPayload: herdr,
         loaded: true,
         unavailable: false,
       })
@@ -347,14 +343,11 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const killTargetSession = killTarget
     ? [...sourceProjectGroups.flatMap(group => group.sessions), ...sourceOtherSessions].find(session => session.name === killTarget)
     : undefined
-  const killTargetTabId = browserMux === 'herdr' ? killTargetSession?.tabId : undefined
 
   const killSession = async () => {
     if (!killTarget) return
     try {
-      const url = browserMux === 'herdr'
-        ? `/api/herdr/close?pane=${encodeURIComponent(killTarget)}`
-        : `/api/tmux/kill?name=${encodeURIComponent(killTarget)}`
+      const url = `/api/tmux/kill?name=${encodeURIComponent(killTarget)}`
       const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
       if (!response.ok) throw new Error(await response.text())
       if (browsingConnectedMux) refresh()
@@ -428,8 +421,6 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
 
   const renderSession = (session: DiscoveredTmuxSession, groupKey: string) => {
     const current = session.name === selectedSession
-    const agentStatus = session.agentStatus ?? 'unknown'
-    const agentStyle = AGENT_STATUS_STYLE[agentStatus]
     const dragging = draggedSession?.groupKey === groupKey && draggedSession.name === session.name
     const dragOver = dragOverSession?.groupKey === groupKey && dragOverSession.name === session.name
     return (
@@ -464,8 +455,8 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
           }}
           role="button"
           tabIndex={0}
-          aria-label={`Move ${session.name} ${browserMux === 'herdr' ? 'pane' : 'session'}`}
-          title={search ? 'Clear search to reorder' : `Drag to reorder ${browserMux === 'herdr' ? 'pane' : 'session'}`}
+          aria-label={`Move ${session.name} session`}
+          title={search ? 'Clear search to reorder' : 'Drag to reorder session'}
           className={`self-stretch px-1.5 py-3 text-[10px] text-text-muted select-none ${search || sessionSwitchLocked ? 'cursor-not-allowed opacity-40' : 'cursor-grab active:cursor-grabbing'}`}
         >⋮⋮</span>
         <button
@@ -479,16 +470,11 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
           className="min-w-0 flex-1 px-2 py-2 text-left disabled:cursor-wait"
           aria-current={current ? 'page' : undefined}
           aria-busy={switchingSession === session.name ? true : undefined}
-          data-agent-status={browserMux === 'herdr' ? agentStatus : undefined}
         >
           <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 shrink-0 rounded-full ${browserMux === 'herdr' ? agentStyle.dot : session.hasNewActivity ? 'bg-accent-orange animate-pulse' : session.attached ? 'bg-accent-green' : 'bg-text-muted'}`} />
+            <span className={`h-2 w-2 shrink-0 rounded-full ${session.hasNewActivity ? 'bg-accent-orange animate-pulse' : session.attached ? 'bg-accent-green' : 'bg-text-muted'}`} />
             <span className={`truncate text-sm font-medium ${current ? 'text-accent-purple' : 'text-text-primary'}`} title={session.name}>{session.displayName ?? session.name}</span>
-            {browserMux === 'herdr' ? (
-              <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${agentStyle.badge}`}>{agentStyle.label}</span>
-            ) : (
-              <span className="ml-auto shrink-0 text-[10px] text-text-muted">{session.windows}w</span>
-            )}
+            <span className="ml-auto shrink-0 text-[10px] text-text-muted">{session.windows}w</span>
           </div>
           <div className="mt-1 flex gap-2 pl-4 text-[11px] text-text-muted">
             {session.detail && <span className="max-w-[60%] shrink-0 truncate text-text-secondary" title={session.detail}>{session.detail}</span>}
@@ -500,7 +486,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
           onClick={() => setKillTarget(session.name)}
           disabled={sessionSwitchLocked}
           className="px-2 text-text-muted hover:text-accent-red"
-          aria-label={`${browserMux === 'herdr' ? 'Pane' : 'Session'} actions for ${session.name}`}
+          aria-label={`Session actions for ${session.name}`}
         >
           ⋯
         </button>
@@ -510,9 +496,16 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
 
   const visibleGroups = sortedGroups
     .map(group => ({ ...group, sessions: orderSessions(group.sessions.filter(session => matches(session, group)), group.projectRoot) }))
-    .filter(group => group.sessions.length > 0 || (browserMux === 'herdr' && (!query || [group.displayName, group.projectRoot].some(value => value.toLocaleLowerCase().includes(query)))))
+    .filter(group => group.sessions.length > 0)
   const visibleOther = orderSessions(sourceOtherSessions.filter(session => matches(session)), '__other__')
   const empty = visibleGroups.length === 0 && visibleOther.length === 0
+  const unavailableNotice = (
+    <div className="mx-1 rounded-lg border border-accent-red/30 bg-accent-red/10 px-3 py-4 text-center text-sm">
+      <p className="font-medium text-accent-red">{browserMux === 'herdr' ? 'Herdr server unavailable' : 'tmux discovery unavailable'}</p>
+      {browserMux === 'herdr' && <p className="mt-1 text-xs text-text-muted">Run <span className="font-mono">herdr server</span>, then retry.</p>}
+      <button onClick={refreshSource} className="mt-3 rounded-md bg-bg-tertiary px-3 py-1.5 text-xs">Retry</button>
+    </div>
+  )
 
   return (
     <aside className="flex h-full w-[280px] flex-col border-r border-border-subtle bg-bg-secondary text-text-primary">
@@ -553,6 +546,24 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
             Choose a {browserMux === 'herdr' ? 'Herdr pane' : 'tmux session'} to connect. Your current terminal stays open until then.
           </div>
         )}
+        {browserMux === 'herdr' ? (
+          sourceUnavailable ? unavailableNotice : (
+            <HerdrTree
+              payload={sourceHerdrPayload}
+              loaded={sourceLoaded}
+              query={query}
+              selectedPaneId={selectedSession}
+              switchingPaneId={switchingSession}
+              onSelect={paneId => { void switchSession(paneId) }}
+              onOpen={paneId => {
+                if (mobile) onClose()
+                switchTerminal('herdr', paneId)
+              }}
+              onRename={setRenameTarget}
+              onChanged={refreshSource}
+            />
+          )
+        ) : <>
         {visibleGroups.map(group => {
           const active = group.sessions.some(session => session.name === selectedSession)
           return (
@@ -600,27 +611,10 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
                 <span className={`truncate ${active ? 'text-accent-purple' : ''}`} title={group.projectRoot}>{group.displayName}</span>
                 <span className="ml-auto pr-2 text-text-muted">{group.sessions.length}</span>
               </button>
-              {browserMux === 'herdr' && (
-                <button
-                  onClick={() => setRenameTarget({ kind: 'workspace', id: group.projectRoot, label: group.displayName, context: `Workspace ${group.projectRoot}` })}
-                  className="rounded px-2 py-1 text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
-                  aria-label={`Rename workspace ${group.displayName}`}
-                  title="Rename workspace"
-                >✎</button>
-              )}
-              {browserMux === 'herdr' && (
-                <button
-                  onClick={() => setNewTabWorkspace({ id: group.projectRoot, name: group.displayName })}
-                  className="mr-1 rounded px-2 py-1 text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
-                  aria-label={`New tab in ${group.displayName}`}
-                  title="New tab in this workspace"
-                >+</button>
-              )}
             </div>
             {!collapsedGroups.has(group.projectRoot) && (
               <div className="space-y-1">
                 {group.sessions.map(session => renderSession(session, group.projectRoot))}
-                {group.sessions.length === 0 && <div className="px-3 pb-2 text-xs text-text-muted">No panes</div>}
               </div>
             )}
           </section>
@@ -636,17 +630,12 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
             {!collapsedGroups.has('__other__') && <div className="space-y-1">{visibleOther.map(session => renderSession(session, '__other__'))}</div>}
           </section>
         )}
-        {sourceUnavailable ? (
-          <div className="mx-1 rounded-lg border border-accent-red/30 bg-accent-red/10 px-3 py-4 text-center text-sm">
-            <p className="font-medium text-accent-red">{browserMux === 'herdr' ? 'Herdr server unavailable' : 'tmux discovery unavailable'}</p>
-            {browserMux === 'herdr' && <p className="mt-1 text-xs text-text-muted">Run <span className="font-mono">herdr server</span>, then retry.</p>}
-            <button onClick={refreshSource} className="mt-3 rounded-md bg-bg-tertiary px-3 py-1.5 text-xs">Retry</button>
-          </div>
-        ) : empty && (
+        {sourceUnavailable ? unavailableNotice : empty && (
           <div className="px-3 py-8 text-center text-sm text-text-muted">
-            {sourceLoaded ? (search ? 'No matching sessions' : browserMux === 'herdr' ? 'No Herdr workspaces or panes' : 'No tmux sessions') : `Loading ${browserMux === 'herdr' ? 'Herdr workspaces' : 'tmux sessions'}…`}
+            {sourceLoaded ? (search ? 'No matching sessions' : 'No tmux sessions') : 'Loading tmux sessions…'}
           </div>
         )}
+        </>}
       </div>
       <div className="grid grid-cols-2 gap-2 border-t border-border-subtle p-3 text-xs">
         <button
@@ -659,30 +648,17 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
         <button onClick={() => { void detach() }} disabled={!browsingConnectedMux} className="col-span-2 rounded-lg bg-bg-tertiary px-2 py-2 text-text-secondary disabled:opacity-50">Detach to Shell</button>
       </div>
       <NewSessionModal
-        isOpen={isNewSessionOpen || newTabWorkspace !== null}
-        onClose={() => {
-          setIsNewSessionOpen(false)
-          setNewTabWorkspace(null)
-        }}
-        cwd={newTabWorkspace ? undefined : path || undefined}
+        isOpen={isNewSessionOpen}
+        onClose={() => setIsNewSessionOpen(false)}
+        cwd={path || undefined}
         onCreated={refreshSource}
         targetMux={browserMux}
-        herdrWorkspace={newTabWorkspace ?? undefined}
       />
       {killTarget && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={event => event.target === event.currentTarget && setKillTarget(null)}>
           <div className="w-full max-w-sm rounded-xl bg-bg-secondary p-4">
-            <h3 className="text-lg font-semibold">{browserMux === 'herdr' ? 'Pane Actions' : 'Session Actions'}</h3>
+            <h3 className="text-lg font-semibold">Session Actions</h3>
             {killTargetSession?.displayName && <p className="mt-1 truncate text-xs text-text-muted">{killTargetSession.displayName}</p>}
-            {killTargetTabId && (
-              <button
-                onClick={() => {
-                  setRenameTarget({ kind: 'tab', id: killTargetTabId, label: killTargetSession?.tabLabel ?? '', context: `Tab ${killTargetTabId} · applies to every pane in this tab` })
-                  setKillTarget(null)
-                }}
-                className="mt-4 w-full rounded-lg bg-bg-tertiary px-3 py-2 text-sm"
-              >Rename Tab</button>
-            )}
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
                 onClick={() => moveSessionByOffset(killTarget, -1)}
@@ -695,10 +671,10 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
                 className="rounded-lg bg-bg-tertiary px-3 py-2 text-sm disabled:opacity-40"
               >Move Down</button>
             </div>
-            <p className="my-4 text-sm text-text-secondary">{browserMux === 'herdr' ? 'Close pane' : 'Kill'} <span className="font-mono text-accent-red">{killTarget}</span>? This cannot be undone.</p>
+            <p className="my-4 text-sm text-text-secondary">Kill <span className="font-mono text-accent-red">{killTarget}</span>? This cannot be undone.</p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setKillTarget(null)} className="rounded-lg bg-bg-tertiary px-4 py-2">Cancel</button>
-              <button onClick={() => { void killSession() }} className="rounded-lg bg-accent-red px-4 py-2 text-white">{browserMux === 'herdr' ? 'Close Pane' : 'Kill Session'}</button>
+              <button onClick={() => { void killSession() }} className="rounded-lg bg-accent-red px-4 py-2 text-white">Kill Session</button>
             </div>
           </div>
         </div>

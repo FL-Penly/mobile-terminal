@@ -18,6 +18,7 @@ export interface HerdrPane {
 export interface HerdrWorkspace {
   workspace_id: string
   label?: string
+  active_tab_id?: string
 }
 
 export interface HerdrTab {
@@ -30,6 +31,8 @@ export interface HerdrAgent {
   pane_id: string
   agent?: string | null
   agent_status?: AgentStatus
+  name?: string | null
+  terminal_title_stripped?: string | null
 }
 
 export interface HerdrListPayload {
@@ -107,4 +110,141 @@ export const mapHerdrSessions = (payload: HerdrListPayload): HerdrSessions => {
     })),
     otherSessions: panes.filter(pane => !workspaceIds.has(pane.workspace_id)).map(toSession),
   }
+}
+
+// ─── Sidebar tree ──────────────────────────────────────────────────────────
+
+export interface HerdrTreePane {
+  paneId: string
+  tabId?: string
+  workspaceId: string
+  title: string
+  /** The agent kind (`claude`, `codex`…); absent for a plain terminal. */
+  agent?: string
+  /** The name Herdr dispatches to (`herdr agent prompt <name>`). */
+  agentName?: string
+  status: AgentStatus
+  cwd: string
+  folder: string
+  focused: boolean
+}
+
+export interface HerdrTreeTab {
+  /** Absent when Herdr reported the pane without a known tab. */
+  tabId?: string
+  /** 1-based place in its workspace, which is also Herdr's automatic name. */
+  position: number
+  /** The raw Herdr label (the position for an unnamed tab). */
+  label: string
+  customName?: string
+  head: HerdrTreePane
+  under: HerdrTreePane[]
+}
+
+export interface HerdrTreeWorkspace {
+  /** Empty for panes whose workspace Herdr no longer lists. */
+  workspaceId: string
+  label: string
+  activeTabId?: string
+  tabs: HerdrTreeTab[]
+  hasAgent: boolean
+}
+
+const shortenHome = (path: string) => path.replace(/^(?:\/data\d+)?\/home\/[^/]+(?=\/|$)/, '~')
+
+// A shell's title is its prompt (`user@host:/path`): the folder is the part worth reading.
+const terminalTitle = (title?: string) => {
+  const prompt = title?.match(/^[^\s@]+@[^\s:]+:\s*(.+)$/)
+  if (!prompt) return title
+  const path = shortenHome(prompt[1].trim())
+  return path === '~' ? path : path.split('/').filter(Boolean).pop() ?? path
+}
+
+/** Herdr's workspaces in Herdr's order, each with its tabs in Herdr's order and a tab's panes under its first. */
+export const buildHerdrTree = (payload: HerdrListPayload | null): HerdrTreeWorkspace[] => {
+  if (!payload) return []
+  const panes = payload.panes ?? []
+  const agents = new Map((payload.agents ?? []).map(agent => [agent.pane_id, agent]))
+  const tabNames = herdrTabNames(payload.tabs ?? [])
+  const toPane = (pane: HerdrPane): HerdrTreePane => {
+    const agentInfo = agents.get(pane.pane_id)
+    const agent = nonEmpty(pane.agent) ?? nonEmpty(agentInfo?.agent)
+    const cwd = pane.foreground_cwd ?? pane.cwd ?? ''
+    const folder = cwd.split('/').filter(Boolean).pop() ?? cwd
+    const title = nonEmpty(pane.label)
+      ?? (agent
+        ? nonEmpty(pane.title) ?? nonEmpty(agentInfo?.terminal_title_stripped) ?? nonEmpty(pane.terminal_title_stripped) ?? agent
+        : nonEmpty(pane.title) ?? terminalTitle(nonEmpty(pane.terminal_title_stripped)) ?? (folder || undefined))
+      ?? pane.pane_id
+    return {
+      paneId: pane.pane_id,
+      tabId: pane.tab_id,
+      workspaceId: pane.workspace_id,
+      title,
+      agent,
+      agentName: agent ? nonEmpty(agentInfo?.name) : undefined,
+      status: agentInfo?.agent_status ?? pane.agent_status ?? 'unknown',
+      cwd,
+      folder,
+      focused: pane.focused ?? false,
+    }
+  }
+  const workspaceRows = (workspaceId: string, label: string, activeTabId?: string): HerdrTreeWorkspace => {
+    const own = panes.filter(pane => pane.workspace_id === workspaceId).map(toPane)
+    const knownTabs = (payload.tabs ?? []).filter(tab => tab.workspace_id === workspaceId)
+    const known = new Set(knownTabs.map(tab => tab.tab_id))
+    const tabs: HerdrTreeTab[] = []
+    knownTabs.forEach((tab, index) => {
+      const [head, ...under] = own.filter(pane => pane.tabId === tab.tab_id)
+      const name = tabNames.get(tab.tab_id)
+      if (head) tabs.push({ tabId: tab.tab_id, position: index + 1, label: name?.label ?? String(index + 1), customName: name?.custom, head, under })
+    })
+    own.filter(pane => !pane.tabId || !known.has(pane.tabId)).forEach(pane => {
+      tabs.push({ position: tabs.length + 1, label: String(tabs.length + 1), head: pane, under: [] })
+    })
+    return { workspaceId, label, activeTabId, tabs, hasAgent: own.some(pane => pane.agent) }
+  }
+  const workspaces = payload.workspaces ?? []
+  const listed = new Set(workspaces.map(workspace => workspace.workspace_id))
+  const tree = workspaces.map(workspace => workspaceRows(
+    workspace.workspace_id,
+    nonEmpty(workspace.label) ?? workspace.workspace_id,
+    workspace.active_tab_id,
+  ))
+  const orphans = panes.filter(pane => !listed.has(pane.workspace_id)).map(toPane)
+  if (orphans.length === 0) return tree
+  return [...tree, {
+    workspaceId: '',
+    label: 'Other',
+    tabs: orphans.map((head, index) => ({ position: index + 1, label: String(index + 1), head, under: [] })),
+    hasAgent: orphans.some(pane => pane.agent),
+  }]
+}
+
+/** `500k`, `1m`, `1.2m`: an auto-compact window as the sidebar says it. */
+export const compactWindowLabel = (size: number) => {
+  if (size >= 1_000_000) return `${Number((size / 1_000_000).toFixed(1))}m`
+  if (size >= 1_000) return `${Math.round(size / 1_000)}k`
+  return String(size)
+}
+
+/**
+ * Herdr's moves count insertion boundaries before the moved item is taken out:
+ * the boundary that puts `id` just before or after `targetId`, or null when it would not move.
+ */
+export const herdrMoveBoundary = (ids: string[], id: string, targetId: string, after: boolean): number | null => {
+  const from = ids.indexOf(id)
+  const target = ids.indexOf(targetId)
+  if (from < 0 || target < 0 || id === targetId) return null
+  const boundary = target + (after ? 1 : 0)
+  return boundary === from || boundary === from + 1 ? null : boundary
+}
+
+export const herdrDispatchCommand = (target: string) =>
+  `herdr agent prompt ${target} "这里写任务" --wait --timeout 600000`
+
+export const herdrDispatchInstructions = (pane: HerdrTreePane) => {
+  const target = pane.agentName ?? pane.paneId
+  const who = `${pane.agent ?? 'agent'}「${pane.title}」，目录 ${shortenHome(pane.cwd)}`
+  return `把任务派给 herdr 里的 agent ${target}（${who}）：先用 \`herdr agent get ${target}\` 确认它空闲，再用 \`herdr agent prompt ${target} "<任务>" --wait --timeout 600000\` 发过去，完成后用 \`herdr agent read ${target}\` 看结果。详细用法见 \`herdr --skill\`。`
 }

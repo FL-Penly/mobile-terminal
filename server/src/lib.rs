@@ -83,6 +83,7 @@ pub struct AppState {
     herdr_controllers: Arc<Mutex<HashMap<String, mpsc::Sender<HerdrInput>>>>,
     herdr_snapshot: Arc<Mutex<serde_json::Value>>,
     herdr_event_tx: broadcast::Sender<serde_json::Value>,
+    herdr_long_run_cache: Arc<Mutex<HashMap<u64, Option<u64>>>>,
 }
 
 impl AppState {
@@ -104,6 +105,7 @@ impl AppState {
                 "agents": [],
             }))),
             herdr_event_tx,
+            herdr_long_run_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -227,6 +229,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/herdr/create", get(api_herdr_create))
         .route("/api/herdr/close", get(api_herdr_close))
         .route("/api/herdr/rename", post(api_herdr_rename))
+        .route("/api/herdr/move", get(api_herdr_move))
+        .route("/api/herdr/long-run", get(api_herdr_long_run))
         .route("/api/herdr/release", get(api_herdr_release))
         .route("/api/herdr/quick-shell", get(api_herdr_quick_shell))
         .route("/api/herdr/pane-mode", get(api_herdr_pane_mode))
@@ -3106,23 +3110,22 @@ fn bracketed_paste_text(text: &str) -> String {
 }
 
 async fn api_herdr_create(Query(query): Query<HerdrCreateQuery>) -> Response {
-    let name = match query.name.filter(|name| !name.trim().is_empty()) {
-        Some(name) => name,
-        None => {
-            return json_error(
-                "missing_name",
-                "Workspace name required",
-                StatusCode::BAD_REQUEST,
-            )
-        }
-    };
+    let name = query.name.filter(|name| !name.trim().is_empty());
     let workspace_id = query
         .workspace
         .filter(|workspace_id| !workspace_id.trim().is_empty());
-    let mut params = serde_json::json!({
-        "label": name,
-        "focus": true,
-    });
+    // A new tab may go unnamed: Herdr then labels it by its position (1, 2, 3…).
+    if name.is_none() && workspace_id.is_none() {
+        return json_error(
+            "missing_name",
+            "Workspace name required",
+            StatusCode::BAD_REQUEST,
+        );
+    }
+    let mut params = serde_json::json!({ "focus": true });
+    if let Some(name) = name {
+        params["label"] = serde_json::Value::String(name);
+    }
     if let Some(cwd) = query.cwd.filter(|cwd| !cwd.trim().is_empty()) {
         params["cwd"] = serde_json::Value::String(cwd);
     }
@@ -3263,6 +3266,173 @@ async fn api_herdr_rename(
         "result": result,
     }))
     .into_response()
+}
+
+// ─── GET /api/herdr/move ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct HerdrMoveQuery {
+    tab: Option<String>,
+    workspace: Option<String>,
+    index: Option<u64>,
+}
+
+/// Maps a move onto Herdr's own ordering, so the sidebar and the Herdr TUI share one order.
+/// `index` is Herdr's insertion boundary, counted before the moved item is taken out.
+fn herdr_move_call(
+    query: &HerdrMoveQuery,
+) -> Result<(&'static str, serde_json::Value), &'static str> {
+    let index = query.index.ok_or("index is required")?;
+    let nonblank = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    match (nonblank(&query.tab), nonblank(&query.workspace)) {
+        (Some(tab_id), None) => Ok((
+            "tab.move",
+            serde_json::json!({ "tab_id": tab_id, "insert_index": index }),
+        )),
+        (None, Some(workspace_id)) => Ok((
+            "workspace.move",
+            serde_json::json!({ "workspace_id": workspace_id, "insert_index": index }),
+        )),
+        _ => Err("Exactly one tab or workspace target is required"),
+    }
+}
+
+async fn api_herdr_move(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Query(query): Query<HerdrMoveQuery>,
+) -> Response {
+    let (method, params) = match herdr_move_call(&query) {
+        Ok(call) => call,
+        Err(message) => return json_error("invalid_move", message, StatusCode::BAD_REQUEST),
+    };
+    let result = match herdr::request(method, params).await {
+        Ok(result) => result,
+        Err(error) => return herdr_operation_error("move_failed", error),
+    };
+    match herdr::list().await {
+        Ok(snapshot) => publish_herdr_snapshot(&state, snapshot, None),
+        Err(error) => tracing::warn!("Failed to refresh herdr snapshot after move: {}", error),
+    }
+    Json(serde_json::json!({ "success": true, "result": result })).into_response()
+}
+
+// ─── GET /api/herdr/long-run ──────────────────────────────────────────────
+
+/// Claude Code compacts later when started with a wider window in this variable.
+const LONG_RUN_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+/// The window a value names, in tokens: digits, or a `k` / `m` shorthand as Claude Code reads it.
+fn compact_window(value: &str) -> Option<u64> {
+    let value = value.trim().to_ascii_lowercase();
+    let (number, scale) = match value.strip_suffix('m') {
+        Some(number) => (number, 1_000_000.0),
+        None => match value.strip_suffix('k') {
+            Some(number) => (number, 1_000.0),
+            None => (value.as_str(), 1.0),
+        },
+    };
+    if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return None;
+    }
+    let size = (number.parse::<f64>().ok()? * scale).round();
+    (size.is_finite() && size >= 1.0).then_some(size as u64)
+}
+
+fn long_run_window(environ: &[u8]) -> Option<u64> {
+    let prefix = format!("{}=", LONG_RUN_ENV);
+    environ
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| std::str::from_utf8(entry).ok())
+        .find_map(|entry| entry.strip_prefix(prefix.as_str()))
+        .and_then(compact_window)
+}
+
+fn is_claude_executable(value: Option<&str>) -> bool {
+    value
+        .and_then(|value| value.rsplit('/').next())
+        .is_some_and(|name| name == "claude")
+}
+
+/// The pid of the one Claude process in a pane's foreground; none when there are several.
+fn claude_pane_pid(process_info: &serde_json::Value) -> Option<u64> {
+    let processes = process_info
+        .pointer("/process_info/foreground_processes")?
+        .as_array()?;
+    let mut claude = processes.iter().filter(|process| {
+        let text = |key: &str| process.get(key).and_then(serde_json::Value::as_str);
+        let argv0 = process
+            .pointer("/argv/0")
+            .and_then(serde_json::Value::as_str);
+        is_claude_executable(text("name"))
+            || is_claude_executable(text("argv0"))
+            || is_claude_executable(argv0)
+    });
+    let pid = claude.next()?.get("pid")?.as_u64()?;
+    claude.next().is_none().then_some(pid)
+}
+
+/// Pane id → auto-compact window for each Claude pane started with one. Reads the process's
+/// own environment (Linux `/proc`), so a session started by hand with the variable counts too.
+async fn api_herdr_long_run(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Response {
+    let agents = match herdr::request("agent.list", serde_json::json!({})).await {
+        Ok(agents) => agents,
+        Err(error) => return herdr_operation_error("long_run_failed", error),
+    };
+    let claude_panes: Vec<String> = agents
+        .get("agents")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|agent| agent.get("agent").and_then(serde_json::Value::as_str) == Some("claude"))
+        .filter_map(|agent| agent.get("pane_id").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect();
+    let lookups = claude_panes.into_iter().map(|pane_id| {
+        let cache = state.herdr_long_run_cache.clone();
+        async move {
+            let info = herdr::request(
+                "pane.process_info",
+                serde_json::json!({ "pane_id": pane_id }),
+            )
+            .await
+            .ok()?;
+            let pid = claude_pane_pid(&info)?;
+            // A process's environment never changes after exec: one read per pid.
+            if let Some(size) = cache.lock().ok().and_then(|cache| cache.get(&pid).copied()) {
+                return size.map(|size| (pane_id, size));
+            }
+            // Unreadable now (a process still starting): asked again next time.
+            let environ = tokio::task::spawn_blocking(move || {
+                std::fs::read(format!("/proc/{}/environ", pid))
+            })
+            .await
+            .ok()?
+            .ok()?;
+            let size = long_run_window(&environ);
+            if let Ok(mut cache) = cache.lock() {
+                if cache.len() > 512 {
+                    cache.clear();
+                }
+                cache.insert(pid, size);
+            }
+            size.map(|size| (pane_id, size))
+        }
+    });
+    let panes: serde_json::Map<String, serde_json::Value> = futures_util::future::join_all(lookups)
+        .await
+        .into_iter()
+        .flatten()
+        .map(|(pane_id, size)| (pane_id, serde_json::Value::from(size)))
+        .collect();
+    Json(serde_json::json!({ "panes": panes })).into_response()
 }
 
 async fn api_herdr_release(
@@ -6482,6 +6652,76 @@ mod tests {
                 "kind": "pane", "id": "w1:p1", "label": "name",
             }))
             .is_err()
+        );
+    }
+
+    #[test]
+    fn herdr_move_targets_exactly_one_tab_or_workspace() {
+        let query =
+            |tab: Option<&str>, workspace: Option<&str>, index: Option<u64>| HerdrMoveQuery {
+                tab: tab.map(str::to_string),
+                workspace: workspace.map(str::to_string),
+                index,
+            };
+        assert_eq!(
+            herdr_move_call(&query(Some("w1:t2"), None, Some(0))).unwrap(),
+            (
+                "tab.move",
+                serde_json::json!({ "tab_id": "w1:t2", "insert_index": 0 })
+            )
+        );
+        assert_eq!(
+            herdr_move_call(&query(None, Some("w3"), Some(4))).unwrap(),
+            (
+                "workspace.move",
+                serde_json::json!({ "workspace_id": "w3", "insert_index": 4 })
+            )
+        );
+        assert!(herdr_move_call(&query(Some("w1:t2"), Some("w3"), Some(1))).is_err());
+        assert!(herdr_move_call(&query(Some(" "), None, Some(1))).is_err());
+        assert!(herdr_move_call(&query(Some("w1:t2"), None, None)).is_err());
+    }
+
+    #[test]
+    fn long_run_window_reads_claude_compact_window_from_environ() {
+        assert_eq!(compact_window("500000"), Some(500_000));
+        assert_eq!(compact_window("600k"), Some(600_000));
+        assert_eq!(compact_window("1.2M"), Some(1_200_000));
+        assert_eq!(compact_window("abc"), None);
+        assert_eq!(compact_window("0"), None);
+        assert_eq!(
+            long_run_window(b"HOME=/root\0CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000\0TERM=xterm"),
+            Some(600_000)
+        );
+        assert_eq!(long_run_window(b"HOME=/root\0TERM=xterm"), None);
+    }
+
+    #[test]
+    fn claude_pane_pid_needs_exactly_one_claude_in_the_foreground() {
+        let info = |processes: serde_json::Value| serde_json::json!({ "process_info": { "foreground_processes": processes } });
+        assert_eq!(
+            claude_pane_pid(&info(serde_json::json!([
+                { "name": "claude", "argv": ["claude"], "pid": 42 },
+                { "name": "botmux", "argv": ["/bin/botmux", "mcp"], "pid": 43 },
+            ]))),
+            Some(42)
+        );
+        assert_eq!(
+            claude_pane_pid(&info(serde_json::json!([
+                { "name": "node", "argv": ["/usr/local/bin/claude"], "pid": 7 },
+            ]))),
+            Some(7)
+        );
+        assert_eq!(
+            claude_pane_pid(&info(serde_json::json!([
+                { "name": "claude", "pid": 1 },
+                { "name": "claude", "pid": 2 },
+            ]))),
+            None
+        );
+        assert_eq!(
+            claude_pane_pid(&info(serde_json::json!([{ "name": "zsh", "pid": 3 }]))),
+            None
         );
     }
 

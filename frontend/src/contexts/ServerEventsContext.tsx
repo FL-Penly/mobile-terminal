@@ -80,6 +80,7 @@ interface ServerEventsContextValue {
   tmuxSessions: TmuxSession[]
   projectGroups: TmuxProjectGroup[]
   otherSessions: DiscoveredTmuxSession[]
+  herdrPayload: HerdrListPayload | null
   tmuxScannedAt: number
   currentTmuxSession: string | null
   isOffline: boolean
@@ -118,6 +119,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [isOffline, setIsOffline] = useState(false)
   const [tuiActive, setTuiActive] = useState(false)
   const [herdrScrollback, setHerdrScrollback] = useState(false)
+  const [herdrPayload, setHerdrPayload] = useState<HerdrListPayload | null>(null)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [lastViewedMap, setLastViewedMap] = useState<Record<string, number>>({})
   const pollIntervalRef = useRef<number | null>(null)
@@ -208,6 +210,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     })))
     setRawProjectGroups(groups)
     setRawOtherSessions(other)
+    setHerdrPayload(payload)
     setTmuxScannedAt(Math.floor(Date.now() / 1000))
     setCurrentTmuxSession(paneId)
     const currentPane = panes.find(pane => pane.pane_id === paneId)
@@ -383,13 +386,14 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     tmuxSessions,
     projectGroups,
     otherSessions,
+    herdrPayload,
     tmuxScannedAt,
     currentTmuxSession,
     isOffline,
     clientTty,
     sessionsLoaded,
     refresh,
-  }), [branch, path, tuiActive, herdrScrollback, tmuxSessions, projectGroups, otherSessions, tmuxScannedAt, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
+  }), [branch, path, tuiActive, herdrScrollback, tmuxSessions, projectGroups, otherSessions, herdrPayload, tmuxScannedAt, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
 
   return <ServerEventsContext.Provider value={value}>{children}</ServerEventsContext.Provider>
 }
