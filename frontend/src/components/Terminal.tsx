@@ -221,7 +221,7 @@ export const Terminal = () => {
     const prevMode = touchRef.current.mode
     touchRef.current.mode = 'none'
 
-    // Double-tap to show keyboard: detect two clean taps within 350ms
+    // Consume the second tap so synthesized mouse events cannot select text or steal focus.
     if (prevMode === 'scroll' && e.changedTouches.length === 1) {
       const tap = tapRef.current
       const touch = e.changedTouches[0]
@@ -234,6 +234,7 @@ export const Terminal = () => {
         const now = Date.now()
         if (now - lastTapTimeRef.current < 500) {
           lastTapTimeRef.current = 0
+          e.preventDefault()
           const textarea = xtermTextareaRef.current
           if (textarea) {
             const isOpen = !textarea.getAttribute('inputmode')
@@ -241,8 +242,10 @@ export const Terminal = () => {
               textarea.setAttribute('inputmode', 'none')
               textarea.blur()
             } else {
+              // Refocus only when necessary: an already focused input with inputmode=none
+              // needs a fresh focus to open the keyboard on iOS. Keep it in this gesture.
+              if (document.activeElement === textarea) textarea.blur()
               textarea.removeAttribute('inputmode')
-              textarea.blur()
               textarea.focus({ preventScroll: true })
             }
           }
@@ -460,7 +463,7 @@ export const Terminal = () => {
             if (p === 1006) mouseStateRef.current.sgrMode = true
             if (p === 1049 || p === 47) {
               zerolagRef.current?.clear()
-              xtermTextareaRef.current?.blur()
+              // Output (including full-frame redraws) must never interrupt keyboard/IME focus.
             }
           }
         }
@@ -591,7 +594,7 @@ export const Terminal = () => {
     const container = containerRef.current
     container.addEventListener('touchstart', handleTouchStart, { passive: true })
     container.addEventListener('touchmove', handleTouchMove, { passive: false })
-    container.addEventListener('touchend', handleTouchEnd, { passive: true })
+    container.addEventListener('touchend', handleTouchEnd, { passive: false })
 
     const handleWheel = (event: WheelEvent) => {
       if (!isHerdrScrollTarget() || !xtermScreen) return
