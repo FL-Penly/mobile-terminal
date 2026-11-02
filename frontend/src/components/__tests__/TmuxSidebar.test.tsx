@@ -213,7 +213,7 @@ describe('TmuxSidebar', () => {
     const agentHeads = [await screen.findByText('rust-terminal'), screen.getByText('api')]
     expect(agentHeads[0].compareDocumentPosition(agentHeads[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText('Fix the sidebar')).toBeInTheDocument()
-    expect(screen.getByText('claude · @claude-2 · rust-terminal')).toBeInTheDocument()
+    expect(screen.getByText('claude · @claude-2')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: '工作中' })).toBeInTheDocument()
     expect(await screen.findByText('600k')).toHaveAttribute('title', '上下文到 600k tokens 才自动压缩（long run）')
     expect(screen.getByText('logs')).toBeInTheDocument()

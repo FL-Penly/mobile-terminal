@@ -29,6 +29,12 @@ const STATUS_STYLE: Record<AgentStatus, { label: string; dot: string }> = {
   unknown: { label: '未知', dot: 'bg-text-muted' },
 }
 
+const WorkspaceIcon: React.FC = () => (
+  <svg className="h-3.5 w-3.5 shrink-0 text-accent-blue" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden="true">
+    <path d="M2 3.25h4l1.5 1.5H14v7.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" strokeLinejoin="round" />
+  </svg>
+)
+
 const HOT_STATUSES: AgentStatus[] = ['working', 'blocked', 'done']
 
 interface HerdrTreeProps {
@@ -98,9 +104,10 @@ const RowMenu: React.FC<{ x: number; y: number; title: string; items: MenuItem[]
         role="menu"
         aria-label={title}
         style={{ left: position.left, top: position.top }}
-        className="fixed w-80 max-w-[calc(100vw-16px)] rounded-xl border border-border-subtle bg-bg-secondary p-1 shadow-2xl"
+        className="fixed max-h-[calc(100dvh-16px)] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border-subtle bg-bg-secondary p-1 shadow-2xl"
         onClick={event => event.stopPropagation()}
       >
+        <div className="border-b border-border-subtle px-3 py-2 text-xs font-medium leading-relaxed text-text-secondary [overflow-wrap:anywhere]">{title}</div>
         {items.map(item => (
           <div key={item.id}>
             {item.divider && <div className="my-1 border-t border-border-subtle" />}
@@ -391,16 +398,15 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
     const draggable = !query && !under && Boolean(tab.tabId)
     const subtitle = [
       pane.agent,
-      pane.agentName ? `@${pane.agentName}` : undefined,
-      title !== pane.title ? pane.title : undefined,
-      pane.folder !== title ? pane.folder : undefined,
+      pane.agentName && pane.agentName !== pane.agent ? `@${pane.agentName}` : undefined,
+      !pane.agent && pane.folder !== title && pane.folder !== workspace.label ? pane.folder : undefined,
     ].filter(Boolean).join(' · ')
     return (
       <div
         key={pane.paneId}
         data-pane-id={pane.paneId}
         onContextMenu={event => openMenuAt(event, target)}
-        className={`group flex items-stretch rounded-lg transition-colors ${under ? 'ml-5' : ''} ${selected ? 'bg-accent-purple/20' : 'hover:bg-bg-tertiary'}`}
+        className={`group/pane flex items-stretch rounded-lg transition-colors ${selected ? 'bg-tint-purple/15 shadow-[inset_2px_0_0_var(--accent-purple)]' : 'hover:bg-bg-tertiary'}`}
       >
         <button
           type="button"
@@ -412,8 +418,8 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
           aria-current={selected ? 'page' : undefined}
           aria-busy={switchingPaneId === pane.paneId ? true : undefined}
           data-agent-status={pane.agent ? pane.status : undefined}
-          title={[pane.title, pane.cwd].filter(Boolean).join('\n')}
-          className="flex min-w-0 flex-1 select-none items-center gap-2 px-2 py-1.5 text-left [-webkit-touch-callout:none]"
+          title={[title, title !== pane.title ? pane.title : undefined, pane.cwd, pane.agent ? status.label : undefined].filter(Boolean).join('\n')}
+          className="flex min-h-8 min-w-0 flex-1 select-none items-center gap-2 rounded-lg px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-purple [@media(pointer:coarse)]:min-h-11 [-webkit-touch-callout:none]"
         >
           <span className="flex w-4 shrink-0 justify-center">
             {pane.agent
@@ -422,21 +428,26 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
           </span>
           <span className="min-w-0 flex-1">
             <span className={`block truncate text-sm ${selected ? 'font-medium text-accent-purple' : 'text-text-primary'}`}>{title}</span>
-            {subtitle && <span className="block truncate text-[11px] text-text-muted">{subtitle}</span>}
+            {(subtitle || longRun !== undefined) && (
+              <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] leading-[14px] text-text-secondary">
+                {subtitle && <span className="truncate">{subtitle}</span>}
+                {subtitle && longRun !== undefined && <span aria-hidden="true" className="text-text-muted">·</span>}
+                {longRun !== undefined && (
+                  <span
+                    className="shrink-0 font-mono text-[10px] text-text-muted"
+                    title={`上下文到 ${compactWindowLabel(longRun)} tokens 才自动压缩（long run）`}
+                  >{compactWindowLabel(longRun)}</span>
+                )}
+              </span>
+            )}
           </span>
-          {longRun !== undefined && (
-            <span
-              className="shrink-0 rounded-md bg-accent-blue/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-blue"
-              title={`上下文到 ${compactWindowLabel(longRun)} tokens 才自动压缩（long run）`}
-            >{compactWindowLabel(longRun)}</span>
-          )}
         </button>
         <button
           type="button"
           onClick={event => openMenuBelow(event, target)}
           aria-label={`Actions for ${pane.paneId}`}
           aria-haspopup="menu"
-          className="px-2 text-text-muted hover:text-text-primary"
+          className="w-8 shrink-0 rounded-lg text-text-muted outline-none hover:text-text-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-purple [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/pane:opacity-100 group-focus-within/pane:opacity-100 [@media(pointer:coarse)]:w-10"
         >⋯</button>
       </div>
     )
@@ -450,7 +461,11 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
       className={`space-y-0.5 rounded-lg ${dropMark(tab.tabId)}`}
     >
       {renderPane(tab.head, tab, workspace, false)}
-      {tab.under.map(pane => renderPane(pane, tab, workspace, true))}
+      {tab.under.length > 0 && (
+        <div className="ml-4 space-y-0.5 border-l border-border-subtle pl-2">
+          {tab.under.map(pane => renderPane(pane, tab, workspace, true))}
+        </div>
+      )}
     </div>
   ))
 
@@ -460,14 +475,14 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
         type="button"
         onClick={() => { void newTab(workspace) }}
         disabled={creating !== null}
-        className="rounded px-2 py-1 text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary disabled:opacity-40"
+        className="h-8 w-7 shrink-0 rounded text-sm text-text-muted opacity-0 group-hover/heading:opacity-100 group-focus-within/heading:opacity-100 hover:bg-bg-tertiary hover:text-text-primary focus-visible:opacity-100 disabled:opacity-40 [@media(hover:none)]:hidden [@media(pointer:coarse)]:hidden"
         aria-label={`New tab in ${workspace.label}`}
         title="新建标签页"
       >{creating === workspace.workspaceId ? '…' : '+'}</button>
       <button
         type="button"
         onClick={event => openMenuBelow(event, { kind: 'workspace', workspace, siblings })}
-        className="mr-1 rounded px-2 py-1 text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
+        className="h-8 w-8 shrink-0 rounded text-sm text-text-muted hover:bg-bg-tertiary hover:text-text-primary [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/heading:opacity-100 group-focus-within/heading:opacity-100 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-10"
         aria-label={`Actions for workspace ${workspace.label}`}
         aria-haspopup="menu"
       >⋯</button>
@@ -487,9 +502,9 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
         data-workspace-id={workspace.workspaceId}
         data-active-workspace={active ? 'true' : undefined}
         {...(workspace.workspaceId ? dropZone('workspace', workspace.workspaceId, workspace.workspaceId) : {})}
-        className={`mb-1 rounded-xl border transition-colors ${active ? 'border-accent-purple/40 bg-accent-purple/5' : 'border-transparent'} ${dropMark(workspace.workspaceId)}`}
+        className={`mb-3 rounded-lg ${dropMark(workspace.workspaceId)}`}
       >
-        <div className="flex items-center" onContextMenu={event => { if (workspace.workspaceId) openMenuAt(event, menuTarget) }}>
+        <div className="group/heading flex items-center rounded-lg bg-tint-blue/10" onContextMenu={event => { if (workspace.workspaceId) openMenuAt(event, menuTarget) }}>
           <button
             type="button"
             onClick={() => {
@@ -503,19 +518,18 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
             onDragStart={event => { if (movable) startDrag(event, 'workspace', workspace.workspaceId, workspace.workspaceId) }}
             onDragEnd={endDrag}
             aria-expanded={open}
-            title={workspace.workspaceId || undefined}
-            className="flex min-w-0 flex-1 select-none items-center gap-2 px-2 py-2 text-left text-xs font-semibold text-text-secondary [-webkit-touch-callout:none]"
+            title={`Workspace: ${workspace.label}${workspace.workspaceId ? ` (${workspace.workspaceId})` : ''}`}
+            className="flex min-h-8 min-w-0 flex-1 select-none items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-text-secondary hover:text-text-primary focus-visible:outline-accent-purple [@media(pointer:coarse)]:min-h-11 [-webkit-touch-callout:none]"
           >
             <span className="w-3 shrink-0 text-text-muted">{open ? '▾' : '▸'}</span>
-            <span className="flex w-2 shrink-0 justify-center">
-              {hot && <span className={`h-2 w-2 rounded-full ${STATUS_STYLE[hot].dot}`} role="img" aria-label={STATUS_STYLE[hot].label} />}
-            </span>
-            <span className={`truncate ${active ? 'text-accent-purple' : ''}`}>{workspace.label}</span>
-            <span className="ml-auto pr-1 font-normal text-text-muted">{workspace.tabs.length}</span>
+            <WorkspaceIcon />
+            <span className="truncate text-accent-blue">{workspace.label}</span>
+            <span className="shrink-0 text-[10px] font-normal text-text-secondary">{workspace.tabs.length} {workspace.tabs.length === 1 ? 'tab' : 'tabs'}</span>
+            {hot && <span className={`ml-1 h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_STYLE[hot].dot}`} role="img" aria-label={STATUS_STYLE[hot].label} title={STATUS_STYLE[hot].label} />}
           </button>
           {headActions(workspace, withAgents)}
         </div>
-        {open && <div className="space-y-0.5 pb-1">{renderTabs(workspace)}</div>}
+        {open && <div className="mb-1 ml-4 mt-1 space-y-0.5 border-l border-border-subtle pl-2">{renderTabs(workspace)}</div>}
       </section>
     )
   })
@@ -548,9 +562,9 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
             key={workspace.workspaceId || '__other__'}
             data-workspace-id={workspace.workspaceId}
             {...(workspace.workspaceId ? dropZone('workspace', workspace.workspaceId, workspace.workspaceId) : {})}
-            className={`rounded-lg ${holds ? 'bg-accent-purple/10' : ''} ${dropMark(workspace.workspaceId)}`}
+            className={`rounded-lg ${holds ? 'bg-tint-purple/5' : ''} ${dropMark(workspace.workspaceId)}`}
           >
-            <div className="flex items-center" onContextMenu={event => { if (workspace.workspaceId) openMenuAt(event, menuTarget) }}>
+            <div className="group/heading flex items-center rounded-lg bg-tint-blue/10" onContextMenu={event => { if (workspace.workspaceId) openMenuAt(event, menuTarget) }}>
               <button
                 type="button"
                 onClick={() => { if (target) press(target.paneId) }}
@@ -562,28 +576,28 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
                 aria-current={holds ? 'page' : undefined}
                 aria-busy={target && switchingPaneId === target.paneId ? true : undefined}
                 title={target?.cwd || workspace.workspaceId}
-                className="flex min-w-0 flex-1 select-none items-center gap-2 px-2 py-1.5 text-left [-webkit-touch-callout:none]"
+                className="flex min-h-8 min-w-0 flex-1 select-none items-center gap-2 rounded-lg px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-purple [@media(pointer:coarse)]:min-h-11 [-webkit-touch-callout:none]"
               >
-                <span className="flex w-4 shrink-0 justify-center font-mono text-[10px] text-text-muted" aria-hidden="true">&gt;_</span>
+                <WorkspaceIcon />
                 <span className={`truncate text-sm ${holds ? 'font-medium text-accent-purple' : 'text-text-primary'}`}>{workspace.label}</span>
                 {panes.length > 1 && <span className="ml-auto pr-1 text-[11px] text-text-muted">{panes.length}</span>}
               </button>
               {headActions(workspace, terminalsOnly)}
             </div>
-            {((holds && panes.length > 1) || query) && <div className="space-y-0.5 pb-1 pl-3">{renderTabs(workspace)}</div>}
+            {((holds && panes.length > 1) || query) && <div className="mb-1 ml-4 mt-1 space-y-0.5 border-l border-border-subtle pl-2">{renderTabs(workspace)}</div>}
           </div>
         )
       })}
     </section>
   )
 
-  const menuTitle = menu ? (menu.target.kind === 'workspace' ? menu.target.workspace.label : menu.target.pane.title) : ''
+  const menuTitle = menu ? (menu.target.kind === 'workspace' ? menu.target.workspace.label : (menu.target.head ? menu.target.tab.customName : undefined) ?? menu.target.pane.title) : ''
 
   return (
     <div>
       {withAgents.length > 0 && (
         <div className="mb-1 flex items-center px-2 text-[11px] text-text-muted">
-          <span>会话</span>
+          <span>工作区</span>
           <button
             type="button"
             onClick={foldAll}
