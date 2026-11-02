@@ -158,6 +158,22 @@ The purple "Sel" button opens a full-screen copy view with two tabs:
 
 The bottom sheet offers four formats (raw, prefixes stripped, Markdown, one line) and three actions: copy, quote the selection into the text input, or send "请解释或处理下面这段内容：…" to the agent and press Enter. The last action is disabled while the agent is blocked or when the pane is not running an agent. If the browser refuses clipboard access (common over plain HTTP), the text is shown pre-selected so you can copy it by hand.
 
+## Desktop mouse behavior
+
+Desktop clicks, drags, releases and wheel events use xterm's native mouse handling.
+Programs that enable mouse reporting receive events in their requested protocol;
+otherwise dragging selects text locally. To force local selection while reporting
+is enabled, hold Option on macOS or Shift on other platforms. Full-screen state
+and agent identity no longer override desktop mouse routing. Mobile touch gestures
+retain their separate scrolling and keyboard behavior.
+
+Settings → Mouse → 选中后自动复制 controls copying a local selection on mouse release
+(enabled by default). It does not intercept application mouse events or read herdr's
+copy preference. Clipboard failures show a message so the selection can be copied
+manually. Herdr control frames that omit mouse-mode declarations cannot enable
+application mouse reporting in xterm; this change does not reconstruct those modes
+or reproduce herdr's native TUI selection/history behavior.
+
 ## File Structure
 
 ```

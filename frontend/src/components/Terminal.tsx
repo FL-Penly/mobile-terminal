@@ -15,6 +15,7 @@ import { readLogicalLines, trimTrailingBlankLines } from '../utils/copy-lines'
 import { createTerminalPasteHandler, type PasteResultCapture } from '../utils/terminal-paste'
 import { createTerminalKeyHandler } from '../utils/terminal-key-input'
 import { observeTerminalResize } from '../utils/terminal-resize'
+import { attachCopyOnSelect } from '../utils/terminal-selection'
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -44,8 +45,7 @@ export const Terminal = () => {
   const pasteResultCaptureRef = useRef<PasteResultCapture['current']>(null)
   const mouseStateRef = useRef({ mouseTracking: false, sgrMode: false })
   const muxRef = useRef(mux)
-  const wheelAccumRef = useRef(0)
-  const selectionPolicyRef = useRef<'local' | 'pty'>('local')
+  const touchTuiActiveRef = useRef(false)
   const paneIdRef = useRef(paneId)
   const herdrScrollbackRef = useRef(false)
   const herdrScrollRef = useRef({ pendingLines: 0, inFlight: false })
@@ -57,10 +57,17 @@ export const Terminal = () => {
   const xtermTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const tapRef = useRef({ startX: 0, startY: 0, startTime: 0 })
   const lastTapTimeRef = useRef(0)
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!copyStatus) return
+    const timer = window.setTimeout(() => setCopyStatus(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [copyStatus])
 
   useEffect(() => { sendInputRef.current = sendInput }, [sendInput])
   useEffect(() => { muxRef.current = mux }, [mux])
-  useEffect(() => { selectionPolicyRef.current = tuiActive ? 'pty' : 'local' }, [tuiActive])
+  useEffect(() => { touchTuiActiveRef.current = tuiActive }, [tuiActive])
   useEffect(() => {
     paneIdRef.current = paneId
     herdrScrollRef.current.pendingLines = 0
@@ -85,7 +92,7 @@ export const Terminal = () => {
   }, [])
 
   const isHerdrScrollTarget = useCallback(() => (
-    muxRef.current === 'herdr' && (selectionPolicyRef.current === 'pty' || herdrScrollbackRef.current)
+    muxRef.current === 'herdr' && (touchTuiActiveRef.current || herdrScrollbackRef.current)
   ), [])
 
   const sendTerminalWheel = useCallback((direction: 'up' | 'down', clientX: number, clientY: number) => {
@@ -343,104 +350,14 @@ export const Terminal = () => {
     const xtermScreen = containerRef.current.querySelector('.xterm-screen') as HTMLElement | null
     xtermScreenRef.current = xtermScreen
 
-    let pendingMouseDown: MouseEvent | null = null
-    let isDragging = false
-    const DRAG_THRESHOLD = 4
-    const patchedMouseEvents = new WeakSet<Event>()
-    const isMac = /mac/i.test(navigator.platform) || /macintosh/i.test(navigator.userAgent)
-    const forceSelectModifier: MouseEventInit = isMac ? { altKey: true } : { shiftKey: true }
-
-    const cloneMouseEvent = (e: MouseEvent, overrides: Partial<MouseEventInit> = {}): MouseEvent => {
-      const init: MouseEventInit = {
-        bubbles: true, cancelable: true, view: e.view, detail: e.detail,
-        screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
-        button: e.button, buttons: e.buttons, relatedTarget: e.relatedTarget,
-        shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey,
-        ...overrides,
-      }
-      const clone = new MouseEvent(e.type, init)
-      patchedMouseEvents.add(clone)
-      return clone
-    }
-
-    const sendSyntheticMouseToPty = (e: MouseEvent, type: 'down' | 'move' | 'up') => {
-      if (!xtermScreen) return
-      const rect = xtermScreen.getBoundingClientRect()
-      const col = Math.max(1, Math.min(term.cols, Math.floor((e.clientX - rect.left) / (rect.width / term.cols)) + 1))
-      const row = Math.max(1, Math.min(term.rows, Math.floor((e.clientY - rect.top) / (rect.height / term.rows)) + 1))
-      const btn = type === 'move' ? 32 : 0
-      if (mouseStateRef.current.sgrMode) {
-        sendInputRef.current(`\x1b[<${btn};${col};${row}${type === 'up' ? 'm' : 'M'}`)
-      } else if (col <= 223 && row <= 223) {
-        sendInputRef.current(`\x1b[M${String.fromCharCode(32 + btn)}${String.fromCharCode(32 + col)}${String.fromCharCode(32 + row)}`)
-      }
-    }
-
-    let currentDragMode: 'local' | 'pty' = 'local'
-
-    const onMouseDownCapture = (e: MouseEvent) => {
-      if (patchedMouseEvents.has(e) || !mouseStateRef.current.mouseTracking || e.button !== 0) return
-      if (isMac ? e.altKey : e.shiftKey) return
-      e.stopImmediatePropagation()
-      e.preventDefault()
-      pendingMouseDown = e
-      isDragging = false
-    }
-
-    const onMouseMoveCapture = (e: MouseEvent) => {
-      if (!pendingMouseDown || patchedMouseEvents.has(e)) return
-      e.stopImmediatePropagation()
-      e.preventDefault()
-      if (!isDragging) {
-        const dx = e.clientX - pendingMouseDown.clientX
-        const dy = e.clientY - pendingMouseDown.clientY
-        if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return
-        isDragging = true
-        currentDragMode = selectionPolicyRef.current
-        if (currentDragMode === 'local') {
-          pendingMouseDown.target?.dispatchEvent(cloneMouseEvent(pendingMouseDown, forceSelectModifier))
-        } else {
-          sendSyntheticMouseToPty(pendingMouseDown, 'down')
-        }
-      }
-      if (currentDragMode === 'local') {
-        const moveClone = new MouseEvent('mousemove', {
-          bubbles: true, cancelable: true, view: e.view,
-          screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
-          button: e.button, buttons: e.buttons,
-          ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, shiftKey: e.shiftKey,
-          ...forceSelectModifier,
-        })
-        patchedMouseEvents.add(moveClone)
-        e.target?.dispatchEvent(moveClone)
-      } else {
-        sendSyntheticMouseToPty(e, 'move')
-      }
-    }
-
-    const onMouseUpCapture = (e: MouseEvent) => {
-      if (!pendingMouseDown || patchedMouseEvents.has(e)) return
-      e.stopImmediatePropagation()
-      e.preventDefault()
-      if (isDragging) {
-        if (currentDragMode === 'local') {
-          e.target?.dispatchEvent(cloneMouseEvent(e, forceSelectModifier))
-        } else {
-          sendSyntheticMouseToPty(e, 'up')
-        }
-      } else {
-        pendingMouseDown.target?.dispatchEvent(cloneMouseEvent(pendingMouseDown))
-        e.target?.dispatchEvent(cloneMouseEvent(e))
-      }
-      pendingMouseDown = null
-      isDragging = false
-    }
-
-    if (xtermScreen) {
-      xtermScreen.addEventListener('mousedown', onMouseDownCapture, { capture: true })
-      xtermScreen.addEventListener('mousemove', onMouseMoveCapture, { capture: true })
-      xtermScreen.addEventListener('mouseup', onMouseUpCapture, { capture: true })
-    }
+    // xterm owns desktop mouse routing and protocol encoding. Alternate-screen
+    // state and agent identity do not tell us whether a program requests mouse input.
+    const detachCopyOnSelect = attachCopyOnSelect(containerRef.current, term, {
+      enabled: () => localStorage.getItem('terminal_copy_on_select') !== 'off',
+      target: () => `${muxRef.current}:${paneIdRef.current ?? ''}`,
+      onFailure: () => setCopyStatus('自动复制失败，请使用复制快捷键'),
+      onCopied: () => setCopyStatus('已复制'),
+    })
 
     const oscDisposable = term.parser.registerOscHandler(7337, (data) => {
       if (data) {
@@ -596,25 +513,6 @@ export const Terminal = () => {
     container.addEventListener('touchmove', handleTouchMove, { passive: false })
     container.addEventListener('touchend', handleTouchEnd, { passive: false })
 
-    const handleWheel = (event: WheelEvent) => {
-      if (!isHerdrScrollTarget() || !xtermScreen) return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      const rect = xtermScreen.getBoundingClientRect()
-      const cellHeight = rect.height / Math.max(1, term.rows)
-      const normalizedDelta = event.deltaY * (event.deltaMode === 1 ? cellHeight : event.deltaMode === 2 ? rect.height : 1)
-      wheelAccumRef.current += normalizedDelta
-      const step = Math.max(8, cellHeight * 0.8)
-      let emitted = 0
-      while (Math.abs(wheelAccumRef.current) >= step && emitted < 8) {
-        const direction = wheelAccumRef.current > 0 ? 'down' : 'up'
-        wheelAccumRef.current += direction === 'down' ? -step : step
-        sendTerminalWheel(direction, event.clientX, event.clientY)
-        emitted += 1
-      }
-    }
-    container.addEventListener('wheel', handleWheel, { passive: false, capture: true })
-
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items
       if (!items) return
@@ -692,11 +590,7 @@ export const Terminal = () => {
       window.removeEventListener('resize', debouncedResize)
       vv?.removeEventListener('resize', debouncedResize)
       window.removeEventListener('terminal-copy-viewport', handleCopyViewport)
-      if (xtermScreen) {
-        xtermScreen.removeEventListener('mousedown', onMouseDownCapture, { capture: true })
-        xtermScreen.removeEventListener('mousemove', onMouseMoveCapture, { capture: true })
-        xtermScreen.removeEventListener('mouseup', onMouseUpCapture, { capture: true })
-      }
+      detachCopyOnSelect()
       clearTimeout(initialFitTimer)
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
       if (pinchWriteTimerRef.current) clearTimeout(pinchWriteTimerRef.current)
@@ -704,7 +598,6 @@ export const Terminal = () => {
       container.removeEventListener('touchstart', handleTouchStart)
       container.removeEventListener('touchmove', handleTouchMove)
       container.removeEventListener('touchend', handleTouchEnd)
-      container.removeEventListener('wheel', handleWheel, { capture: true })
       container.removeEventListener('paste', handlePaste, true)
       term.dispose()
     }
@@ -719,6 +612,11 @@ export const Terminal = () => {
         className="w-full h-full bg-bg-primary overflow-hidden"
         style={{ padding: '4px' }}
       />
+      {copyStatus && (
+        <div role="status" className="absolute top-3 left-1/2 -translate-x-1/2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary z-10">
+          {copyStatus}
+        </div>
+      )}
       {showZoom && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur-sm border border-border-subtle text-text-primary text-sm font-mono pointer-events-none select-none z-10">
           {zoomPercent}% · {fontSize}px

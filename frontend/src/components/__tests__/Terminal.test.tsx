@@ -25,9 +25,13 @@ vi.mock('@xterm/xterm', () => ({
       this.textarea.className = 'xterm-helper-textarea'
       // xterm clears its helper textarea on blur; this is the IME regression risk.
       this.textarea.addEventListener('blur', () => { this.textarea.value = '' })
-      container.append(this.textarea)
+      const screen = document.createElement('div')
+      screen.className = 'xterm-screen'
+      container.append(screen, this.textarea)
     }
     loadAddon() {}
+    onSelectionChange() { return disposable() }
+    getSelection() { return '' }
     onData() { return disposable() }
     onWriteParsed() { return disposable() }
     attachCustomKeyEventHandler() {}
@@ -84,5 +88,31 @@ describe('mobile terminal keyboard focus', () => {
     expect(tap(container)).toBe(false)
     expect(textarea).toHaveAttribute('inputmode', 'none')
     expect(textarea).not.toHaveFocus()
+  })
+})
+
+// The application must not delay clicks, force selection, or synthesize PTY mouse
+// bytes. xterm's real protocol handler receives the original events unchanged.
+describe('desktop mouse ownership', () => {
+  afterEach(cleanup)
+  it('leaves mouse and wheel events to xterm even in an active herdr TUI', () => {
+    state.sendInput.mockClear()
+    const view = render(<Terminal />)
+    const screen = view.container.querySelector('.xterm-screen')!
+    state.csi.get('?h')?.([1002, 1006])
+    const received: Event[] = []
+    for (const type of ['mousedown', 'mousemove', 'mouseup', 'wheel']) {
+      screen.addEventListener(type, event => received.push(event))
+    }
+    const events = [
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, buttons: 1 }),
+      new MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 40 }),
+      new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: 40 }),
+      new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 }),
+    ]
+    for (const event of events) screen.dispatchEvent(event)
+    expect(received).toEqual(events)
+    expect(events.every(event => !event.defaultPrevented)).toBe(true)
+    expect(state.sendInput).not.toHaveBeenCalled()
   })
 })

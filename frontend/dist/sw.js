@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vibeterm-v1';
+const CACHE_NAME = 'vibeterm-v2';
 const PRECACHE = ['/', '/manifest.json', '/icon.svg', '/icon-maskable.svg'];
 
 self.addEventListener('install', (event) => {
@@ -21,6 +21,31 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
+
+  // The entire app is bundled into HTML. Always revalidate navigations so a
+  // refresh runs the current code instead of serving yesterday's application.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const response = await fetch(event.request, {
+            cache: 'no-cache',
+            signal: AbortSignal.timeout(5000),
+          });
+          if (response.ok) {
+            await cache.put(event.request, response.clone());
+            return response;
+          }
+          return await cache.match(event.request) || response;
+        } catch {
+          return await cache.match(event.request)
+            || await cache.match('/')
+            || new Response('Offline', { status: 503 });
+        }
+      })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {

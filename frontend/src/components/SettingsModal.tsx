@@ -162,6 +162,8 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [predictiveEcho, setPredictiveEcho] = useState(() => localStorage.getItem('terminal_predictive_echo') === 'on')
 
+  const [copyOnSelect, setCopyOnSelect] = useState(() => localStorage.getItem('terminal_copy_on_select') !== 'off')
+
   if (!isOpen) return null
 
   return (
@@ -176,6 +178,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         </div>
 
         <div className="overflow-y-auto p-4 space-y-6">
+          <section>
+            <h3 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">Mouse</h3>
+            <label className="flex items-center justify-between gap-3 bg-bg-tertiary p-3 rounded-lg">
+              <span className="flex flex-col">
+                <span className="text-sm text-text-primary">选中后自动复制</span>
+                <span className="text-xs text-text-muted">鼠标松开时复制终端选区，不影响程序的鼠标操作</span>
+              </span>
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-accent-green"
+                checked={copyOnSelect}
+                onChange={event => {
+                  const next = event.target.checked
+                  setCopyOnSelect(next)
+                  localStorage.setItem('terminal_copy_on_select', next ? 'on' : 'off')
+                }}
+              />
+            </label>
+          </section>
           <section>
             <h3 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">Performance</h3>
             <div className="flex items-center justify-between bg-bg-tertiary p-3 rounded-lg">
