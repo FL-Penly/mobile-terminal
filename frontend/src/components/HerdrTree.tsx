@@ -142,7 +142,7 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
   const [terminalsOpen, setTerminalsOpen] = useState(() => localStorage.getItem(TERMINALS_OPEN_KEY) === '1')
   const [longRuns, setLongRuns] = useState<Record<string, number>>({})
   const [menu, setMenu] = useState<{ target: MenuTarget; x: number; y: number } | null>(null)
-  const [closing, setClosing] = useState<HerdrTreePane | null>(null)
+  const [closing, setClosing] = useState<{ kind: 'pane' | 'workspace'; id: string; title: string; paneCount?: number } | null>(null)
   const [creating, setCreating] = useState<string | null>(null)
   const [openingChat, setOpeningChat] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -275,6 +275,7 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
         { id: 'rename', label: '重命名工作区', run: () => onRename({ kind: 'workspace', id: workspace.workspaceId, label: workspace.label, context: `Workspace ${workspace.workspaceId}` }) },
         ...(above ? [{ id: 'move-up', label: '工作区上移', divider: true, run: () => move('workspace', workspace.workspaceId, above.workspaceId, false) }] : []),
         ...(below ? [{ id: 'move-down', label: '工作区下移', divider: !above, run: () => move('workspace', workspace.workspaceId, below.workspaceId, true) }] : []),
+        { id: 'close-workspace', label: '关闭工作区', danger: true, divider: true, run: () => setClosing({ kind: 'workspace', id: workspace.workspaceId, title: workspace.label, paneCount: workspacePanes(tree.find(item => item.workspaceId === workspace.workspaceId) ?? workspace).length }) },
       ]
     }
     const { pane, tab, head, workspace } = target
@@ -297,7 +298,7 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
       ...(above && tabId ? [{ id: 'move-up', label: '标签页上移', divider: true, run: () => move('tab', tabId, above, false) }] : []),
       ...(below && tabId ? [{ id: 'move-down', label: '标签页下移', divider: !above, run: () => move('tab', tabId, below, true) }] : []),
       ...(tabId ? [{ id: 'rename', label: '重命名标签页', divider: true, run: () => onRename({ kind: 'tab', id: tabId, label: tab.label, context: `Tab ${tabId} · applies to every pane in this tab` }) }] : []),
-      { id: 'close', label: '关闭窗格', danger: true, divider: true, run: () => setClosing(pane) },
+      { id: 'close', label: '关闭窗格', danger: true, divider: true, run: () => setClosing({ kind: 'pane', id: pane.paneId, title: pane.title }) },
     ]
   }
 
@@ -600,7 +601,6 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
                 type="button"
                 onClick={() => { if (target) press(target.paneId) }}
                 {...(workspace.workspaceId ? longPressHandlers(menuTarget) : {})}
-                disabled={!target}
                 draggable={movable}
                 onDragStart={event => { if (movable) startDrag(event, 'workspace', workspace.workspaceId, workspace.workspaceId) }}
                 onDragEnd={endDrag}
@@ -649,19 +649,19 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
       {menu && <RowMenu x={menu.x} y={menu.y} title={menuTitle} items={menuItems(menu.target)} onClose={() => setMenu(null)} />}
       {closing && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={event => event.target === event.currentTarget && setClosing(null)}>
-          <div role="dialog" aria-label="关闭窗格" className="w-full max-w-sm rounded-xl bg-bg-secondary p-4">
-            <h3 className="text-lg font-semibold">关闭窗格</h3>
+          <div role="dialog" aria-label={closing.kind === 'workspace' ? '关闭工作区' : '关闭窗格'} className="w-full max-w-sm rounded-xl bg-bg-secondary p-4">
+            <h3 className="text-lg font-semibold">{closing.kind === 'workspace' ? '关闭工作区' : '关闭窗格'}</h3>
             <p className="my-4 text-sm text-text-secondary">
-              关闭 <span className="font-medium text-text-primary">{closing.title}</span>（<span className="font-mono">{closing.paneId}</span>）并结束其中运行的程序？此操作无法撤销。
+              关闭 <span className="font-medium text-text-primary">{closing.title}</span>（<span className="font-mono">{closing.id}</span>）{closing.kind === 'workspace' ? `及其全部标签页和窗格（当前 ${closing.paneCount} 个窗格），并结束其中运行的程序？` : '并结束其中运行的程序？'}此操作无法撤销。
             </p>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setClosing(null)} className="rounded-lg bg-bg-tertiary px-4 py-2">取消</button>
               <button
                 type="button"
                 onClick={() => {
-                  const paneId = closing.paneId
+                  const { kind, id } = closing
                   setClosing(null)
-                  void request(`/api/herdr/close?pane=${encodeURIComponent(paneId)}`, '关闭失败')
+                  void request(`/api/herdr/close?${kind}=${encodeURIComponent(id)}`, '关闭失败')
                 }}
                 className="rounded-lg bg-accent-red px-4 py-2 text-white"
               >确认关闭</button>

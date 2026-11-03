@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HerdrTree } from '../HerdrTree'
 import type { HerdrListPayload } from '../../utils/herdr-sessions'
@@ -118,5 +118,66 @@ describe('Herdr lens chat view', () => {
       panes: [...(payload.panes ?? []), { pane_id: 'p9', workspace_id: 'w1', tab_id: 't1', label: 'Chat', lens_chat: true }],
     }} />)
     expect(view.container.querySelector('[data-pane-id="p9"]')).toHaveTextContent('会话视图')
+  })
+})
+
+describe('Herdr workspace closing', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+  const closeRequests = () => fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/herdr/close'))
+
+  it('requires confirmation, sends the workspace target, and refreshes after success', async () => {
+    render(<HerdrTree {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for workspace 开发' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '关闭工作区' }))
+    expect(screen.getByRole('dialog', { name: '关闭工作区' })).toHaveTextContent('全部标签页和窗格（当前 1 个窗格）')
+    expect(closeRequests()).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(closeRequests()).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for workspace 开发' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '关闭工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认关闭' }))
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalledTimes(1))
+    expect(closeRequests()).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/herdr/close?workspace=w1', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+  })
+
+  it('offers close after a touch long press', async () => {
+    vi.useFakeTimers()
+    render(<HerdrTree {...props} />)
+    fireEvent.pointerDown(screen.getByRole('button', { name: '工作区 开发' }), { pointerType: 'touch', clientX: 40, clientY: 80 })
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('menuitem', { name: '关闭工作区' })).toBeInTheDocument()
+    expect(closeRequests()).toHaveLength(0)
+  })
+
+  it('also closes an empty terminals-only workspace through its menu', async () => {
+    render(<HerdrTree {...props} payload={{ workspaces: [{ workspace_id: 'empty:1', label: '空工作区' }], tabs: [], panes: [] }} />)
+    fireEvent.click(screen.getByRole('button', { name: /只有终端/ }))
+    expect(screen.getByRole('button', { name: '空工作区' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for workspace 空工作区' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '关闭工作区' }))
+    expect(screen.getByRole('dialog')).toHaveTextContent('当前 0 个窗格')
+    fireEvent.click(screen.getByRole('button', { name: '确认关闭' }))
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalledTimes(1))
+    expect(fetchMock).toHaveBeenCalledWith('/api/herdr/close?workspace=empty%3A1', expect.anything())
+  })
+
+  it('shows server errors without reporting a successful removal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    fetchMock.mockImplementation(() => Promise.resolve(new Response('{"message":"busy"}', { status: 503 })))
+    render(<HerdrTree {...props} />)
+    fireEvent.contextMenu(screen.getByRole('button', { name: '工作区 开发' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '关闭工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认关闭' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('关闭失败: busy')
+    expect(props.onChanged).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '工作区 开发' })).toBeInTheDocument()
   })
 })
