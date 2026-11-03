@@ -1,7 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import { markStartup } from './utils/startup-timing'
 import './styles/index.css'
+
+markStartup('entry')
 
 if ('serviceWorker' in navigator) {
   let refreshing = false

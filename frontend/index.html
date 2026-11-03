@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>VibeTerm - Mobile Terminal</title>
+    <!-- Critical startup styles must arrive before the inlined application. -->
+    <style>
+      html, body { margin: 0; background: #0d1117; color: #e6edf3; }
+      #startup { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; gap: 16px; padding: 24px; text-align: center; font: 16px/1.5 system-ui, sans-serif; background: #0d1117; }
+      #startup p { margin: 0; }
+      #startup button { color: inherit; background: #21262d; border: 1px solid #484f58; border-radius: 8px; padding: 10px 20px; font: inherit; cursor: pointer; }
+      #startup button[hidden] { display: none; }
+    </style>
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
@@ -15,6 +23,44 @@
     <meta name="apple-mobile-web-app-title" content="VibeTerm" />
   </head>
   <body>
+    <div id="startup" role="status" aria-live="polite">
+      <p>VibeTerm</p>
+      <p id="startup-message">正在加载终端…</p>
+      <button id="startup-retry" type="button" hidden>重新加载</button>
+      <noscript>请启用 JavaScript 后重新加载页面。</noscript>
+    </div>
+    <script>
+      (() => {
+        performance.mark('vibeterm:html-shell');
+        const shell = document.getElementById('startup');
+        const message = document.getElementById('startup-message');
+        const retry = document.getElementById('startup-retry');
+        retry.addEventListener('click', () => location.reload());
+        const show = text => {
+          message.textContent = text;
+          retry.hidden = false;
+        };
+        const timer = setTimeout(() => {
+          show('加载时间较长，仍在等待页面完成。你可以继续等待或重新加载。');
+          console.warn('[Startup] Application has not mounted after 8 seconds', { elapsedMs: Math.round(performance.now()) });
+        }, 8000);
+        const failed = event => {
+          // Ignore unrelated image/manifest failures; report script/runtime errors.
+          if (event.type === 'error' && event.target instanceof Element && !(event.target instanceof HTMLScriptElement)) return;
+          clearTimeout(timer);
+          show('页面启动遇到错误，请重新加载。');
+          console.error('[Startup] Application failed before mounting');
+        };
+        window.addEventListener('error', failed, true);
+        window.addEventListener('unhandledrejection', failed);
+        window.addEventListener('vibeterm:ready', () => {
+          clearTimeout(timer);
+          window.removeEventListener('error', failed, true);
+          window.removeEventListener('unhandledrejection', failed);
+          shell.remove();
+        }, { once: true });
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

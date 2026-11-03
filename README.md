@@ -75,6 +75,12 @@ cp .env.example .env
 
 ### Weak Networks
 
+The HTML starts with a small loading screen before the inlined application code. After eight seconds it offers a manual reload; startup errors show a retry message. It disappears when React mounts. This helps during slow downloads but cannot display before the server sends the HTML.
+
+On secure origins where a service worker is available, navigation remains network-first. Cache writes run in the background and storage failures do not block a successful network response. The five-second timeout applies to waiting for response headers; a response body already streaming to the browser is allowed to finish.
+
+For startup diagnosis, run `window.vibetermStartup()` in the browser console. It reports navigation timings and milestone offsets in milliseconds from navigation start: HTML shell, entry execution, React mount, first WebSocket attempt/open, and first terminal output (which may be terminal metadata, not a visible prompt). The latest mount/output snapshot is also saved in this tab's `sessionStorage` under `vibeterm:last-startup`. No probes or telemetry uploads are added, and terminal contents and URLs are not recorded. Mount/output after five seconds prints a console warning. An error before the entry executes is reported by the small HTML bootstrap instead.
+
 Static pages use gzip and `Cache-Control: no-cache` with ETag revalidation, so reopening an unchanged page needs only a 304 response. Terminal output uses a connection-local raw-deflate stream when both ends support it; older pages and servers keep the original output protocol.
 
 Connections retry indefinitely with backoffs of 0.5/1/2/3/5 seconds. If a connection fails before opening, time already spent connecting is deducted from the next backoff, down to zero; a connection that opened still waits the full backoff after disconnecting. Opening a socket has a 10/15/20 second timeout, and the retry count resets only after ten stable seconds. Retries pause in the background and resume when the page or network returns. Input is never queued for later replay.

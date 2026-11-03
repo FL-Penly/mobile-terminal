@@ -25,25 +25,38 @@ self.addEventListener('fetch', (event) => {
   // The entire app is bundled into HTML. Always revalidate navigations so a
   // refresh runs the current code instead of serving yesterday's application.
   if (event.request.mode === 'navigate') {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        try {
-          const response = await fetch(event.request, {
-            cache: 'no-cache',
-            signal: AbortSignal.timeout(5000),
-          });
-          if (response.ok) {
-            await cache.put(event.request, response.clone());
-            return response;
-          }
-          return await cache.match(event.request) || response;
-        } catch {
-          return await cache.match(event.request)
-            || await cache.match('/')
-            || new Response('Offline', { status: 503 });
+    const cachePromise = caches.open(CACHE_NAME).catch(() => null);
+    let cacheWrite = Promise.resolve();
+    const responsePromise = (async () => {
+      // Limit waiting for headers, but never abort a body already handed to
+      // the browser: after streaming starts we cannot swap in an offline page.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetch(event.request, {
+          cache: 'no-cache',
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (response.ok) {
+          const copy = response.clone();
+          cacheWrite = cachePromise.then(cache => cache?.put(event.request, copy)).catch(() => {});
+          return response;
         }
-      })
-    );
+        const cache = await cachePromise;
+        return await cache?.match(event.request).catch(() => undefined) || response;
+      } catch {
+        const cache = await cachePromise;
+        return await cache?.match(event.request).catch(() => undefined)
+          || await cache?.match('/').catch(() => undefined)
+          || new Response('Offline', { status: 503 });
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    event.respondWith(responsePromise);
+    // Register synchronously to keep the worker alive for the background write.
+    event.waitUntil(responsePromise.then(() => cacheWrite).catch(() => {}));
     return;
   }
 

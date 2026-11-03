@@ -6,6 +6,7 @@ import {
 } from '../utils/terminal-protocol'
 import type { EncodedKey, TerminalKeystroke } from '../utils/terminal-keys'
 import { findHerdrFallbackPane, isMissingHerdrPaneReason } from '../utils/terminal-api'
+import { markStartup } from '../utils/startup-timing'
 
 const encoder = new TextEncoder()
 const MAX_EARLY_CHUNKS = 200
@@ -289,6 +290,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const attemptStartedAt = Date.now()
     let opened = false
+    let receivedOutput = false
+    markStartup('ws-start')
     const ws = new WebSocket(wsUrl, ['tty'])
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
@@ -351,6 +354,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     ws.onopen = () => {
       if (!isCurrent()) return
+      markStartup('ws-open')
       opened = true
       window.clearTimeout(connectTimer)
       setConnectionState('connected')
@@ -378,6 +382,10 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     const handleOutputChunk = (payload: Uint8Array) => {
+      if (!receivedOutput && payload.length > 0) {
+        receivedOutput = true
+        markStartup('first-output')
+      }
       if (!clientTtyRef.current) {
         const text = new TextDecoder().decode(payload)
         const match = text.match(/\]7337;(\/dev\/[A-Za-z0-9/]+)/)
