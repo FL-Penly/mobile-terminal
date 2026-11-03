@@ -144,6 +144,7 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
   const [menu, setMenu] = useState<{ target: MenuTarget; x: number; y: number } | null>(null)
   const [closing, setClosing] = useState<HerdrTreePane | null>(null)
   const [creating, setCreating] = useState<string | null>(null)
+  const [openingChat, setOpeningChat] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [drag, setDrag] = useState<{ kind: 'workspace' | 'tab'; id: string; workspaceId: string } | null>(null)
@@ -233,6 +234,19 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
     }
   }
 
+  // herdr-lens owns the chat view and its per-reply forks; quitting it hands focus back to the agent pane.
+  const openChat = async (pane: HerdrTreePane) => {
+    if (openingChat) return
+    setOpeningChat(pane.paneId)
+    flash('正在打开会话视图…')
+    try {
+      const data = await request(`/api/herdr/chat?pane=${encodeURIComponent(pane.paneId)}`, '打开会话视图失败')
+      if (typeof data?.paneId === 'string') onOpen(data.paneId)
+    } finally {
+      setOpeningChat(null)
+    }
+  }
+
   // Moves go to Herdr itself, so the sidebar and the Herdr TUI always share one order.
   const move = (kind: 'workspace' | 'tab', id: string, targetId: string, after: boolean) => {
     const ids = kind === 'workspace'
@@ -273,6 +287,9 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
     return [
       { id: 'copy-id', label: '复制窗格 ID', hint: pane.paneId, run: () => { void copy(pane.paneId, '已复制窗格 ID') } },
       ...(pane.agentName ? [{ id: 'copy-name', label: '复制名字', hint: pane.agentName, run: () => { void copy(pane.agentName ?? '', '已复制名字') } }] : []),
+      ...(pane.agent && payload?.lens?.chat ? [
+        { id: 'chat-view', label: openingChat === pane.paneId ? '正在打开会话视图…' : '会话视图（从任意回复分叉）', run: () => { void openChat(pane) } },
+      ] : []),
       ...(pane.agent ? [
         { id: 'copy-dispatch', label: '复制派活命令', run: () => { void copy(herdrDispatchCommand(dispatchTarget), '已复制派活命令') } },
         { id: 'copy-instructions', label: '复制派活说明（贴给其他 agent）', run: () => { void copy(herdrDispatchInstructions(pane), '已复制派活说明，贴给另一个会话就行') } },

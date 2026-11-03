@@ -1,9 +1,13 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::{json, Value};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+    time::{Duration, Instant},
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
@@ -207,15 +211,146 @@ pub async fn list() -> Result<Value, String> {
         request("tab.list", json!({})),
         request("agent.list", json!({})),
     )?;
+    let lens = lens_root().await;
+    let mut panes = panes.get("panes").cloned().unwrap_or_else(|| json!([]));
+    if let Some(root) = lens.as_deref() {
+        mark_lens_chat_panes(&mut panes, root);
+    }
 
     Ok(json!({
         "mux": "herdr",
         "protocol": MIN_SUPPORTED_PROTOCOL,
-        "panes": panes.get("panes").cloned().unwrap_or_else(|| json!([])),
+        "panes": panes,
         "workspaces": workspaces.get("workspaces").cloned().unwrap_or_else(|| json!([])),
         "tabs": tabs.get("tabs").cloned().unwrap_or_else(|| json!([])),
         "agents": agents.get("agents").cloned().unwrap_or_else(|| json!([])),
+        "lens": { "chat": lens.is_some() },
     }))
+}
+
+// ─── herdr-lens chat view ─────────────────────────────────────────────────
+
+const LENS_PLUGIN_ID: &str = "herdr-lens";
+const LENS_BINARY: &str = "target/release/herdr-lens";
+const LENS_CHAT_ENTRYPOINT: &str = "chat";
+const LENS_CHAT_LABEL: &str = "Chat";
+const LENS_TARGET_ENV: &str = "HERDR_LENS_TARGET";
+const LENS_AGENTS: [&str; 2] = ["claude", "codex"];
+const LENS_CACHE_TTL: Duration = Duration::from_secs(60);
+
+static LENS_CACHE: Mutex<Option<(Instant, Option<PathBuf>)>> = Mutex::new(None);
+
+fn lens_plugin_root(plugins: &Value) -> Option<PathBuf> {
+    let plugin = plugins
+        .get("plugins")?
+        .as_array()?
+        .iter()
+        .find(|plugin| plugin.get("plugin_id").and_then(Value::as_str) == Some(LENS_PLUGIN_ID))?;
+    if !plugin
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    plugin
+        .get("plugin_root")
+        .and_then(Value::as_str)
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `herdr plugin link` does not compile the plugin, so an unbuilt one counts as missing.
+pub async fn lens_root() -> Option<PathBuf> {
+    if let Ok(cache) = LENS_CACHE.lock() {
+        if let Some((checked_at, root)) = cache.as_ref() {
+            if checked_at.elapsed() < LENS_CACHE_TTL {
+                return root.clone();
+            }
+        }
+    }
+    let root = match request("plugin.list", json!({})).await {
+        Ok(plugins) => match lens_plugin_root(&plugins) {
+            Some(root) => {
+                let built = tokio::fs::metadata(root.join(LENS_BINARY))
+                    .await
+                    .map(|metadata| metadata.is_file())
+                    .unwrap_or(false);
+                if !built {
+                    tracing::warn!("herdr-lens at {} is not built", root.display());
+                }
+                built.then_some(root)
+            }
+            None => None,
+        },
+        Err(error) => {
+            tracing::warn!("herdr plugin.list failed: {}", error);
+            None
+        }
+    };
+    if let Ok(mut cache) = LENS_CACHE.lock() {
+        *cache = Some((Instant::now(), root.clone()));
+    }
+    root
+}
+
+/// Herdr reports plugin panes like any other pane; a chat view is the one herdr-lens
+/// runs from its root under the label `Chat`. Marking it lets the browser route taps
+/// and wheel to it, since herdr frames never carry the TUI's mouse-mode setup.
+fn mark_lens_chat_panes(panes: &mut Value, root: &Path) {
+    let Some(panes) = panes.as_array_mut() else {
+        return;
+    };
+    for pane in panes {
+        let in_root = ["cwd", "foreground_cwd"]
+            .iter()
+            .any(|key| pane.get(*key).and_then(Value::as_str).map(Path::new) == Some(root));
+        let labelled = pane.get("label").and_then(Value::as_str) == Some(LENS_CHAT_LABEL);
+        let agent = pane.get("agent").and_then(Value::as_str).is_some();
+        if in_root && labelled && !agent {
+            pane["lens_chat"] = json!(true);
+        }
+    }
+}
+
+fn check_lens_target(panes: &Value, target: &str) -> Result<(), String> {
+    let pane = panes
+        .get("panes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|pane| pane.get("pane_id").and_then(Value::as_str) == Some(target))
+        .ok_or_else(|| format!("找不到窗格 {}", target))?;
+    match pane.get("agent").and_then(Value::as_str) {
+        Some(agent) if LENS_AGENTS.contains(&agent) => Ok(()),
+        _ => Err(format!("窗格 {} 里没有运行 Claude Code 或 Codex", target)),
+    }
+}
+
+fn lens_chat_params(target: &str) -> Value {
+    json!({
+        "plugin_id": LENS_PLUGIN_ID,
+        "entrypoint": LENS_CHAT_ENTRYPOINT,
+        "env": { LENS_TARGET_ENV: target },
+        "focus": true,
+        "placement": "overlay",
+    })
+}
+
+fn lens_chat_pane_id(opened: &Value) -> Option<String> {
+    opened
+        .pointer("/plugin_pane/pane/pane_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+pub async fn open_lens_chat(target: &str) -> Result<String, String> {
+    let panes = request("pane.list", json!({})).await?;
+    check_lens_target(&panes, target)?;
+    // Overlay plugin panes always cover herdr's active pane.
+    request("pane.focus", json!({ "pane_id": target })).await?;
+    let opened = request("plugin.pane.open", lens_chat_params(target)).await?;
+    lens_chat_pane_id(&opened).ok_or_else(|| "herdr did not return the chat pane".to_string())
 }
 
 pub async fn protocol_version() -> Result<u64, String> {
@@ -431,6 +566,86 @@ mod tests {
                 PathBuf::from("/usr/local/bin/herdr"),
             ]
         );
+    }
+
+    fn plugin_list(enabled: bool, root: &str) -> Value {
+        json!({
+            "type": "plugin_list",
+            "plugins": [
+                { "plugin_id": "other", "enabled": true, "plugin_root": "/x" },
+                { "plugin_id": "herdr-lens", "enabled": enabled, "plugin_root": root },
+            ]
+        })
+    }
+
+    #[test]
+    fn lens_root_requires_an_enabled_herdr_lens() {
+        assert_eq!(
+            lens_plugin_root(&plugin_list(true, "/p/herdr-lens")),
+            Some(PathBuf::from("/p/herdr-lens"))
+        );
+        assert_eq!(lens_plugin_root(&plugin_list(false, "/p/herdr-lens")), None);
+        assert_eq!(lens_plugin_root(&plugin_list(true, "")), None);
+        assert_eq!(
+            lens_plugin_root(&json!({ "plugins": [{ "plugin_id": "other", "enabled": true, "plugin_root": "/x" }] })),
+            None
+        );
+        assert_eq!(lens_plugin_root(&json!({})), None);
+    }
+
+    #[test]
+    fn marks_only_chat_panes_run_from_the_lens_root() {
+        let mut panes = json!([
+            { "pane_id": "w:p1", "label": "Chat", "cwd": "/p/herdr-lens" },
+            { "pane_id": "w:p2", "label": "Chat", "cwd": "/elsewhere" },
+            { "pane_id": "w:p3", "cwd": "/p/herdr-lens" },
+            { "pane_id": "w:p4", "label": "Chat", "cwd": "/p/herdr-lens", "agent": "claude" },
+            { "pane_id": "w:p5", "label": "Chat", "cwd": "/tmp", "foreground_cwd": "/p/herdr-lens" },
+        ]);
+        mark_lens_chat_panes(&mut panes, Path::new("/p/herdr-lens"));
+        let marked: Vec<&str> = panes
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|pane| pane.get("lens_chat") == Some(&json!(true)))
+            .filter_map(|pane| pane.get("pane_id").and_then(Value::as_str))
+            .collect();
+        assert_eq!(marked, vec!["w:p1", "w:p5"]);
+    }
+
+    #[test]
+    fn lens_target_must_be_a_claude_or_codex_pane() {
+        let panes = json!({ "panes": [
+            { "pane_id": "w:p1", "agent": "claude" },
+            { "pane_id": "w:p2", "agent": "codex" },
+            { "pane_id": "w:p3", "agent": "pi" },
+            { "pane_id": "w:p4" },
+        ]});
+        assert!(check_lens_target(&panes, "w:p1").is_ok());
+        assert!(check_lens_target(&panes, "w:p2").is_ok());
+        assert!(check_lens_target(&panes, "w:p3").unwrap_err().contains("Claude Code 或 Codex"));
+        assert!(check_lens_target(&panes, "w:p4").is_err());
+        assert!(check_lens_target(&panes, "w:p9").unwrap_err().contains("找不到"));
+    }
+
+    #[test]
+    fn lens_chat_opens_as_an_overlay_aimed_at_the_target() {
+        assert_eq!(
+            lens_chat_params("w:p1"),
+            json!({
+                "plugin_id": "herdr-lens",
+                "entrypoint": "chat",
+                "env": { "HERDR_LENS_TARGET": "w:p1" },
+                "focus": true,
+                "placement": "overlay",
+            })
+        );
+        let opened = json!({
+            "type": "plugin_pane_opened",
+            "plugin_pane": { "plugin_id": "herdr-lens", "entrypoint": "chat", "pane": { "pane_id": "w:p7" } }
+        });
+        assert_eq!(lens_chat_pane_id(&opened), Some("w:p7".to_string()));
+        assert_eq!(lens_chat_pane_id(&json!({ "type": "ok" })), None);
     }
 
     #[test]

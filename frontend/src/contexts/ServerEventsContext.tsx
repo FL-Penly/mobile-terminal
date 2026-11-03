@@ -217,7 +217,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const currentAgent = paneId ? agents.get(paneId) : undefined
     const agent = currentAgent?.agent ?? currentPane?.agent
     const noMouseAgent = NO_MOUSE_AGENTS.has(agent ?? '')
-    setTuiActive(Boolean(agent) && !noMouseAgent)
+    setTuiActive((Boolean(agent) && !noMouseAgent) || currentPane?.lens_chat === true)
     setHerdrScrollback(noMouseAgent)
     setSessionsLoaded(true)
   }, [paneId])

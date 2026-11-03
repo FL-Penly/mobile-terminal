@@ -16,6 +16,8 @@ import { createTerminalPasteHandler, type PasteResultCapture } from '../utils/te
 import { createTerminalKeyHandler } from '../utils/terminal-key-input'
 import { observeTerminalResize } from '../utils/terminal-resize'
 import { attachCopyOnSelect } from '../utils/terminal-selection'
+import { isLensChatPane } from '../utils/herdr-sessions'
+import { sgrClick, WheelStepper } from '../utils/lens-chat-mouse'
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -26,7 +28,7 @@ export const Terminal = () => {
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux, paneId } = useTerminal()
-  const { tuiActive, herdrScrollback } = useServerEvents()
+  const { tuiActive, herdrScrollback, herdrPayload } = useServerEvents()
   const setClientTtyRef = useRef(setClientTty)
   
   const [fontSize, setFontSize] = useState(() => {
@@ -48,6 +50,7 @@ export const Terminal = () => {
   const touchTuiActiveRef = useRef(false)
   const paneIdRef = useRef(paneId)
   const herdrScrollbackRef = useRef(false)
+  const lensChatRef = useRef(false)
   const herdrScrollRef = useRef({ pendingLines: 0, inFlight: false })
   const clientTtyValueRef = useRef<string | null>(null)
   const [copyModeData, setCopyModeData] = useState<{ lines: string[]; viewportLine: number } | null>(null)
@@ -73,6 +76,9 @@ export const Terminal = () => {
     herdrScrollRef.current.pendingLines = 0
   }, [paneId])
   useEffect(() => { herdrScrollbackRef.current = herdrScrollback }, [herdrScrollback])
+  useEffect(() => {
+    lensChatRef.current = mux === 'herdr' && isLensChatPane(herdrPayload, paneId)
+  }, [mux, herdrPayload, paneId])
 
   const flushHerdrScroll = useCallback(async () => {
     const scroll = herdrScrollRef.current
@@ -95,13 +101,26 @@ export const Terminal = () => {
     muxRef.current === 'herdr' && (touchTuiActiveRef.current || herdrScrollbackRef.current)
   ), [])
 
-  const sendTerminalWheel = useCallback((direction: 'up' | 'down', clientX: number, clientY: number) => {
+  const terminalCell = useCallback((clientX: number, clientY: number) => {
     const term = termRef.current
     const screen = xtermScreenRef.current
-    if (!term || !screen) return
+    if (!term || !screen) return null
     const rect = screen.getBoundingClientRect()
     const col = Math.max(1, Math.min(term.cols, Math.floor((clientX - rect.left) / (rect.width / term.cols)) + 1))
     const row = Math.max(1, Math.min(term.rows, Math.floor((clientY - rect.top) / (rect.height / term.rows)) + 1))
+    return { col, row }
+  }, [])
+
+  // Herdr frames never carry the chat view's mouse-mode setup, so xterm would not report clicks to it.
+  const sendLensClick = useCallback((clientX: number, clientY: number) => {
+    const cell = terminalCell(clientX, clientY)
+    if (cell) sendInputRef.current(sgrClick(cell.col, cell.row))
+  }, [terminalCell])
+
+  const sendTerminalWheel = useCallback((direction: 'up' | 'down', clientX: number, clientY: number) => {
+    const cell = terminalCell(clientX, clientY)
+    if (!cell) return
+    const { col, row } = cell
     const button = direction === 'down' ? 65 : 64
     if (muxRef.current === 'herdr' && herdrScrollbackRef.current) {
       herdrScrollRef.current.pendingLines += direction === 'up' ? 1 : -1
@@ -111,7 +130,7 @@ export const Terminal = () => {
     } else {
       sendInputRef.current(`\x1b[M${String.fromCharCode(button + 32)}${String.fromCharCode(col + 32)}${String.fromCharCode(row + 32)}`)
     }
-  }, [flushHerdrScroll])
+  }, [flushHerdrScroll, terminalCell])
 
   const handleResize = useCallback(() => {
     if (fitAddonRef.current && termRef.current) {
@@ -259,10 +278,14 @@ export const Terminal = () => {
         } else {
           // First tap — record time
           lastTapTimeRef.current = now
+          if (lensChatRef.current) {
+            e.preventDefault()
+            sendLensClick(touch.clientX, touch.clientY)
+          }
         }
       }
     }
-  }, [])
+  }, [sendLensClick])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -513,6 +536,31 @@ export const Terminal = () => {
     container.addEventListener('touchmove', handleTouchMove, { passive: false })
     container.addEventListener('touchend', handleTouchEnd, { passive: false })
 
+    const lensPointer = { x: 0, y: 0, down: false }
+    const lensWheel = new WheelStepper()
+    const handleLensPointerDown = (e: PointerEvent) => {
+      lensPointer.down = e.pointerType === 'mouse' && e.button === 0 && lensChatRef.current
+      lensPointer.x = e.clientX
+      lensPointer.y = e.clientY
+    }
+    const handleLensPointerUp = (e: PointerEvent) => {
+      if (!lensPointer.down || e.pointerType !== 'mouse' || !lensChatRef.current) return
+      lensPointer.down = false
+      const moved = Math.hypot(e.clientX - lensPointer.x, e.clientY - lensPointer.y)
+      if (moved < 5 && !term.hasSelection()) sendLensClick(e.clientX, e.clientY)
+    }
+    const handleLensWheel = (e: WheelEvent) => {
+      if (!lensChatRef.current) return
+      e.preventDefault()
+      e.stopPropagation()
+      for (const direction of lensWheel.steps(e.deltaY, e.deltaMode)) {
+        sendTerminalWheel(direction, e.clientX, e.clientY)
+      }
+    }
+    container.addEventListener('pointerdown', handleLensPointerDown, true)
+    container.addEventListener('pointerup', handleLensPointerUp, true)
+    container.addEventListener('wheel', handleLensWheel, { capture: true, passive: false })
+
     const handlePaste = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items
       if (!items) return
@@ -596,12 +644,15 @@ export const Terminal = () => {
       if (pinchWriteTimerRef.current) clearTimeout(pinchWriteTimerRef.current)
       if (pinchResizeTimerRef.current) clearTimeout(pinchResizeTimerRef.current)
       container.removeEventListener('touchstart', handleTouchStart)
+      container.removeEventListener('pointerdown', handleLensPointerDown, true)
+      container.removeEventListener('pointerup', handleLensPointerUp, true)
+      container.removeEventListener('wheel', handleLensWheel, true)
       container.removeEventListener('touchmove', handleTouchMove)
       container.removeEventListener('touchend', handleTouchEnd)
       container.removeEventListener('paste', handlePaste, true)
       term.dispose()
     }
-  }, [subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd, isHerdrScrollTarget, sendTerminalWheel])
+  }, [subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, handleResize, debouncedResize, handleTouchStart, handleTouchMove, handleTouchEnd, isHerdrScrollTarget, sendTerminalWheel, sendLensClick])
 
   const zoomPercent = Math.round((fontSize / DEFAULT_FONT_SIZE) * 100)
 

@@ -225,6 +225,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tmux/page-up", get(api_tmux_page_up))
         .route("/api/herdr/list", get(api_herdr_list))
         .route("/api/herdr/focus", get(api_herdr_focus))
+        .route("/api/herdr/chat", get(api_herdr_chat))
         .route("/api/herdr/scroll", get(api_herdr_scroll))
         .route("/api/herdr/create", get(api_herdr_create))
         .route("/api/herdr/close", get(api_herdr_close))
@@ -3012,6 +3013,31 @@ async fn api_herdr_focus(Query(query): Query<HerdrPaneQuery>) -> Response {
         }))
         .into_response(),
         Err(error) => herdr_operation_error("focus_failed", error),
+    }
+}
+
+// ─── GET /api/herdr/chat ───────────────────────────────────────────────────
+
+async fn api_herdr_chat(Query(query): Query<HerdrPaneQuery>) -> Response {
+    let pane_id = match required_herdr_pane(query.pane) {
+        Ok(pane_id) => pane_id,
+        Err(()) => return missing_herdr_pane_response(),
+    };
+    if herdr::lens_root().await.is_none() {
+        return json_error(
+            "lens_unavailable",
+            "herdr-lens 没有安装、没有启用或没有编译，打不开会话视图",
+            StatusCode::NOT_FOUND,
+        );
+    }
+    match herdr::open_lens_chat(&pane_id).await {
+        Ok(chat_pane_id) => Json(serde_json::json!({
+            "success": true,
+            "paneId": chat_pane_id,
+            "target": pane_id,
+        }))
+        .into_response(),
+        Err(error) => herdr_operation_error("chat_failed", error),
     }
 }
 

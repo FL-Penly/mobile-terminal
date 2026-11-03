@@ -13,6 +13,8 @@ export interface HerdrPane {
   focused?: boolean
   revision?: number
   agent_status?: AgentStatus
+  /** Set by the server on a herdr-lens chat view. */
+  lens_chat?: boolean
 }
 
 export interface HerdrWorkspace {
@@ -40,6 +42,8 @@ export interface HerdrListPayload {
   workspaces?: HerdrWorkspace[]
   tabs?: HerdrTab[]
   agents?: HerdrAgent[]
+  /** Whether herdr-lens is installed, enabled and built. */
+  lens?: { chat?: boolean }
 }
 
 export interface HerdrSessions {
@@ -127,6 +131,7 @@ export interface HerdrTreePane {
   cwd: string
   folder: string
   focused: boolean
+  lensChat: boolean
 }
 
 export interface HerdrTreeTab {
@@ -150,6 +155,12 @@ export interface HerdrTreeWorkspace {
   hasAgent: boolean
 }
 
+const LENS_CHAT_TITLE = '会话视图'
+
+export const isLensChatPane = (payload: HerdrListPayload | null, paneId: string | null) => (
+  Boolean(paneId) && payload?.panes?.some(pane => pane.pane_id === paneId && pane.lens_chat === true) === true
+)
+
 const shortenHome = (path: string) => path.replace(/^(?:\/data\d+)?\/home\/[^/]+(?=\/|$)/, '~')
 
 // A shell's title is its prompt (`user@host:/path`): the folder is the part worth reading.
@@ -171,7 +182,9 @@ export const buildHerdrTree = (payload: HerdrListPayload | null): HerdrTreeWorks
     const agent = nonEmpty(pane.agent) ?? nonEmpty(agentInfo?.agent)
     const cwd = pane.foreground_cwd ?? pane.cwd ?? ''
     const folder = cwd.split('/').filter(Boolean).pop() ?? cwd
-    const title = nonEmpty(pane.label)
+    const lensChat = pane.lens_chat === true
+    const title = (lensChat ? LENS_CHAT_TITLE : undefined)
+      ?? nonEmpty(pane.label)
       ?? (agent
         ? nonEmpty(pane.title) ?? nonEmpty(agentInfo?.terminal_title_stripped) ?? nonEmpty(pane.terminal_title_stripped) ?? agent
         : nonEmpty(pane.title) ?? terminalTitle(nonEmpty(pane.terminal_title_stripped)) ?? (folder || undefined))
@@ -187,6 +200,7 @@ export const buildHerdrTree = (payload: HerdrListPayload | null): HerdrTreeWorks
       cwd,
       folder,
       focused: pane.focused ?? false,
+      lensChat,
     }
   }
   const workspaceRows = (workspaceId: string, label: string, activeTabId?: string): HerdrTreeWorkspace => {
