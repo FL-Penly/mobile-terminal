@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { useServerEvents } from '../contexts/ServerEventsContext'
-import { SettingsModal, UserConfig, UserCommand, DEFAULT_CONFIG, loadUserConfig, saveUserConfig } from './SettingsModal'
+import { useUserConfig } from '../hooks/useUserConfig'
+import { SettingsModal, UserConfig, UserCommand } from './SettingsModal'
 
 import { TextInputModal } from './TextInputModal'
 import { GitPanel } from './GitPanel'
@@ -14,7 +15,7 @@ export const Toolbar: React.FC = () => {
   const { sendKey, sendInput, submitText, connectionState, mux, paneId, clientTty } = useTerminal()
   const { currentTmuxSession } = useServerEvents()
   const [isComboOpen, setIsComboOpen] = useState(false)
-  const [config, setConfig] = useState<UserConfig>(DEFAULT_CONFIG)
+  const { config, ready: configReady, status: configStatus, update: persistConfig, retry: retryConfig } = useUserConfig()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isInputOpen, setIsInputOpen] = useState(false)
   const [inputPrefill, setInputPrefill] = useState<{ id: number; text: string } | null>(null)
@@ -31,10 +32,6 @@ export const Toolbar: React.FC = () => {
       return !prev
     })
   }
-
-  useEffect(() => {
-    loadUserConfig().then(setConfig)
-  }, [])
 
   useEffect(() => {
     const handleInsert = (event: Event) => {
@@ -88,13 +85,7 @@ export const Toolbar: React.FC = () => {
 
   const addCmd = (cmd: UserCommand) => {
     const updated = { ...config, commands: [...config.commands, cmd] }
-    setConfig(updated)
-    saveUserConfig(updated)
-  }
-
-  const persistConfig = (updated: UserConfig) => {
-    setConfig(updated)
-    saveUserConfig(updated)
+    persistConfig(updated)
   }
 
   const setActivePresetGroup = (groupId: string) => {
@@ -119,18 +110,23 @@ export const Toolbar: React.FC = () => {
   return (
     <>
       <div className="shrink-0 flex flex-col">
+        {configStatus && <div role="status" className="px-3 py-1 text-xs text-text-secondary">
+          {configStatus}
+          {configStatus.includes('失败') && <button onClick={retryConfig} className="ml-2 text-accent-blue">重试</button>}
+        </div>}
         <TextInputModal
           isOpen={isInputOpen}
           onClose={() => setIsInputOpen(false)}
           onSend={submitText}
           prefill={inputPrefill}
+          templatesReady={configReady}
           presetGroups={config.presetGroups}
           activePresetGroupId={config.activePresetGroupId}
           onActivePresetGroupChange={setActivePresetGroup}
           onPresetGroupsChange={updatePresetGroups}
         />
 
-        {isPickerOpen && (
+        {isPickerOpen && configReady && (
           <CommandPicker
             commands={config.commands}
             onExecute={(cmd) => { exec(cmd); setIsPickerOpen(false) }}
@@ -138,13 +134,11 @@ export const Toolbar: React.FC = () => {
             onAdd={addCmd}
             onDelete={(idx) => {
               const updated = { ...config, commands: config.commands.filter((_, i) => i !== idx) }
-              setConfig(updated)
-              saveUserConfig(updated)
+              persistConfig(updated)
             }}
             onReorder={(cmds) => {
               const updated = { ...config, commands: cmds }
-              setConfig(updated)
-              saveUserConfig(updated)
+              persistConfig(updated)
             }}
           />
         )}

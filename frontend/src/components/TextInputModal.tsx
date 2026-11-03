@@ -133,6 +133,7 @@ const applyVariablesToPrompt = (text: string, values: Record<string, string>): s
 }
 
 interface TextInputBarProps {
+  templatesReady?: boolean
   isOpen: boolean
   onClose: () => void
   onSend: (text: string) => InputSendResult | Promise<InputSendResult>
@@ -144,6 +145,7 @@ interface TextInputBarProps {
 }
 
 export const TextInputModal: React.FC<TextInputBarProps> = ({
+  templatesReady = true,
   isOpen,
   onClose,
   onSend,
@@ -587,16 +589,17 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
         <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
           <button
             onClick={toggleGroups}
+            disabled={!templatesReady}
             className={`shrink-0 h-[32px] max-w-[36vw] px-3 flex items-center gap-1.5 rounded-lg border text-sm font-semibold truncate transition-colors ${
               showGroups ? 'bg-accent-blue/20 border-accent-blue text-accent-blue' : 'bg-bg-tertiary border-accent-blue/50 text-text-primary'
             }`}
           >
-            <span className="truncate">{activeGroup?.label ?? '默认'}</span>
+            <span className="truncate">{templatesReady ? activeGroup?.label ?? '默认' : '模板加载中…'}</span>
             <span className="text-text-muted">⌄</span>
           </button>
           <button
             onClick={toggleVariables}
-            disabled={!hasVariables}
+            disabled={!templatesReady || !hasVariables}
             className={`shrink-0 h-[32px] px-3 flex items-center rounded-lg border text-sm font-semibold transition-colors disabled:opacity-30 ${
               showVariables ? 'bg-accent-blue/20 border-accent-blue text-accent-blue' : 'bg-bg-tertiary/50 border-border-subtle text-text-secondary'
             }`}
@@ -616,6 +619,7 @@ export const TextInputModal: React.FC<TextInputBarProps> = ({
         </div>
         <button
           onClick={toggleManage}
+          disabled={!templatesReady}
           aria-label="Manage presets"
           className={`shrink-0 min-w-[36px] h-[32px] flex items-center justify-center rounded-lg border text-sm transition-colors ${
             managing ? 'bg-accent-orange/20 border-accent-orange text-accent-orange' : 'bg-bg-tertiary/50 border-border-subtle text-text-secondary'

@@ -210,3 +210,15 @@ describe('TextInputModal reliable send', () => {
     expect(status).toHaveTextContent(path)
   })
 })
+
+
+it('protects templates while loading without disabling ordinary text input', () => {
+  render(<TextInputModal isOpen templatesReady={false} onClose={vi.fn()} onSend={vi.fn()}
+    presetGroups={[]} activePresetGroupId="" onActivePresetGroupChange={vi.fn()} onPresetGroupsChange={vi.fn()} />)
+  expect(screen.getByRole('button', { name: /模板加载中/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Manage presets' })).toBeDisabled()
+  const input = screen.getByPlaceholderText('Type or paste text...')
+  expect(input).not.toBeDisabled()
+  fireEvent.change(input, { target: { value: 'still usable' } })
+  expect(input).toHaveValue('still usable')
+})

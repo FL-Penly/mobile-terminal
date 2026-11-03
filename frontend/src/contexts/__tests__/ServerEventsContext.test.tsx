@@ -44,6 +44,7 @@ describe('ServerEventsProvider', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('handles an empty snapshot, falls back to polling, and reconnects SSE', async () => {
@@ -152,4 +153,106 @@ describe('ServerEventsProvider', () => {
     })
     expect(await screen.findByText('api/review/w4:p1')).toBeInTheDocument()
   })
+  it('keeps healthy Herdr data when Git times out after SSE recovery', async () => {
+    terminalState.mux = 'herdr'
+    let rejectDiff: (reason: Error) => void = () => undefined
+    const diff = new Promise<Response>((_resolve, reject) => { rejectDiff = reject })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).startsWith('/api/diff')
+      ? diff : Promise.resolve(new Response(JSON.stringify({ panes: [], workspaces: [] })))))
+    render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    await act(async () => {
+      EventSourceMock.instances[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify({ herdr: { panes: [] } }) }))
+    })
+    await act(async () => { rejectDiff(new Error('timeout')) })
+    expect(screen.getByText('loaded:0:online')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000) })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores an older list failure after an SSE snapshot', async () => {
+    terminalState.mux = 'herdr'
+    let rejectList: (reason: Error) => void = () => undefined
+    const list = new Promise<Response>((_resolve, reject) => { rejectList = reject })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).startsWith('/api/diff')
+      ? Promise.resolve(new Response('{}')) : list))
+    render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    act(() => { EventSourceMock.instances[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify({ herdr: { panes: [] } }) })) })
+    await act(async () => { rejectList(new Error('old timeout')) })
+    expect(screen.getByText('loaded:0:online')).toBeInTheDocument()
+  })
+
+  it('retries failed lists even if SSE opened without delivering data', async () => {
+    terminalState.mux = 'herdr'
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let attempts = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (String(input).startsWith('/api/diff')) return Promise.resolve(new Response('{}'))
+      attempts += 1
+      return attempts === 1 ? Promise.reject(new Error('offline')) : Promise.resolve(new Response('{"panes":[]}'))
+    }))
+    render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    act(() => { EventSourceMock.instances[0].onopen?.(new Event('open')) })
+    await waitFor(() => expect(screen.getByText('loading:0:offline')).toBeInTheDocument())
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(screen.getByText('loaded:0:online')).toBeInTheDocument()
+    expect(attempts).toBe(2)
+  })
+
+  it('ignores a previous target response after switching panes', async () => {
+    terminalState.mux = 'herdr'
+    terminalState.paneId = 'old'
+    let resolveOld: (response: Response) => void = () => undefined
+    const old = new Promise<Response>(resolve => { resolveOld = resolve })
+    let lists = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (String(input).startsWith('/api/diff')) return Promise.resolve(new Response('{}'))
+      return ++lists === 1 ? old : Promise.resolve(new Response('{"panes":[]}'))
+    }))
+    const view = render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    terminalState.paneId = 'new'
+    view.rerender(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    await waitFor(() => expect(screen.getByText('loaded:0:online')).toBeInTheDocument())
+    await act(async () => { resolveOld(new Response('error', { status: 503 })) })
+    expect(screen.getByText('loaded:0:online')).toBeInTheDocument()
+  })
+
+  it('does not let an old tmux fallback overwrite a new Herdr connection', async () => {
+    let failOld: (error: Error) => void = () => undefined
+    const old = new Promise<Response>((_resolve, reject) => { failOld = reject })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith('/api/diff') && !url.includes('mux=herdr')) return old
+      return Promise.resolve(new Response('{}'))
+    }))
+    const view = render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    await act(async () => { EventSourceMock.instances[0].onerror?.(new Event('error')) })
+    terminalState.mux = 'herdr'
+    terminalState.paneId = 'new'
+    view.rerender(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    act(() => { EventSourceMock.instances[EventSourceMock.instances.length - 1]?.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ herdr: { panes: [] } }) })) })
+    await act(async () => { failOld(new Error('old tmux timeout')) })
+    expect(screen.getByText('loaded:0:online')).toBeInTheDocument()
+  })
+
+  it('coalesces Herdr refreshes and cancels retries when unmounted', async () => {
+    terminalState.mux = 'herdr'
+    let fail: (error: Error) => void = () => undefined
+    const pending = new Promise<Response>((_resolve, reject) => { fail = reject })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).startsWith('/api/diff')
+      ? Promise.resolve(new Response('{}')) : pending))
+    const view = render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
+    act(() => {
+      window.dispatchEvent(new Event('online'))
+      window.dispatchEvent(new Event('online'))
+    })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    await act(async () => { fail(new Error('offline')) })
+    view.unmount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000) })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(EventSourceMock.instances[0].close).toHaveBeenCalledTimes(1)
+  })
+
 })

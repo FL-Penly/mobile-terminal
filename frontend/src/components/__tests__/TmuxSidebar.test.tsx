@@ -432,8 +432,29 @@ describe('TmuxSidebar', () => {
     render(<TmuxSidebar mobile={false} onClose={vi.fn()} onCollapseDesktop={vi.fn()} />)
     await user.click(screen.getByRole('tab', { name: 'Herdr' }))
 
-    expect(await screen.findByText('Herdr server unavailable')).toBeInTheDocument()
-    expect(screen.getByText('herdr server')).toBeInTheDocument()
+    expect(await screen.findByText('Herdr 工作区刷新失败')).toBeInTheDocument()
+    expect(screen.getByText(/正在自动重试/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
+  it('keeps the last workspace list visible when a refresh fails', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let fail = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(input => Promise.resolve(
+      String(input) === '/api/herdr/list'
+        ? fail ? new Response('unavailable', { status: 503 }) : json(herdrFleet)
+        : json({}),
+    ))
+    await openHerdr(user)
+    expect(await screen.findByText('rust-terminal')).toBeInTheDocument()
+    fail = true
+    await user.click(screen.getByRole('button', { name: 'Refresh herdr workspaces' }))
+    expect(await screen.findByText('Herdr 工作区刷新失败')).toBeInTheDocument()
+    expect(screen.getByText('rust-terminal')).toBeInTheDocument()
+    fail = false
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.queryByText('Herdr 工作区刷新失败')).not.toBeInTheDocument())
+    expect(screen.getByText('rust-terminal')).toBeInTheDocument()
+  })
+
 })

@@ -4671,23 +4671,55 @@ fn user_config_path() -> PathBuf {
 }
 
 async fn api_get_user_config() -> Response {
-    let path = user_config_path();
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => ([(header::CONTENT_TYPE, "application/json")], content).into_response(),
-        Err(_) => Json(serde_json::json!({})).into_response(),
+    read_user_config(user_config_path()).await
+}
+
+async fn read_user_config(path: PathBuf) -> Response {
+    match tokio::fs::read_to_string(path).await {
+        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(value) if value.is_object() => {
+                ([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response()
+            }
+            _ => json_error(
+                "invalid_config",
+                "User configuration is not a JSON object",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(serde_json::json!({})),
+        )
+            .into_response(),
+        Err(error) => json_error(
+            "read_failed",
+            &error.to_string(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
     }
 }
 
 async fn api_set_user_config(body: axum::body::Bytes) -> Response {
-    let path = user_config_path();
-    if let Some(parent) = path.parent() {
-        let _ = tokio::fs::create_dir_all(parent).await;
+    write_user_config(user_config_path(), body).await
+}
+
+async fn write_user_config(path: PathBuf, body: axum::body::Bytes) -> Response {
+    match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(value) if value.is_object() => {}
+        _ => {
+            return json_error(
+                "invalid_config",
+                "User configuration must be a JSON object",
+                StatusCode::BAD_REQUEST,
+            )
+        }
     }
-    match tokio::fs::write(&path, &body).await {
-        Ok(_) => Json(serde_json::json!({ "success": true })).into_response(),
-        Err(e) => json_error(
+    match tokio::task::spawn_blocking(move || atomic_write(&path, &body)).await {
+        Ok(Ok(())) => Json(serde_json::json!({ "success": true })).into_response(),
+        Ok(Err((status, code, message))) => json_error(&code, &message, status),
+        Err(error) => json_error(
             "write_failed",
-            &e.to_string(),
+            &error.to_string(),
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
     }
@@ -6852,5 +6884,76 @@ mod tests {
         assert_eq!(herdr_scroll_target(98, 100, 5), 100);
         assert_eq!(herdr_scroll_target(0, 0, 1), 0);
         assert_eq!(herdr_scroll_target(u64::MAX, u64::MAX, i64::MAX), u64::MAX);
+    }
+}
+
+#[cfg(test)]
+mod user_config_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn config_errors_do_not_masquerade_as_empty_defaults_or_destroy_saved_data() {
+        let dir = std::env::temp_dir().join(format!("vibeterm-config-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            read_user_config(path.clone()).await.status(),
+            StatusCode::OK
+        );
+        let saved = br#"{"presetGroups":[{"id":"a","label":"test","presets":[]}]}"#;
+        assert_eq!(
+            write_user_config(path.clone(), saved.as_slice().into())
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        for invalid in [b"{".as_slice(), b"[]", b"null"] {
+            assert_eq!(
+                write_user_config(path.clone(), invalid.to_vec().into())
+                    .await
+                    .status(),
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), saved);
+        }
+        let response = read_user_config(path.clone()).await;
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        std::fs::write(&path, b"{").unwrap();
+        assert_eq!(
+            read_user_config(path).await.status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            read_user_config(dir.clone()).await.status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn atomic_config_replacement_never_exposes_partial_json() {
+        let dir =
+            std::env::temp_dir().join(format!("vibeterm-config-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        atomic_write(&path, b"{}").unwrap();
+        let reader_path = path.clone();
+        let reader = std::thread::spawn(move || {
+            for _ in 0..1000 {
+                let content = std::fs::read(&reader_path).unwrap();
+                assert!(serde_json::from_slice::<serde_json::Value>(&content)
+                    .unwrap()
+                    .is_object());
+            }
+        });
+        for index in 0..30 {
+            let body =
+                serde_json::to_vec(&serde_json::json!({"index": index, "text": "x".repeat(65536)}))
+                    .unwrap();
+            atomic_write(&path, &body).unwrap();
+        }
+        reader.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

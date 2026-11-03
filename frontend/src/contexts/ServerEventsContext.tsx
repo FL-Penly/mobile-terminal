@@ -122,6 +122,12 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [herdrPayload, setHerdrPayload] = useState<HerdrListPayload | null>(null)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [lastViewedMap, setLastViewedMap] = useState<Record<string, number>>({})
+  const targetGeneration = useRef(0)
+  useEffect(() => {
+    targetGeneration.current += 1
+    return () => { targetGeneration.current += 1 }
+  }, [mux, paneId, clientTty])
+  const herdrRefreshRef = useRef<() => void>(() => undefined)
   const pollIntervalRef = useRef<number | null>(null)
   const agentStatusesRef = useRef<Record<string, AgentStatus>>({})
   const notificationTimersRef = useRef<Record<string, number>>({})
@@ -236,23 +242,9 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [applyTmux])
 
   const fetchPollData = useCallback(async () => {
+    const generation = targetGeneration.current
     if (mux === 'herdr') {
-      try {
-        const [diffRes, herdrRes] = await Promise.all([
-          fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: AbortSignal.timeout(3000) }),
-          fetch('/api/herdr/list', { signal: AbortSignal.timeout(3000) }),
-        ])
-        if (diffRes.ok) {
-          const data = await diffRes.json()
-          setBranch(data.branch ?? '')
-          setPath(data.git_root ?? data.cwd ?? '')
-        }
-        if (herdrRes.ok) applyHerdr(await herdrRes.json() as HerdrListPayload)
-        setIsOffline(!herdrRes.ok)
-      } catch (error) {
-        console.error('[ServerEvents] Herdr poll failed:', error)
-        setIsOffline(true)
-      }
+      herdrRefreshRef.current()
       return
     }
     try {
@@ -262,15 +254,26 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         fetch(`/api/tmux/list${ttyParam}`, { signal: AbortSignal.timeout(3000) }),
         fetch(`/api/tmux/pane-mode${ttyParam}`, { signal: AbortSignal.timeout(3000) }),
       ])
+      if (generation !== targetGeneration.current) return
       if (diffRes.ok) {
         const data = await diffRes.json()
+        if (generation !== targetGeneration.current) return
         setBranch(data.branch ?? '')
         setPath(data.git_root ?? data.cwd ?? '')
       }
-      if (tmuxRes.ok) applyTmux(await tmuxRes.json())
-      if (paneModeRes.ok) setTuiActive((await paneModeRes.json()).tuiActive ?? false)
+      if (tmuxRes.ok) {
+        const data = await tmuxRes.json()
+        if (generation !== targetGeneration.current) return
+        applyTmux(data)
+      }
+      if (paneModeRes.ok) {
+        const data = await paneModeRes.json()
+        if (generation !== targetGeneration.current) return
+        setTuiActive(data.tuiActive ?? false)
+      }
       setIsOffline(false)
     } catch (error) {
+      if (generation !== targetGeneration.current) return
       console.error('[ServerEvents] Poll failed:', error)
       setIsOffline(true)
     }
@@ -292,16 +295,14 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   useEffect(() => { clientTtyRef.current = clientTty }, [clientTty])
 
   useEffect(() => {
-    if (mux === 'herdr') {
-      void fetchPollData()
-      return
-    }
+    if (mux === 'herdr') return
     let cancelled = false
     const load = async () => {
       try {
         const response = await fetch('/api/tmux/list', { signal: AbortSignal.timeout(3000) })
         if (response.ok && !cancelled) {
-          applyTmux(await response.json())
+          const data = await response.json()
+          if (!cancelled) applyTmux(data)
         }
       } catch (error) {
         console.error('[ServerEvents] Initial session load failed:', error)
@@ -312,40 +313,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [applyTmux, fetchPollData, mux])
 
   useEffect(() => {
-    if (mux === 'herdr') {
-      let eventSource: EventSource | null = null
-      let reconnectTimer: number | null = null
-      let stopped = false
-      const connect = () => {
-        if (stopped) return
-        const paneParam = paneId ? `&pane=${encodeURIComponent(paneId)}` : ''
-        eventSource = new EventSource(`/api/events?mux=herdr${paneParam}`)
-        eventSource.onopen = () => stopPolling()
-        eventSource.onmessage = event => {
-          try {
-            const data = JSON.parse(event.data) as EventPayload
-            if (data.herdr) applyHerdr(data.herdr)
-            setIsOffline(false)
-          } catch (error) {
-            console.error('[ServerEvents] Invalid herdr SSE payload:', error)
-          }
-        }
-        eventSource.onerror = () => {
-          eventSource?.close()
-          eventSource = null
-          startPolling()
-          if (reconnectTimer) window.clearTimeout(reconnectTimer)
-          reconnectTimer = window.setTimeout(connect, POLL_INTERVAL)
-        }
-      }
-      connect()
-      return () => {
-        stopped = true
-        eventSource?.close()
-        if (reconnectTimer) window.clearTimeout(reconnectTimer)
-        stopPolling()
-      }
-    }
+    if (mux === 'herdr') return
     if (!clientTty) return
     let eventSource: EventSource | null = null
     let reconnectTimer: number | null = null
@@ -355,6 +323,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       eventSource = new EventSource(`/api/events?client_tty=${encodeURIComponent(clientTty)}`)
       eventSource.onopen = () => stopPolling()
       eventSource.onmessage = event => {
+        if (stopped) return
         try {
           applyData(JSON.parse(event.data) as EventPayload)
         } catch (error) {
@@ -362,6 +331,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       }
       eventSource.onerror = () => {
+        if (stopped) return
         eventSource?.close()
         eventSource = null
         startPolling()
@@ -377,6 +347,110 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       stopPolling()
     }
   }, [clientTty, mux, paneId, applyData, applyHerdr, startPolling, stopPolling])
+
+  // Each target owns its requests and retry timers. SSE data wins over older HTTP results.
+  useEffect(() => {
+    if (mux !== 'herdr') return
+    let stopped = false
+    let pending = false
+    let revision = 0
+    let sseHealthy = false
+    let retry: number | undefined
+    let reconnect: number | undefined
+    let source: EventSource | null = null
+    const retryLater = () => {
+      if (stopped || retry !== undefined) return
+      retry = window.setTimeout(() => { retry = undefined; void load() }, POLL_INTERVAL)
+    }
+    const load = async () => {
+      if (stopped || pending) return
+      pending = true
+      const startedAt = revision
+      try {
+        const response = await fetch('/api/herdr/list', { signal: AbortSignal.timeout(3000) })
+        if (!response.ok) throw new Error(`Herdr list HTTP ${response.status}`)
+        const payload = await response.json() as HerdrListPayload
+        if (stopped || startedAt !== revision) return
+        applyHerdr(payload)
+        setIsOffline(false)
+      } catch (error) {
+        if (stopped || startedAt !== revision) return
+        console.error('[ServerEvents] Herdr list failed:', error)
+        setIsOffline(true)
+        retryLater()
+      } finally {
+        pending = false
+        if (!sseHealthy) retryLater()
+      }
+    }
+    let diffPending = false
+    const refreshGit = async () => {
+      if (stopped || diffPending) return
+      diffPending = true
+      try {
+        const response = await fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: AbortSignal.timeout(3000) })
+        if (!response.ok) return
+        const data = await response.json()
+        if (!stopped) {
+          setBranch(data.branch ?? '')
+          setPath(data.git_root ?? data.cwd ?? '')
+        }
+      } catch (error) {
+        if (!stopped) console.error('[ServerEvents] Git refresh failed:', error)
+      } finally { diffPending = false }
+    }
+    const refreshHerdr = () => { void load(); void refreshGit() }
+    herdrRefreshRef.current = refreshHerdr
+    const connect = () => {
+      if (stopped) return
+      const current = new EventSource(`/api/events?mux=herdr${paneId ? `&pane=${encodeURIComponent(paneId)}` : ''}`)
+      source = current
+      current.onmessage = event => {
+        if (stopped || source !== current) return
+        try {
+          const data = JSON.parse(event.data) as EventPayload
+          if (!data.herdr) return
+          sseHealthy = true
+          revision += 1
+          applyHerdr(data.herdr)
+          setIsOffline(false)
+          window.clearTimeout(retry)
+          retry = undefined
+        } catch (error) {
+          console.error('[ServerEvents] Invalid herdr SSE payload:', error)
+          retryLater()
+        }
+      }
+      current.onerror = () => {
+        if (stopped || source !== current) return
+        current.close()
+        sseHealthy = false
+        source = null
+        void load()
+        retryLater()
+        window.clearTimeout(reconnect)
+        reconnect = window.setTimeout(connect, POLL_INTERVAL)
+      }
+    }
+    const resume = () => {
+      if (document.visibilityState === 'hidden') return
+      refreshHerdr()
+      if (!source) { window.clearTimeout(reconnect); connect() }
+    }
+    refreshHerdr()
+    connect()
+    window.addEventListener('online', resume)
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      stopped = true
+      herdrRefreshRef.current = () => undefined
+      source?.close()
+      window.clearTimeout(retry)
+      window.clearTimeout(reconnect)
+      window.removeEventListener('online', resume)
+      document.removeEventListener('visibilitychange', resume)
+    }
+  }, [mux, paneId, applyHerdr])
 
   const value = useMemo<ServerEventsContextValue>(() => ({
     branch,

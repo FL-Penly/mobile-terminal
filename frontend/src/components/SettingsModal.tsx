@@ -133,25 +133,23 @@ const serializeUserConfig = (config: UserConfig): UserConfig => {
 }
 
 export async function loadUserConfig(): Promise<UserConfig> {
-  try {
-    const res = await fetch('/api/user-config', { signal: AbortSignal.timeout(3000) })
-    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-      const data: unknown = await res.json()
-      return normalizeUserConfig(data)
-    }
-  } catch {}
-  return DEFAULT_CONFIG
+  const res = await fetch('/api/user-config', { signal: AbortSignal.timeout(3000), cache: 'no-store' })
+  if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) {
+    throw new Error(`Config load failed: HTTP ${res.status}`)
+  }
+  const data: unknown = await res.json()
+  if (!isRecord(data)) throw new Error('Invalid user configuration')
+  return normalizeUserConfig(data)
 }
 
 export async function saveUserConfig(config: UserConfig): Promise<void> {
-  try {
-    await fetch('/api/user-config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(serializeUserConfig(config)),
-      signal: AbortSignal.timeout(3000),
-    })
-  } catch {}
+  const res = await fetch('/api/user-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(serializeUserConfig(config)),
+    signal: AbortSignal.timeout(3000),
+  })
+  if (!res.ok) throw new Error(`Config save failed: HTTP ${res.status}`)
 }
 
 interface SettingsModalProps {

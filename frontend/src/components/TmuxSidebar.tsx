@@ -121,12 +121,21 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
       .map(item => item.session)
   }
 
+  const discoveryGeneration = useRef(0)
+  const discoveryPending = useRef<number | null>(null)
   const loadDiscovery = useCallback(async (targetMux: TerminalMux) => {
+    const generation = discoveryGeneration.current
+    if (discoveryPending.current === generation) return
+    discoveryPending.current = generation
     setDiscovery(previous => ({
       ...previous,
       mux: targetMux,
+      projectGroups: previous.mux === targetMux ? previous.projectGroups : [],
+      otherSessions: previous.mux === targetMux ? previous.otherSessions : [],
+      currentSession: previous.mux === targetMux ? previous.currentSession : null,
+      herdrPayload: previous.mux === targetMux ? previous.herdrPayload : null,
       loaded: previous.mux === targetMux && previous.loaded,
-      unavailable: false,
+      unavailable: previous.mux === targetMux && previous.unavailable,
     }))
     try {
       const response = await fetch(targetMux === 'herdr' ? '/api/herdr/list' : '/api/tmux/list', {
@@ -135,6 +144,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
       if (!response.ok) throw new Error(await response.text())
       const herdr = targetMux === 'herdr' ? await response.json() as HerdrListPayload : null
       const data: TmuxListPayload = herdr ? mapHerdrSessions(herdr) : await response.json() as TmuxListPayload
+      if (generation !== discoveryGeneration.current) return
       setDiscovery({
         mux: targetMux,
         projectGroups: data.projectGroups ?? [],
@@ -145,12 +155,15 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
         unavailable: false,
       })
     } catch (error) {
+      if (generation !== discoveryGeneration.current) return
       console.error(`[TmuxSidebar] ${targetMux} discovery failed:`, error)
       setDiscovery(previous => previous.mux === targetMux ? {
         ...previous,
         loaded: true,
         unavailable: true,
       } : previous)
+    } finally {
+      if (discoveryPending.current === generation) discoveryPending.current = null
     }
   }, [])
 
@@ -159,7 +172,15 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
     if (browserMux === mux) return
     void loadDiscovery(browserMux)
     const poll = window.setInterval(() => { void loadDiscovery(browserMux) }, DISCOVERY_POLL_INTERVAL)
-    return () => window.clearInterval(poll)
+    const resume = () => { if (document.visibilityState !== 'hidden') void loadDiscovery(browserMux) }
+    window.addEventListener('online', resume)
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      discoveryGeneration.current += 1
+      window.clearInterval(poll)
+      window.removeEventListener('online', resume)
+      document.removeEventListener('visibilitychange', resume)
+    }
   }, [browserMux, loadDiscovery, mux])
 
   useEffect(() => {
@@ -501,8 +522,8 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
   const empty = visibleGroups.length === 0 && visibleOther.length === 0
   const unavailableNotice = (
     <div className="mx-1 rounded-lg border border-accent-red/30 bg-accent-red/10 px-3 py-4 text-center text-sm">
-      <p className="font-medium text-accent-red">{browserMux === 'herdr' ? 'Herdr server unavailable' : 'tmux discovery unavailable'}</p>
-      {browserMux === 'herdr' && <p className="mt-1 text-xs text-text-muted">Run <span className="font-mono">herdr server</span>, then retry.</p>}
+      <p className="font-medium text-accent-red">{browserMux === 'herdr' ? 'Herdr 工作区刷新失败' : 'tmux discovery unavailable'}</p>
+      {browserMux === 'herdr' && <p className="mt-1 text-xs text-text-muted">正在自动重试。已有列表可能过期；请检查网络或服务连接。</p>}
       <button onClick={refreshSource} className="mt-3 rounded-md bg-bg-tertiary px-3 py-1.5 text-xs">Retry</button>
     </div>
   )
@@ -547,7 +568,9 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
           </div>
         )}
         {browserMux === 'herdr' ? (
-          sourceUnavailable ? unavailableNotice : (
+          <>
+          {sourceUnavailable && unavailableNotice}
+          {(!sourceUnavailable || sourceHerdrPayload !== null) && (
             <HerdrTree
               payload={sourceHerdrPayload}
               loaded={sourceLoaded}
@@ -562,7 +585,8 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
               onRename={setRenameTarget}
               onChanged={refreshSource}
             />
-          )
+          )}
+          </>
         ) : <>
         {visibleGroups.map(group => {
           const active = group.sessions.some(session => session.name === selectedSession)
