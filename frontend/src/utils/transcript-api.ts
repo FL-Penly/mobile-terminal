@@ -1,5 +1,6 @@
 import type { TerminalMux } from '../contexts/TerminalContext'
 import { withTerminalTarget } from './terminal-api'
+import { requestSignal } from './network-quality'
 
 export type TranscriptBlock =
   | { kind: 'user'; id: string; text: string }
@@ -46,7 +47,7 @@ export const fetchTranscript = async (
   if (options.session) params.set('session', options.session)
   if (options.limit) params.set('limit', String(options.limit))
   try {
-    const response = await fetch(`/api/herdr/transcript?${params}`, { signal: AbortSignal.timeout(5000) })
+    const response = await fetch(`/api/herdr/transcript?${params}`, { signal: requestSignal(5000) })
     const payload: unknown = await response.json().catch(() => null)
     if (!response.ok || !isPage(payload)) return errorResult(payload, `读取会话记录失败（${response.status}）`)
     return { ok: true, page: payload }
@@ -73,7 +74,7 @@ export const fetchHistory = async (
   const base = mux === 'herdr' ? '/api/herdr/page-up' : '/api/tmux/page-up'
   const url = withTerminalTarget(`${base}?before=${before}`, mux, paneId, clientTty)
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(before === 0 ? 3000 : 8000) })
+    const response = await fetch(url, { signal: requestSignal(before === 0 ? 3000 : 8000) })
     if (!response.ok) return null
     const data: unknown = await response.json()
     if (!isRecord(data) || !Array.isArray(data.lines) || typeof data.cursor !== 'number') return null

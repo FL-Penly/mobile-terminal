@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useTerminal, type TerminalMux } from '../contexts/TerminalContext'
+import { requestSignal } from '../utils/network-quality'
 
 interface NewSessionModalProps {
   isOpen: boolean
@@ -32,7 +33,7 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
       if (mux === 'herdr') {
         const cwdParam = cwd ? `&cwd=${encodeURIComponent(cwd)}` : ''
         const workspaceParam = herdrWorkspace ? `&workspace=${encodeURIComponent(herdrWorkspace.id)}` : ''
-        const response = await fetch(`/api/herdr/create?name=${encodeURIComponent(name)}${cwdParam}${workspaceParam}`, { signal: AbortSignal.timeout(3000) })
+        const response = await fetch(`/api/herdr/create?name=${encodeURIComponent(name)}${cwdParam}${workspaceParam}`, { signal: requestSignal(3000) })
         if (!response.ok) throw new Error(await response.text())
         const data = await response.json() as { paneId?: string }
         if (!data.paneId) throw new Error('Herdr did not return the new pane id')
@@ -44,7 +45,7 @@ export const NewSessionModal: React.FC<NewSessionModalProps> = ({ isOpen, onClos
       if (clientTty) {
         const cwdParam = cwd ? `&cwd=${encodeURIComponent(cwd)}` : ''
         const url = `/api/tmux/create?name=${encodeURIComponent(name)}&client_tty=${encodeURIComponent(clientTty)}${cwdParam}`
-        const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
+        const res = await fetch(url, { signal: requestSignal(3000) })
         if (res.ok) {
           sessionStorage.setItem('ttyd_last_tmux_session', name)
           onCreated?.()

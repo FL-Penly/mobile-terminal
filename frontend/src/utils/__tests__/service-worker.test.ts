@@ -84,6 +84,41 @@ describe('application navigation cache', () => {
     expect(fetch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cache: 'no-cache' }))
   })
 
+  it('opens the cached page on a slow link and keeps downloading for the next open', async () => {
+    vi.useFakeTimers()
+    try {
+      let finish: (response: Response) => void = () => {}
+      const { response, background, cache, fetch } = setup(() => new Promise(resolve => { finish = resolve }))
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(await (await response)?.text()).toBe('old app')
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(cache.put).not.toHaveBeenCalled()
+      finish(new Response('new app'))
+      await background
+      expect(cache.put).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for a slow first load instead of failing when nothing is cached', async () => {
+    vi.useFakeTimers()
+    try {
+      let finish: (response: Response) => void = () => {}
+      const { response } = setup(() => new Promise(resolve => { finish = resolve }), {
+        open: async () => { throw new Error('storage unavailable') },
+      })
+      let settled = false
+      void response?.then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(settled).toBe(false)
+      finish(new Response('new app'))
+      expect(await (await response)?.text()).toBe('new app')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps the cached application available offline', async () => {
     const { response } = setup(async () => { throw new Error('offline') })
     expect(await (await response)?.text()).toBe('old app')

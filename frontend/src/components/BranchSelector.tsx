@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { withTerminalTarget } from '../utils/terminal-api'
+import { requestSignal } from '../utils/network-quality'
 
 interface BranchData {
   local: string[]
@@ -25,7 +26,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = React.memo(({ curre
    const fetchBranches = useCallback(async () => {
      setIsLoading(true)
      try {
-       const res = await fetch(withTerminalTarget('/api/git/branches', mux, paneId, clientTty), { signal: AbortSignal.timeout(5000) })
+       const res = await fetch(withTerminalTarget('/api/git/branches', mux, paneId, clientTty), { signal: requestSignal(5000) })
       if (res.ok) {
         const data = await res.json()
         setBranches(data)
@@ -67,7 +68,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = React.memo(({ curre
      setIsOpen(false)
      try {
        const url = withTerminalTarget(`/api/git/checkout?branch=${encodeURIComponent(branch)}`, mux, paneId, clientTty)
-       const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+       const res = await fetch(url, { signal: requestSignal(10000) })
       if (res.ok) {
         onBranchChange?.()
       }

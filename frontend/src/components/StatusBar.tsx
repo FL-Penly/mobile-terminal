@@ -1,7 +1,11 @@
 import React, { useCallback } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { useServerEvents } from '../contexts/ServerEventsContext'
+import { useNetworkQuality } from '../hooks/useNetworkQuality'
 import { BranchSelector } from './BranchSelector'
+import { VISIBLE_RTT_MS } from '../utils/network-quality'
+
+const formatRtt = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`)
 
 // Truncate path to max length
 function truncatePath(path: string, maxLen: number = 20): string {
@@ -18,12 +22,14 @@ interface StatusBarProps {
 export const StatusBar: React.FC<StatusBarProps> = ({ onOpenSessions }) => {
   const { connectionState } = useTerminal()
   const { branch, path, isOffline, refresh, currentTmuxSession, tmuxSessions } = useServerEvents()
+  const { rtt, degraded } = useNetworkQuality()
 
   const handleBranchChange = useCallback(() => {
     setTimeout(() => refresh(), 500)
   }, [refresh])
 
   const isConnected = connectionState === 'connected'
+  const showRtt = isConnected && rtt !== null && rtt >= VISIBLE_RTT_MS
 
   return (
     <div className="h-[40px] shrink-0 border-b border-border-subtle flex items-center px-3 bg-bg-secondary overflow-visible">
@@ -32,6 +38,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({ onOpenSessions }) => {
           className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-accent-green' : 'bg-accent-red'}`}
           title={isConnected ? 'Connected' : 'Disconnected'}
         />
+        {showRtt && (
+          <span
+            className={`shrink-0 ${degraded ? 'text-accent-red' : 'text-accent-orange'}`}
+            title={`终端往返延迟约 ${formatRtt(rtt)}${degraded ? '，网络较慢，已暂缓后台刷新' : ''}`}
+          >
+            {formatRtt(rtt)}
+          </span>
+        )}
         
         <button
           onClick={onOpenSessions}

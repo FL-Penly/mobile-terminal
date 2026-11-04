@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { useServerEvents } from '../contexts/ServerEventsContext'
 import { NewSessionModal } from './TmuxManager'
+import { requestSignal } from '../utils/network-quality'
 
 const LONG_PRESS_DURATION = 1500
 
@@ -76,7 +77,7 @@ export const SessionTabBar: React.FC = () => {
        const tty = clientTty
        if (tty) {
          const url = `/api/tmux/switch?session=${encodeURIComponent(sessionName)}&client_tty=${encodeURIComponent(tty)}`
-         const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
+         const res = await fetch(url, { signal: requestSignal(3000) })
         if (res.ok) {
           sessionStorage.setItem('ttyd_last_tmux_session', sessionName)
           setTimeout(refresh, 300)
@@ -92,7 +93,7 @@ export const SessionTabBar: React.FC = () => {
    const handleKillSession = async (sessionName: string) => {
      try {
        const url = `/api/tmux/kill?name=${encodeURIComponent(sessionName)}`
-       await fetch(url, { signal: AbortSignal.timeout(5000) })
+       await fetch(url, { signal: requestSignal(5000) })
       refresh()
     } catch {}
     setKillTargetSession(null)
@@ -126,7 +127,7 @@ export const SessionTabBar: React.FC = () => {
       const tty = clientTty
       if (tty) {
         const url = `/api/tmux/detach?client_tty=${encodeURIComponent(tty)}`
-        await fetch(url, { signal: AbortSignal.timeout(3000) })
+        await fetch(url, { signal: requestSignal(3000) })
         setTimeout(refresh, 500)
         return
       }
@@ -146,7 +147,7 @@ export const SessionTabBar: React.FC = () => {
 
     try {
       const url = `/api/tmux/quick-shell?client_tty=${encodeURIComponent(clientTty)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      const res = await fetch(url, { signal: requestSignal(3000) })
       if (!res.ok) {
         throw new Error(await res.text())
       }

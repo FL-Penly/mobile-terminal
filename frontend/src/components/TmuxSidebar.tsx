@@ -5,6 +5,7 @@ import { HerdrRenameModal, type HerdrRenameTarget } from './HerdrRenameModal'
 import { HerdrTree } from './HerdrTree'
 import { NewSessionModal } from './TmuxManager'
 import { mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions'
+import { createPollThrottle, requestSignal } from '../utils/network-quality'
 
 const COLLAPSED_GROUPS_KEY = 'tmux_sidebar_collapsed_groups'
 const GROUP_ORDER_KEY = 'tmux_sidebar_group_order'
@@ -139,7 +140,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
     }))
     try {
       const response = await fetch(targetMux === 'herdr' ? '/api/herdr/list' : '/api/tmux/list', {
-        signal: AbortSignal.timeout(3000),
+        signal: requestSignal(3000),
       })
       if (!response.ok) throw new Error(await response.text())
       const herdr = targetMux === 'herdr' ? await response.json() as HerdrListPayload : null
@@ -171,7 +172,10 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
     setOptimisticSession(null)
     if (browserMux === mux) return
     void loadDiscovery(browserMux)
-    const poll = window.setInterval(() => { void loadDiscovery(browserMux) }, DISCOVERY_POLL_INTERVAL)
+    const shouldPoll = createPollThrottle()
+    const poll = window.setInterval(() => {
+      if (shouldPoll()) void loadDiscovery(browserMux)
+    }, DISCOVERY_POLL_INTERVAL)
     const resume = () => { if (document.visibilityState !== 'hidden') void loadDiscovery(browserMux) }
     window.addEventListener('online', resume)
     document.addEventListener('visibilitychange', resume)
@@ -341,7 +345,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
       }
       if (!clientTty) throw new Error('No client tty')
       const url = `/api/tmux/switch?session=${encodeURIComponent(sessionName)}&client_tty=${encodeURIComponent(clientTty)}`
-      const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      const response = await fetch(url, { signal: requestSignal(3000) })
       if (!response.ok) throw new Error(await response.text())
       sessionStorage.setItem('ttyd_last_tmux_session', sessionName)
       if (mobile) onClose()
@@ -369,7 +373,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
     if (!killTarget) return
     try {
       const url = `/api/tmux/kill?name=${encodeURIComponent(killTarget)}`
-      const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      const response = await fetch(url, { signal: requestSignal(5000) })
       if (!response.ok) throw new Error(await response.text())
       if (browsingConnectedMux) refresh()
       else void loadDiscovery(browserMux)
@@ -385,13 +389,13 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
     try {
       if (mux === 'herdr') {
         if (!paneId) throw new Error('No herdr pane')
-        const response = await fetch(`/api/herdr/release?pane=${encodeURIComponent(paneId)}`, { signal: AbortSignal.timeout(3000) })
+        const response = await fetch(`/api/herdr/release?pane=${encodeURIComponent(paneId)}`, { signal: requestSignal(3000) })
         if (!response.ok) throw new Error(await response.text())
         if (mobile) onClose()
         return
       }
       if (!clientTty) throw new Error('No client tty')
-      const response = await fetch(`/api/tmux/detach?client_tty=${encodeURIComponent(clientTty)}`, { signal: AbortSignal.timeout(3000) })
+      const response = await fetch(`/api/tmux/detach?client_tty=${encodeURIComponent(clientTty)}`, { signal: requestSignal(3000) })
       if (!response.ok) throw new Error(await response.text())
     } catch (error) {
       console.error('[TmuxSidebar] Detach failed:', error)
@@ -409,7 +413,7 @@ export const TmuxSidebar: React.FC<TmuxSidebarProps> = ({ mobile, onClose, onCol
       const url = mux === 'herdr'
         ? `/api/herdr/quick-shell?pane=${encodeURIComponent(paneId ?? '')}${path ? `&cwd=${encodeURIComponent(path)}` : ''}`
         : `/api/tmux/quick-shell?client_tty=${encodeURIComponent(clientTty ?? '')}`
-      const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      const response = await fetch(url, { signal: requestSignal(3000) })
       if (!response.ok) throw new Error(await response.text())
       if (mobile) onClose()
       if (mux === 'herdr') {

@@ -18,6 +18,7 @@ import { observeTerminalResize } from '../utils/terminal-resize'
 import { attachCopyOnSelect } from '../utils/terminal-selection'
 import { isLensChatPane } from '../utils/herdr-sessions'
 import { sgrClick, WheelStepper } from '../utils/lens-chat-mouse'
+import { requestSignal } from '../utils/network-quality'
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -88,7 +89,7 @@ export const Terminal = () => {
     scroll.pendingLines = 0
     scroll.inFlight = true
     try {
-      await fetch(`/api/herdr/scroll?pane=${encodeURIComponent(pane)}&lines=${lines}`, { signal: AbortSignal.timeout(3000) })
+      await fetch(`/api/herdr/scroll?pane=${encodeURIComponent(pane)}&lines=${lines}`, { signal: requestSignal(3000) })
     } catch (err) {
       console.error('[Terminal] Herdr scroll failed:', err)
     } finally {
@@ -579,7 +580,7 @@ export const Terminal = () => {
                 'X-Filename': encodeURIComponent(blob.name),
               },
               body: blob,
-              signal: AbortSignal.timeout(30000),
+              signal: requestSignal(30000),
             })
             if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
             const { path } = await response.json()

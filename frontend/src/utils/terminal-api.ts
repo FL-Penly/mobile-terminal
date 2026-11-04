@@ -1,4 +1,5 @@
 import type { TerminalMux } from '../contexts/TerminalContext'
+import { requestSignal } from './network-quality'
 
 export const withTerminalTarget = (
   url: string,
@@ -46,7 +47,7 @@ export const pickHerdrFallbackPane = (panes: HerdrPaneSummary[], missingPaneId: 
 
 export const findHerdrFallbackPane = async (missingPaneId: string): Promise<string | null> => {
   try {
-    const response = await fetch('/api/herdr/list', { signal: AbortSignal.timeout(3000) })
+    const response = await fetch('/api/herdr/list', { signal: requestSignal(3000) })
     if (!response.ok) return null
     const data = await response.json() as { panes?: HerdrPaneSummary[] }
     return pickHerdrFallbackPane(data.panes ?? [], missingPaneId)

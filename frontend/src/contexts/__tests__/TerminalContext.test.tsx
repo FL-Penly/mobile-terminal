@@ -11,6 +11,7 @@ import {
   type TerminalContextValue,
 } from '../TerminalContext'
 import flateFrames from '../../utils/__tests__/fixtures/flate2-frames.json'
+import { getNetworkQuality, recordRttSample, resetNetworkQualityForTests } from '../../utils/network-quality'
 
 class MockWebSocket {
   static readonly CONNECTING = 0
@@ -64,6 +65,8 @@ describe('TerminalContext', () => {
     vi.useRealTimers()
     MockWebSocket.instances = []
     contextValue = null
+    localStorage.removeItem('net_rtt_estimate')
+    resetNetworkQualityForTests()
     window.history.replaceState({}, '', '/')
   })
 
@@ -481,8 +484,55 @@ describe('TerminalContext', () => {
     const ws = MockWebSocket.instances[0]
     act(() => ws.open())
     expect(JSON.parse(new TextDecoder().decode(ws.send.mock.calls[0][0]))).toEqual({
-      AuthToken: '', columns: 80, rows: 24, features: ['heartbeat', 'deflate', 'flow'],
+      AuthToken: '', columns: 80, rows: 24, features: ['heartbeat', 'deflate', 'flow', 'rtt'],
     })
+  })
+
+  it('measures the link round trip with one ping in flight at a time', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    const sent = () => ws.send.mock.calls.map(([data]) => new TextDecoder().decode(data))
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["deflate","rtt"]}').buffer }))
+    expect(sent().filter(text => text.includes('"ping"'))).toEqual(['4{"type":"ping","id":1}'])
+    act(() => { vi.advanceTimersByTime(5000) })
+    expect(sent().filter(text => text.includes('"ping"'))).toHaveLength(1)
+    expect(getNetworkQuality()).toEqual({ rtt: 5000, degraded: true })
+    act(() => { vi.advanceTimersByTime(1000) })
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"pong","id":1}').buffer }))
+    expect(getNetworkQuality().rtt).toBeGreaterThan(5000)
+    act(() => { vi.advanceTimersByTime(4000) })
+    expect(sent().filter(text => text.includes('"ping"'))).toEqual(['4{"type":"ping","id":1}', '4{"type":"ping","id":2}'])
+  })
+
+  it('does not probe a server that did not accept rtt', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["deflate"]}').buffer }))
+    act(() => { vi.advanceTimersByTime(20000) })
+    expect(ws.send.mock.calls.some(([data]) => new TextDecoder().decode(data).includes('"ping"'))).toBe(false)
+  })
+
+  it('gives a slow link more time to open and to stay silent', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    for (let i = 0; i < 10; i++) recordRttSample(6000)
+    window.history.replaceState({}, '', '/?mux=herdr&pane=w4%3Ap1')
+    render(<TerminalProvider><ContextCapture /></TerminalProvider>)
+    const first = MockWebSocket.instances[0]
+    act(() => { vi.advanceTimersByTime(10000) })
+    expect(first.close).not.toHaveBeenCalled()
+    act(() => first.open())
+    act(() => first.onmessage?.({ data: new TextEncoder().encode('4{"type":"hello","features":["heartbeat"]}').buffer }))
+    act(() => { vi.advanceTimersByTime(20000) })
+    expect(first.close).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(30000) })
+    expect(first.close).toHaveBeenCalledOnce()
   })
 
   it('detects heartbeat silence without waiting for close and extends the deadline for any message', () => {

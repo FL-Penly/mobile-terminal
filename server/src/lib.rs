@@ -47,8 +47,8 @@ mod ws_link;
 
 use tmux_discovery::{DiscoverySnapshot, GitRootCache};
 use ws_link::{
-    closed_frame, heartbeat_frame, hello_frame, negotiate, parse_ack, GateAction, LinkMode,
-    OutputEncoder, OutputGate, CLIENT_IDLE_TIMEOUT, CLOSE_DRAIN_TIMEOUT, CONTROL_PREFIX,
+    closed_frame, heartbeat_frame, hello_frame, negotiate, parse_ack, parse_ping, pong_frame,
+    GateAction, LinkMode, OutputEncoder, OutputGate, CLIENT_IDLE_TIMEOUT, CLOSE_DRAIN_TIMEOUT, CONTROL_PREFIX,
     FLOW_TICK_INTERVAL, HEARTBEAT_INTERVAL, INIT_MESSAGE_TIMEOUT, PING_INTERVAL,
 };
 
@@ -733,6 +733,9 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
         controllers.insert(pane_id.clone(), input_tx.clone());
     }
 
+    // Pongs bypass output gating but still queue behind earlier output, so they
+    // measure the latency the user actually feels on this link.
+    let (control_tx, mut control_rx) = mpsc::channel::<bytes::Bytes>(16);
     let acked = Arc::new(AtomicU64::new(0));
     let ack_notify = Arc::new(tokio::sync::Notify::new());
     let sender_acked = acked.clone();
@@ -762,6 +765,10 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
                 },
                 _ = heartbeat.tick(), if features.heartbeat => {
                     if ws_sender.send(Message::Binary(heartbeat_frame())).await.is_err() { break; }
+                    continue;
+                },
+                Some(frame) = control_rx.recv() => {
+                    if ws_sender.send(Message::Binary(frame)).await.is_err() { break; }
                     continue;
                 },
                 _ = ping.tick() => {
@@ -836,10 +843,17 @@ async fn handle_herdr_terminal(socket: WebSocket, state: AppState, pane_id: Stri
                                 cols: resize.columns,
                                 rows: resize.rows,
                             }),
-                        CONTROL_PREFIX if features.flow => {
-                            if let Some(bytes) = parse_ack(&data[1..]) {
-                                acked.fetch_max(bytes, Ordering::Relaxed);
-                                ack_notify.notify_one();
+                        CONTROL_PREFIX => {
+                            if features.flow {
+                                if let Some(bytes) = parse_ack(&data[1..]) {
+                                    acked.fetch_max(bytes, Ordering::Relaxed);
+                                    ack_notify.notify_one();
+                                }
+                            }
+                            if features.rtt {
+                                if let Some(id) = parse_ping(&data[1..]) {
+                                    let _ = control_tx.try_send(pong_frame(id));
+                                }
                             }
                             None
                         }
@@ -1014,6 +1028,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
     let paused_reader = paused.clone();
 
     let (output_tx, mut output_rx) = mpsc::channel::<bytes::Bytes>(256);
+    let (control_tx, mut control_rx) = mpsc::channel::<bytes::Bytes>(16);
 
     let reader_handle = std::thread::spawn(move || {
         let mut buf = [0u8; 65536];
@@ -1078,6 +1093,10 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                 data = output_rx.recv() => data,
                 _ = ping.tick() => {
                     if ws_sender.send(Message::Ping(bytes::Bytes::new())).await.is_err() { break; }
+                    continue;
+                },
+                Some(frame) = control_rx.recv() => {
+                    if ws_sender.send(Message::Binary(frame)).await.is_err() { break; }
                     continue;
                 },
             };
@@ -1209,6 +1228,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                             if let Ok(mut is_paused) = lock.lock() {
                                 *is_paused = false;
                                 cvar.notify_one();
+                            }
+                        }
+                        CONTROL_PREFIX if features.rtt => {
+                            if let Some(id) = parse_ping(payload) {
+                                let _ = control_tx.try_send(pong_frame(id));
                             }
                         }
                         _ => {}

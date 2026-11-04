@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTerminal } from '../contexts/TerminalContext'
 import { withTerminalTarget } from '../utils/terminal-api'
+import { requestSignal } from '../utils/network-quality'
 
 interface StatusFile {
   file: string
@@ -85,7 +86,7 @@ const LINE_PREFIX: Record<string, string> = {
 
 async function gitFetch<T>(url: string, options?: RequestInit): Promise<T | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000), ...options })
+    const res = await fetch(url, { signal: requestSignal(10000), ...options })
     if (!res.ok) return null
     return await res.json()
   } catch {

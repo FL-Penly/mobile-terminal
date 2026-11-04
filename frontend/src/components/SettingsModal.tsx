@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { requestSignal } from '../utils/network-quality'
 
 export interface UserCommand {
   label: string
@@ -133,7 +134,7 @@ const serializeUserConfig = (config: UserConfig): UserConfig => {
 }
 
 export async function loadUserConfig(): Promise<UserConfig> {
-  const res = await fetch('/api/user-config', { signal: AbortSignal.timeout(3000), cache: 'no-store' })
+  const res = await fetch('/api/user-config', { signal: requestSignal(3000), cache: 'no-store' })
   if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) {
     throw new Error(`Config load failed: HTTP ${res.status}`)
   }
@@ -147,7 +148,7 @@ export async function saveUserConfig(config: UserConfig): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serializeUserConfig(config)),
-    signal: AbortSignal.timeout(3000),
+    signal: requestSignal(3000),
   })
   if (!res.ok) throw new Error(`Config save failed: HTTP ${res.status}`)
 }

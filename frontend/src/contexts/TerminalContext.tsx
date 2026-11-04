@@ -2,11 +2,14 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import {
   CONTROL_PREFIX, OUTPUT_PREFIX, DEFLATE_OUTPUT_PREFIX, createOutputInflater, HEARTBEAT_TIMEOUT_MS, LIVENESS_CHECK_INTERVAL_MS,
   ACK_DELAY_MS, encodeAckMessage, STABLE_CONNECTION_MS, encodeInitMessage, parseControlMessage, reconnectDelay, connectTimeout,
-  type ControlMessage,
+  encodePingMessage, RTT_PROBE_INTERVAL_MS, type ControlMessage,
 } from '../utils/terminal-protocol'
 import type { EncodedKey, TerminalKeystroke } from '../utils/terminal-keys'
 import { findHerdrFallbackPane, isMissingHerdrPaneReason } from '../utils/terminal-api'
 import { markStartup } from '../utils/startup-timing'
+import {
+  adaptiveConnectTimeout, adaptiveLivenessTimeout, isProbeTrustworthy, recordRttLowerBound, recordRttSample, requestSignal,
+} from '../utils/network-quality'
 
 const encoder = new TextEncoder()
 const MAX_EARLY_CHUNKS = 200
@@ -207,7 +210,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
      for (let attempt = 0; attempt < 10; attempt++) {
        try {
          const listUrl = `/api/tmux/list?client_tty=${encodeURIComponent(tty)}`
-         const listRes = await fetch(listUrl, { signal: AbortSignal.timeout(3000) })
+         const listRes = await fetch(listUrl, { signal: requestSignal(3000) })
          if (!listRes.ok) break
          const data = await listRes.json()
          const sessions: { name: string }[] = data.sessions || []
@@ -224,7 +227,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
              return
            }
            const switchUrl = `/api/tmux/switch?session=${encodeURIComponent(savedSession)}&client_tty=${encodeURIComponent(tty)}`
-          const switchRes = await fetch(switchUrl, { signal: AbortSignal.timeout(3000) })
+          const switchRes = await fetch(switchUrl, { signal: requestSignal(3000) })
           if (switchRes.ok) {
             console.log(`[Terminal] Restored tmux session via API: ${savedSession}`)
             return
@@ -302,8 +305,11 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let ackTimer: number | null = null
     let inflater: ReturnType<typeof createOutputInflater> | null = null
     let livenessTimer: number | null = null
+    let probeTimer: number | null = null
+    let probeId = 0
+    let outstandingProbe: { id: number; sentAt: number } | null = null
     let stableTimer: number | null = null
-    let deadline = Date.now() + HEARTBEAT_TIMEOUT_MS
+    let deadline = Date.now() + adaptiveLivenessTimeout(HEARTBEAT_TIMEOUT_MS)
     let closedControl: Extract<ControlMessage, { type: 'closed' }> | null = null
     const isCurrent = () => generation === connectionGenerationRef.current && wsRef.current === ws
 
@@ -344,10 +350,11 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const connectTimer = window.setTimeout(() => {
       scheduleReconnect('Connection timed out')
-    }, connectTimeout(reconnectAttemptRef.current))
+    }, adaptiveConnectTimeout(connectTimeout(reconnectAttemptRef.current)))
     connectionCleanupRef.current = () => {
       window.clearTimeout(connectTimer)
       if (ackTimer !== null) window.clearTimeout(ackTimer)
+      if (probeTimer !== null) window.clearInterval(probeTimer)
       if (stableTimer !== null) window.clearTimeout(stableTimer)
       if (livenessTimer !== null) window.clearInterval(livenessTimer)
     }
@@ -406,7 +413,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     ws.onmessage = (event) => {
       if (!isCurrent()) return
-      deadline = Date.now() + HEARTBEAT_TIMEOUT_MS
+      deadline = Date.now() + adaptiveLivenessTimeout(HEARTBEAT_TIMEOUT_MS)
       const data = new Uint8Array(event.data as ArrayBuffer)
       if (data.length === 0) return
       const command = data[0]
@@ -433,10 +440,34 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           if (control.features.includes('deflate') && inflater === null) {
             inflater = createOutputInflater(handleOutputChunk)
           }
+          if (control.features.includes('rtt') && probeTimer === null) {
+            const probe = () => {
+              if (!isCurrent() || ws.readyState !== WebSocket.OPEN) return
+              // One probe in flight: a late answer still yields a true sample.
+              if (outstandingProbe && isProbeTrustworthy(outstandingProbe.sentAt)) {
+                recordRttLowerBound(Date.now() - outstandingProbe.sentAt)
+                return
+              }
+              probeId += 1
+              try {
+                ws.send(encodePingMessage(probeId))
+                outstandingProbe = { id: probeId, sentAt: Date.now() }
+              } catch (error) {
+                console.error('[Terminal] Latency probe failed:', error)
+              }
+            }
+            probe()
+            probeTimer = window.setInterval(probe, RTT_PROBE_INTERVAL_MS)
+          }
           if (control.features.includes('heartbeat') && nextTarget.mux === 'herdr' && livenessTimer === null) {
             livenessTimer = window.setInterval(() => {
               if (Date.now() >= deadline) scheduleReconnect('Connection timed out')
             }, LIVENESS_CHECK_INTERVAL_MS)
+          }
+        } else if (control?.type === 'pong') {
+          if (outstandingProbe?.id === control.id) {
+            if (isProbeTrustworthy(outstandingProbe.sentAt)) recordRttSample(Date.now() - outstandingProbe.sentAt)
+            outstandingProbe = null
           }
         } else if (control?.type === 'closed') {
           closedControl = control
@@ -704,7 +735,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(submit ? { text, submit } : { text }),
-          signal: AbortSignal.timeout(30000),
+          signal: requestSignal(30000),
         },
       )
       const payload: unknown = await response.json().catch(() => null)

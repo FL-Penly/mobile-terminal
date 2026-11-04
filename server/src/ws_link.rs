@@ -32,6 +32,9 @@ pub struct Features {
     pub heartbeat: bool,
     pub deflate: bool,
     pub flow: bool,
+    /// Echo client `ping` controls as `pong` so the client can measure the
+    /// round trip of the terminal link itself, including output queueing.
+    pub rtt: bool,
 }
 
 pub fn negotiate(requested: &[String], mode: LinkMode) -> Features {
@@ -40,6 +43,7 @@ pub fn negotiate(requested: &[String], mode: LinkMode) -> Features {
         heartbeat: mode == LinkMode::Herdr && has("heartbeat"),
         deflate: has("deflate"),
         flow: mode == LinkMode::Herdr && has("flow"),
+        rtt: has("rtt"),
     }
 }
 
@@ -54,6 +58,7 @@ pub fn hello_frame(features: &Features) -> Option<Bytes> {
         ("heartbeat", features.heartbeat),
         ("deflate", features.deflate),
         ("flow", features.flow),
+        ("rtt", features.rtt),
     ]
     .into_iter()
     .filter_map(|(name, enabled)| enabled.then_some(name))
@@ -63,6 +68,18 @@ pub fn hello_frame(features: &Features) -> Option<Bytes> {
 
 pub fn heartbeat_frame() -> Bytes {
     control_frame(json!({"type": "heartbeat"}))
+}
+
+/// Parses a client `{"type":"ping","id":N}` control payload (without prefix).
+pub fn parse_ping(payload: &[u8]) -> Option<u64> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    (value.get("type")?.as_str()? == "ping")
+        .then(|| value.get("id")?.as_u64())
+        .flatten()
+}
+
+pub fn pong_frame(id: u64) -> Bytes {
+    control_frame(json!({"type": "pong", "id": id}))
 }
 
 pub fn closed_frame(reason: &str) -> Bytes {
@@ -257,9 +274,13 @@ mod tests {
             Features {
                 heartbeat: true,
                 deflate: true,
-                flow: true
+                flow: true,
+                rtt: false,
             }
         );
+        for mode in [LinkMode::Pty, LinkMode::Herdr] {
+            assert!(negotiate(&["rtt".into()], mode).rtt);
+        }
         assert_eq!(negotiate(&[], LinkMode::Herdr), Features::default());
         assert_eq!(
             negotiate(&["unknown".into()], LinkMode::Herdr),
@@ -279,6 +300,16 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&hello[1..]).unwrap(),
             json!({"type":"hello", "features":["deflate"]})
+        );
+        assert_eq!(parse_ping(br#"{"type":"ping","id":7}"#), Some(7));
+        for payload in [&br#"{"type":"ack","bytes":7}"#[..], br#"{"type":"ping"}"#, b"oops"] {
+            assert_eq!(parse_ping(payload), None);
+        }
+        let pong = pong_frame(7);
+        assert_eq!(pong[0], CONTROL_PREFIX);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&pong[1..]).unwrap(),
+            json!({"type":"pong", "id":7})
         );
         let closed = closed_frame("taken_over");
         assert_eq!(closed[0], CONTROL_PREFIX);

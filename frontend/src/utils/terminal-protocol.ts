@@ -3,13 +3,14 @@ import { Inflate } from 'fflate'
 export const OUTPUT_PREFIX = 0x30
 export const CONTROL_PREFIX = 0x34
 export const DEFLATE_OUTPUT_PREFIX = 0x35
-export const FEATURES = ['heartbeat', 'deflate', 'flow'] as const
+export const FEATURES = ['heartbeat', 'deflate', 'flow', 'rtt'] as const
 export const HEARTBEAT_TIMEOUT_MS = 15000
 export const LIVENESS_CHECK_INTERVAL_MS = 1000
 export const ACK_DELAY_MS = 30
 export const STABLE_CONNECTION_MS = 10000
 export const CONNECT_TIMEOUTS_MS = [10000, 15000, 20000]
 export const RECONNECT_DELAYS = [500, 1000, 2000, 3000, 5000]
+export const RTT_PROBE_INTERVAL_MS = 5000
 
 const encoder = new TextEncoder()
 
@@ -17,6 +18,7 @@ export type ControlMessage =
   | { type: 'hello'; features: string[] }
   | { type: 'heartbeat' }
   | { type: 'closed'; reason: string; retry: boolean }
+  | { type: 'pong'; id: number }
 
 export const encodeInitMessage = (cols: number, rows: number): Uint8Array => (
   encoder.encode(JSON.stringify({ AuthToken: '', columns: cols, rows, features: FEATURES }))
@@ -31,6 +33,9 @@ export const parseControlMessage = (payload: Uint8Array): ControlMessage | null 
       && value.features.every(feature => typeof feature === 'string')) {
       return { type: 'hello', features: value.features }
     }
+    if (value.type === 'pong' && 'id' in value && typeof value.id === 'number') {
+      return { type: 'pong', id: value.id }
+    }
     if (value.type === 'closed' && 'reason' in value && typeof value.reason === 'string'
       && 'retry' in value && typeof value.retry === 'boolean') {
       return { type: 'closed', reason: value.reason, retry: value.retry }
@@ -41,6 +46,10 @@ export const parseControlMessage = (payload: Uint8Array): ControlMessage | null 
 
 export const encodeAckMessage = (bytes: number): Uint8Array => (
   encoder.encode(`4${JSON.stringify({ type: 'ack', bytes })}`)
+)
+
+export const encodePingMessage = (id: number): Uint8Array => (
+  encoder.encode(`4${JSON.stringify({ type: 'ping', id })}`)
 )
 
 export const reconnectDelay = (attempt: number): number => (

@@ -1,3 +1,4 @@
+import { requestSignal } from './network-quality'
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 )
@@ -7,7 +8,7 @@ export const dumpTextToFile = async (text: string): Promise<string> => {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     body: text,
-    signal: AbortSignal.timeout(3000),
+    signal: requestSignal(3000),
   })
 
   let data: unknown

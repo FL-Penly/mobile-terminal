@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useTerminal } from './TerminalContext'
 import { mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions'
 import { withTerminalTarget } from '../utils/terminal-api'
+import { createPollThrottle, isNetworkDegraded, requestSignal } from '../utils/network-quality'
 
 const POLL_INTERVAL = 5000
 // Herdr hides pane mouse modes, so these agents scroll Herdr's scrollback instead of receiving
@@ -241,18 +242,21 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setIsOffline(false)
   }, [applyTmux])
 
+  const pollPendingRef = useRef(false)
   const fetchPollData = useCallback(async () => {
     const generation = targetGeneration.current
     if (mux === 'herdr') {
       herdrRefreshRef.current()
       return
     }
+    if (pollPendingRef.current) return
+    pollPendingRef.current = true
     try {
       const ttyParam = clientTtyRef.current ? `?client_tty=${encodeURIComponent(clientTtyRef.current)}` : ''
       const [diffRes, tmuxRes, paneModeRes] = await Promise.all([
-        fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: AbortSignal.timeout(3000) }),
-        fetch(`/api/tmux/list${ttyParam}`, { signal: AbortSignal.timeout(3000) }),
-        fetch(`/api/tmux/pane-mode${ttyParam}`, { signal: AbortSignal.timeout(3000) }),
+        fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: requestSignal(3000) }),
+        fetch(`/api/tmux/list${ttyParam}`, { signal: requestSignal(3000) }),
+        fetch(`/api/tmux/pane-mode${ttyParam}`, { signal: requestSignal(3000) }),
       ])
       if (generation !== targetGeneration.current) return
       if (diffRes.ok) {
@@ -276,13 +280,18 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (generation !== targetGeneration.current) return
       console.error('[ServerEvents] Poll failed:', error)
       setIsOffline(true)
+    } finally {
+      pollPendingRef.current = false
     }
   }, [applyHerdr, applyTmux, mux, paneId])
 
   const startPolling = useCallback(() => {
     if (pollIntervalRef.current) return
     void fetchPollData()
-    pollIntervalRef.current = window.setInterval(fetchPollData, POLL_INTERVAL)
+    const shouldPoll = createPollThrottle()
+    pollIntervalRef.current = window.setInterval(() => {
+      if (shouldPoll()) void fetchPollData()
+    }, POLL_INTERVAL)
   }, [fetchPollData])
 
   const stopPolling = useCallback(() => {
@@ -299,7 +308,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     let cancelled = false
     const load = async () => {
       try {
-        const response = await fetch('/api/tmux/list', { signal: AbortSignal.timeout(3000) })
+        const response = await fetch('/api/tmux/list', { signal: requestSignal(3000) })
         if (response.ok && !cancelled) {
           const data = await response.json()
           if (!cancelled) applyTmux(data)
@@ -360,14 +369,15 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     let source: EventSource | null = null
     const retryLater = () => {
       if (stopped || retry !== undefined) return
-      retry = window.setTimeout(() => { retry = undefined; void load() }, POLL_INTERVAL)
+      const delay = isNetworkDegraded() ? POLL_INTERVAL * 4 : POLL_INTERVAL
+      retry = window.setTimeout(() => { retry = undefined; void load() }, delay)
     }
     const load = async () => {
       if (stopped || pending) return
       pending = true
       const startedAt = revision
       try {
-        const response = await fetch('/api/herdr/list', { signal: AbortSignal.timeout(3000) })
+        const response = await fetch('/api/herdr/list', { signal: requestSignal(3000) })
         if (!response.ok) throw new Error(`Herdr list HTTP ${response.status}`)
         const payload = await response.json() as HerdrListPayload
         if (stopped || startedAt !== revision) return
@@ -388,7 +398,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (stopped || diffPending) return
       diffPending = true
       try {
-        const response = await fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: AbortSignal.timeout(3000) })
+        const response = await fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: requestSignal(3000) })
         if (!response.ok) return
         const data = await response.json()
         if (!stopped) {

@@ -8,6 +8,7 @@ import { TextInputModal } from './TextInputModal'
 import { GitPanel } from './GitPanel'
 import { ComboKeyPanel } from './ComboKeyPanel'
 import { INSERT_TEXT_EVENT } from './CopyModeOverlay'
+import { requestSignal } from '../utils/network-quality'
 
 const hapticTap = () => { try { navigator.vibrate?.(8) } catch {} }
 
@@ -73,7 +74,7 @@ export const Toolbar: React.FC = () => {
           'X-Filename': encodeURIComponent(file.name),
         },
         body: file,
-        signal: AbortSignal.timeout(30000),
+        signal: requestSignal(30000),
       })
       if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
       const { path } = await response.json()

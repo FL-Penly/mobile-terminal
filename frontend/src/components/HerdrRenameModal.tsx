@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { requestSignal } from '../utils/network-quality'
 
 export interface HerdrRenameTarget {
   kind: 'workspace' | 'tab'
@@ -49,7 +50,7 @@ export const HerdrRenameModal: React.FC<HerdrRenameModalProps> = ({ target, onCl
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind: target.kind, id: target.id, label: trimmed }),
-        signal: AbortSignal.timeout(5000),
+        signal: requestSignal(5000),
       })
       if (!response.ok) throw new Error(await renameErrorMessage(response))
       onSettled()

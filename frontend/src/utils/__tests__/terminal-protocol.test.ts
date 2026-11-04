@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { deflateFrames } from './fixtures/deflate-frames.mjs'
 import frames from './fixtures/flate2-frames.json'
-import { connectTimeout, createOutputInflater, encodeAckMessage, encodeInitMessage, parseControlMessage, reconnectDelay } from '../terminal-protocol'
+import { connectTimeout, createOutputInflater, encodeAckMessage, encodeInitMessage, encodePingMessage, parseControlMessage, reconnectDelay } from '../terminal-protocol'
 
 const bytes = (text: string) => new TextEncoder().encode(text)
 
 describe('terminal wire protocol', () => {
   it('encodes negotiated init and cumulative byte acknowledgements', () => {
     expect(JSON.parse(new TextDecoder().decode(encodeInitMessage(90, 30)))).toEqual({
-      AuthToken: '', columns: 90, rows: 30, features: ['heartbeat', 'deflate', 'flow'],
+      AuthToken: '', columns: 90, rows: 30, features: ['heartbeat', 'deflate', 'flow', 'rtt'],
     })
     expect(new TextDecoder().decode(encodeAckMessage(123))).toBe('4{"type":"ack","bytes":123}')
+    expect(new TextDecoder().decode(encodePingMessage(7))).toBe('4{"type":"ping","id":7}')
+    expect(parseControlMessage(bytes('{"type":"pong","id":7}'))).toEqual({ type: 'pong', id: 7 })
+    expect(parseControlMessage(bytes('{"type":"pong","id":"7"}'))).toBeNull()
   })
 
   it('validates controls and tolerates unknown fields and feature names', () => {
