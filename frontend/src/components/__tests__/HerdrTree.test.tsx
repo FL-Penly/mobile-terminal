@@ -57,6 +57,44 @@ describe('Herdr workspace folding', () => {
   })
 })
 
+describe('Herdr goal badge', () => {
+  afterEach(cleanup)
+
+  it('marks an open or paused /goal next to the agent and shows nothing without one', () => {
+    const withGoal = (lens_goal?: string): HerdrListPayload => ({
+      ...payload,
+      panes: payload.panes?.map(pane => ({ ...pane, tokens: lens_goal ? { lens_goal } : {} })),
+    })
+    const view = render(<HerdrTree {...props} payload={withGoal('goal')} />)
+    expect(screen.getByTitle('有进行中的 /goal，目标尚未达成')).toHaveTextContent('goal')
+    view.rerender(<HerdrTree {...props} payload={withGoal('paused')} />)
+    expect(screen.getByTitle('/goal 已暂停')).toHaveTextContent('paused')
+    view.rerender(<HerdrTree {...props} payload={withGoal()} />)
+    expect(screen.queryByTitle(/\/goal/)).toBeNull()
+  })
+})
+
+describe('Herdr lens window and background badges', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the reported window and background tasks without duplicating the long-run window', async () => {
+    const tokens = { lens_ctx: '258k', lens_bg: '2' }
+    const view = render(<HerdrTree {...props} payload={{ ...payload, panes: payload.panes?.map(pane => ({ ...pane, tokens })) }} />)
+    expect(screen.getByTitle('上下文窗口 258k tokens')).toHaveTextContent('258k')
+    expect(screen.getByTitle('还有 2 个后台任务在运行')).toHaveTextContent('后台 2')
+    view.unmount()
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ panes: { p1: 500000 } }))))
+    const claude = { ...payload, panes: payload.panes?.map(pane => ({ ...pane, agent: 'claude', tokens: { lens_ctx: '500k' } })) }
+    const pane = render(<HerdrTree {...props} payload={claude} />).container.querySelector('[data-pane-id="p1"]')
+    await waitFor(() => expect(screen.getByTitle('上下文到 500k tokens 才自动压缩（long run）')).toBeInTheDocument())
+    expect(pane?.textContent?.match(/500k/g)).toHaveLength(1)
+  })
+})
+
 describe('Herdr lens chat view', () => {
   const jsonResponse = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }))
   let fetchMock: ReturnType<typeof vi.fn>

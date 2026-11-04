@@ -13,6 +13,7 @@ import {
   type HerdrTreeTab,
   type HerdrTreeWorkspace,
 } from '../utils/herdr-sessions'
+import { createPollThrottle, requestSignal } from '../utils/network-quality'
 
 const FOLDED_KEY = 'herdr_sidebar_folded'
 const TERMINALS_OPEN_KEY = 'herdr_sidebar_terminals_open'
@@ -168,18 +169,26 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
       return
     }
     let cancelled = false
+    let pending = false
     const load = async () => {
+      if (pending) return
+      pending = true
       try {
-        const response = await fetch('/api/herdr/long-run', { signal: AbortSignal.timeout(3000) })
+        const response = await fetch('/api/herdr/long-run', { signal: requestSignal(3000) })
         if (!response.ok) throw new Error(await responseError(response))
         const data = await response.json() as { panes?: Record<string, number> }
         if (!cancelled && data.panes && !Array.isArray(data.panes)) setLongRuns(data.panes)
       } catch (lookupError) {
         console.error('[HerdrTree] Long-run lookup failed:', lookupError)
+      } finally {
+        pending = false
       }
     }
     void load()
-    const poll = window.setInterval(() => { void load() }, LONG_RUN_POLL_INTERVAL)
+    const shouldPoll = createPollThrottle()
+    const poll = window.setInterval(() => {
+      if (shouldPoll()) void load()
+    }, LONG_RUN_POLL_INTERVAL)
     return () => {
       cancelled = true
       window.clearInterval(poll)
@@ -210,7 +219,7 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
   const request = async (url: string, failure: string): Promise<Record<string, unknown> | null> => {
     setError(null)
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      const response = await fetch(url, { signal: requestSignal(5000) })
       if (!response.ok) throw new Error(await responseError(response))
       const data = await response.json().catch(() => ({})) as Record<string, unknown>
       onChanged()
@@ -411,6 +420,11 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
     const selected = pane.paneId === selectedPaneId
     const status = STATUS_STYLE[pane.status]
     const longRun = longRuns[pane.paneId]
+    const windowLabel = longRun !== undefined ? compactWindowLabel(longRun) : pane.contextWindow
+    const windowTitle = longRun !== undefined
+      ? `上下文到 ${windowLabel} tokens 才自动压缩（long run）`
+      : `上下文窗口 ${windowLabel} tokens`
+    const background = pane.backgroundTasks
     const title = !under && tab.customName ? tab.customName : pane.title
     const target: MenuTarget = { kind: 'pane', pane, tab, head: !under, workspace }
     const draggable = !query && !under && Boolean(tab.tabId)
@@ -446,15 +460,24 @@ export const HerdrTree: React.FC<HerdrTreeProps> = ({
           </span>
           <span className="min-w-0 flex-1">
             <span className={`block truncate text-sm ${selected ? 'font-medium text-accent-purple' : 'text-text-primary'}`}>{title}</span>
-            {(subtitle || longRun !== undefined) && (
+            {(subtitle || windowLabel || pane.goal || background) && (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] leading-[14px] text-text-secondary">
                 {subtitle && <span className="truncate">{subtitle}</span>}
-                {subtitle && longRun !== undefined && <span aria-hidden="true" className="text-text-muted">·</span>}
-                {longRun !== undefined && (
+                {subtitle && windowLabel && <span aria-hidden="true" className="text-text-muted">·</span>}
+                {windowLabel && (
+                  <span className="shrink-0 font-mono text-[10px] text-text-muted" title={windowTitle}>{windowLabel}</span>
+                )}
+                {pane.goal && (
                   <span
-                    className="shrink-0 font-mono text-[10px] text-text-muted"
-                    title={`上下文到 ${compactWindowLabel(longRun)} tokens 才自动压缩（long run）`}
-                  >{compactWindowLabel(longRun)}</span>
+                    className={`shrink-0 rounded px-1 font-mono text-[10px] leading-[14px] ${pane.goal === 'active' ? 'bg-tint-purple/20 text-accent-purple' : 'bg-bg-tertiary text-text-muted'}`}
+                    title={pane.goal === 'active' ? '有进行中的 /goal，目标尚未达成' : '/goal 已暂停'}
+                  >{pane.goal === 'active' ? 'goal' : 'paused'}</span>
+                )}
+                {background && (
+                  <span
+                    className="shrink-0 rounded bg-bg-tertiary px-1 text-[10px] leading-[14px] text-text-muted"
+                    title={`还有 ${background} 个后台任务在运行`}
+                  >后台 {background}</span>
                 )}
               </span>
             )}

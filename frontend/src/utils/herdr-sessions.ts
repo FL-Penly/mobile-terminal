@@ -15,6 +15,8 @@ export interface HerdrPane {
   agent_status?: AgentStatus
   /** Set by the server on a herdr-lens chat view. */
   lens_chat?: boolean
+  /** Metadata other plugins report on the pane (herdr-lens: `lens_goal`, `lens_ctx`…). */
+  tokens?: Record<string, unknown>
 }
 
 export interface HerdrWorkspace {
@@ -35,6 +37,7 @@ export interface HerdrAgent {
   agent_status?: AgentStatus
   name?: string | null
   terminal_title_stripped?: string | null
+  tokens?: Record<string, unknown>
 }
 
 export interface HerdrListPayload {
@@ -132,6 +135,31 @@ export interface HerdrTreePane {
   folder: string
   focused: boolean
   lensChat: boolean
+  /** An open `/goal` herdr-lens found in the agent's transcript. */
+  goal?: HerdrGoalState
+  /** herdr-lens's context window label (`500k`): Claude's auto-compact window or Codex's model window. */
+  contextWindow?: string
+  /** Background tasks herdr-lens still sees running. */
+  backgroundTasks?: number
+}
+
+export type HerdrGoalState = 'active' | 'paused'
+
+const goalState = (...tokens: (Record<string, unknown> | undefined)[]): HerdrGoalState | undefined => {
+  for (const value of tokens.map(token => token?.lens_goal)) {
+    if (value === 'goal') return 'active'
+    if (value === 'paused') return 'paused'
+  }
+  return undefined
+}
+
+const firstToken = (key: string, ...tokens: (Record<string, unknown> | undefined)[]) => (
+  tokens.map(token => token?.[key]).find((value): value is string => typeof value === 'string' && value.trim() !== '')?.trim()
+)
+
+const taskCount = (value?: string) => {
+  const count = value && /^\d+$/.test(value) ? Number(value) : 0
+  return count > 0 ? count : undefined
 }
 
 export interface HerdrTreeTab {
@@ -201,6 +229,9 @@ export const buildHerdrTree = (payload: HerdrListPayload | null): HerdrTreeWorks
       folder,
       focused: pane.focused ?? false,
       lensChat,
+      goal: agent ? goalState(pane.tokens, agentInfo?.tokens) : undefined,
+      contextWindow: agent ? firstToken('lens_ctx', pane.tokens, agentInfo?.tokens) : undefined,
+      backgroundTasks: agent ? taskCount(firstToken('lens_bg', pane.tokens, agentInfo?.tokens)) : undefined,
     }
   }
   const workspaceRows = (workspaceId: string, label: string, activeTabId?: string): HerdrTreeWorkspace => {

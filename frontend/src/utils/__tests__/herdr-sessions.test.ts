@@ -138,6 +138,41 @@ describe('herdr sidebar helpers', () => {
     expect(herdrMoveBoundary(ids, 'x', 'a', true)).toBeNull()
   })
 
+  it('reads the open /goal herdr-lens reports on the pane or its agent, only for agent panes', () => {
+    const tree = buildHerdrTree({
+      workspaces: [{ workspace_id: 'w1' }],
+      tabs: [{ tab_id: 't1', workspace_id: 'w1' }],
+      panes: [
+        { pane_id: 'p1', workspace_id: 'w1', tab_id: 't1', agent: 'claude', tokens: { lens_goal: 'goal', lens_ctx: '828k' } },
+        { pane_id: 'p2', workspace_id: 'w1', tab_id: 't1', agent: 'codex' },
+        { pane_id: 'p3', workspace_id: 'w1', tab_id: 't1', agent: 'claude', tokens: { lens_goal: 'unknown' } },
+        { pane_id: 'p4', workspace_id: 'w1', tab_id: 't1', tokens: { lens_goal: 'goal' } },
+        { pane_id: 'p5', workspace_id: 'w1', tab_id: 't1', agent: 'claude', tokens: { lens_goal: 3 } },
+      ],
+      agents: [{ pane_id: 'p2', agent: 'codex', tokens: { lens_goal: 'paused' } }],
+    })
+    const { head, under } = tree[0].tabs[0]
+    expect([head, ...under].map(pane => pane.goal)).toEqual(['active', 'paused', undefined, undefined, undefined])
+  })
+
+  it('reads the context window and running background tasks herdr-lens reports', () => {
+    const tree = buildHerdrTree({
+      workspaces: [{ workspace_id: 'w1' }],
+      tabs: [{ tab_id: 't1', workspace_id: 'w1' }],
+      panes: [
+        { pane_id: 'p1', workspace_id: 'w1', tab_id: 't1', agent: 'codex', tokens: { lens_ctx: '258k', lens_bg: '2' } },
+        { pane_id: 'p2', workspace_id: 'w1', tab_id: 't1', agent: 'claude', tokens: { lens_ctx: ' ', lens_bg: '0' } },
+        { pane_id: 'p3', workspace_id: 'w1', tab_id: 't1', agent: 'claude', tokens: { lens_bg: 'x' } },
+        { pane_id: 'p4', workspace_id: 'w1', tab_id: 't1', tokens: { lens_ctx: '500k', lens_bg: '3' } },
+      ],
+      agents: [{ pane_id: 'p3', agent: 'claude', tokens: { lens_ctx: '1m' } }],
+    })
+    const { head, under } = tree[0].tabs[0]
+    expect([head, ...under].map(pane => [pane.contextWindow, pane.backgroundTasks])).toEqual([
+      ['258k', 2], [undefined, undefined], ['1m', undefined], [undefined, undefined],
+    ])
+  })
+
   it('labels auto-compact windows as Claude Code users write them', () => {
     expect(compactWindowLabel(500000)).toBe('500k')
     expect(compactWindowLabel(600000)).toBe('600k')
