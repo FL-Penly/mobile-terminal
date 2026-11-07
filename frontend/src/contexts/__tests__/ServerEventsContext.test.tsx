@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ServerEventsProvider, useServerEvents } from '../ServerEventsContext'
+import { ServerEventsProvider, useServerEvents, useTerminalModes } from '../ServerEventsContext'
 
 const terminalState: { clientTty: string | null; mux: 'tmux' | 'herdr'; paneId: string | null } = {
   clientTty: '/dev/ttys001',
@@ -47,6 +47,32 @@ describe('ServerEventsProvider', () => {
     vi.restoreAllMocks()
   })
 
+  it('does not rerender terminal mode consumers for unrelated session updates', async () => {
+    terminalState.mux = 'herdr'
+    terminalState.paneId = 'w4:p1'
+    const rendered = vi.fn()
+    const ModesProbe = () => {
+      const modes = useTerminalModes()
+      rendered(modes)
+      return <div data-testid="modes">{JSON.stringify(modes)}</div>
+    }
+    render(<ServerEventsProvider><ModesProbe /></ServerEventsProvider>)
+    await act(async () => { await Promise.resolve() })
+    const sendSnapshot = (revision: number, lensChat = false) => act(() => {
+      EventSourceMock.instances[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify({
+        herdr: { panes: [{ pane_id: 'w4:p1', workspace_id: 'w4', revision, lens_chat: lensChat }] },
+      }) }))
+    })
+    sendSnapshot(1)
+    const initialRenders = rendered.mock.calls.length
+    for (let revision = 2; revision <= 21; revision++) sendSnapshot(revision)
+    expect(rendered).toHaveBeenCalledTimes(initialRenders)
+    sendSnapshot(22, true)
+    expect(rendered).toHaveBeenCalledTimes(initialRenders + 1)
+    expect(screen.getByTestId('modes')).toHaveTextContent('"lensChat":true')
+    expect(screen.getByTestId('modes')).toHaveTextContent('"tuiActive":true')
+  })
+
   it('handles an empty snapshot, falls back to polling, and reconnects SSE', async () => {
     render(<ServerEventsProvider><Probe /></ServerEventsProvider>)
     await waitFor(() => expect(screen.getByText('loaded:0:online')).toBeInTheDocument())
@@ -54,7 +80,7 @@ describe('ServerEventsProvider', () => {
     expect(EventSourceMock.instances[0].url).toContain('client_tty=%2Fdev%2Fttys001')
 
     act(() => { EventSourceMock.instances[0].onerror?.(new Event('error')) })
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/diff?client_tty='), expect.anything()))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/diff?metadata_only=true&client_tty='), expect.anything()))
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(EventSourceMock.instances).toHaveLength(2)
     act(() => { EventSourceMock.instances[1].onopen?.(new Event('open')) })
@@ -88,7 +114,7 @@ describe('ServerEventsProvider', () => {
     expect(screen.getByText('loaded:1:online:working')).toHaveAttribute('data-tui-active', 'true')
     expect(screen.getByText('loaded:1:online:working')).toHaveAttribute('data-herdr-scrollback', 'false')
     expect(EventSourceMock.instances[0].url).toContain('mux=herdr')
-    expect(fetch).toHaveBeenCalledWith('/api/diff?mux=herdr&pane=w4%3Ap1', expect.anything())
+    expect(fetch).toHaveBeenCalledWith('/api/diff?metadata_only=true&mux=herdr&pane=w4%3Ap1', expect.anything())
     act(() => {
       EventSourceMock.instances[0].onmessage?.(new MessageEvent('message', { data: JSON.stringify({
         herdr: {

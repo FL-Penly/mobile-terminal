@@ -1,0 +1,33 @@
+{
+  "errors": [],
+  "prefixes": {
+    "52": 5,
+    "53": 609
+  },
+  "resizes": [
+    {
+      "AuthToken": "",
+      "columns": 52,
+      "rows": 47
+    },
+    {
+      "AuthToken": "",
+      "columns": 76,
+      "rows": 15
+    },
+    {
+      "AuthToken": "",
+      "columns": 52,
+      "rows": 47
+    }
+  ],
+  "secureContext": false,
+  "echoMs": 67,
+  "interruptMs": 48,
+  "domRows": 15,
+  "sessionsAfterClose": [
+    "t1",
+    "t2"
+  ],
+  "restoredShellState": true
+}

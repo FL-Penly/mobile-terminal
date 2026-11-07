@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTerminal } from './TerminalContext'
-import { mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions'
+import { isLensChatPane, mapHerdrSessions, type HerdrListPayload } from '../utils/herdr-sessions'
 import { withTerminalTarget } from '../utils/terminal-api'
 import { createPollThrottle, isNetworkDegraded, requestSignal } from '../utils/network-quality'
 
@@ -100,6 +100,22 @@ interface EventPayload {
 }
 
 const ServerEventsContext = createContext<ServerEventsContextValue | null>(null)
+
+interface TerminalModes {
+  tuiActive: boolean
+  herdrScrollback: boolean
+  lensChat: boolean
+}
+
+// Output rendering and input handlers do not need every session-list revision.
+const TerminalModesContext = createContext<TerminalModes | null>(null)
+
+export const useTerminalModes = () => {
+  const context = useContext(TerminalModesContext)
+  if (!context) throw new Error('useTerminalModes must be used within ServerEventsProvider')
+  return context
+}
+
 
 export const useServerEvents = () => {
   const context = useContext(ServerEventsContext)
@@ -254,7 +270,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       const ttyParam = clientTtyRef.current ? `?client_tty=${encodeURIComponent(clientTtyRef.current)}` : ''
       const [diffRes, tmuxRes, paneModeRes] = await Promise.all([
-        fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: requestSignal(3000) }),
+        fetch(withTerminalTarget('/api/diff?metadata_only=true', mux, paneId, clientTtyRef.current), { signal: requestSignal(3000) }),
         fetch(`/api/tmux/list${ttyParam}`, { signal: requestSignal(3000) }),
         fetch(`/api/tmux/pane-mode${ttyParam}`, { signal: requestSignal(3000) }),
       ])
@@ -398,7 +414,7 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (stopped || diffPending) return
       diffPending = true
       try {
-        const response = await fetch(withTerminalTarget('/api/diff', mux, paneId, clientTtyRef.current), { signal: requestSignal(3000) })
+        const response = await fetch(withTerminalTarget('/api/diff?metadata_only=true', mux, paneId, clientTtyRef.current), { signal: requestSignal(3000) })
         if (!response.ok) return
         const data = await response.json()
         if (!stopped) {
@@ -479,5 +495,12 @@ export const ServerEventsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     refresh,
   }), [branch, path, tuiActive, herdrScrollback, tmuxSessions, projectGroups, otherSessions, herdrPayload, tmuxScannedAt, currentTmuxSession, isOffline, clientTty, sessionsLoaded, refresh])
 
-  return <ServerEventsContext.Provider value={value}>{children}</ServerEventsContext.Provider>
+  const lensChat = mux === 'herdr' && isLensChatPane(herdrPayload, paneId)
+  const terminalModes = useMemo(() => ({ tuiActive, herdrScrollback, lensChat }), [tuiActive, herdrScrollback, lensChat])
+
+  return (
+    <TerminalModesContext.Provider value={terminalModes}>
+      <ServerEventsContext.Provider value={value}>{children}</ServerEventsContext.Provider>
+    </TerminalModesContext.Provider>
+  )
 }

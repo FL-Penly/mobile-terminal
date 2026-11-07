@@ -1,0 +1,385 @@
+[
+  {
+    "name": "5 switch pane using sidebar",
+    "passed": false,
+    "error": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button').filter({ has: getByText('w6:p1', { exact: true }) })\u001b[22m\n\n    at /data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:98:128\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:135)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:95:3"
+  },
+  {
+    "name": "6 takeover under P0",
+    "passed": true,
+    "evidence": {
+      "first": {
+        "opens": 1,
+        "closes": 1,
+        "inputs": [
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34367d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":46}"
+          },
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          }
+        ],
+        "prefixes": {
+          "48": 1,
+          "52": 3,
+          "53": 3
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "reason": "taken_over",
+            "retry": false,
+            "type": "closed"
+          }
+        ],
+        "errors": []
+      },
+      "second": {
+        "opens": 1,
+        "closes": 0,
+        "inputs": [
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34367d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":46}"
+          },
+          {
+            "prefix": 49,
+            "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+            "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+          }
+        ],
+        "prefixes": {
+          "52": 4,
+          "53": 3
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          }
+        ],
+        "errors": []
+      }
+    }
+  },
+  {
+    "name": "6 takeover under P2",
+    "passed": true,
+    "evidence": {
+      "first": {
+        "opens": 1,
+        "closes": 1,
+        "inputs": [],
+        "prefixes": {
+          "48": 1,
+          "52": 7,
+          "53": 712
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          },
+          {
+            "reason": "taken_over",
+            "retry": false,
+            "type": "closed"
+          }
+        ],
+        "errors": []
+      },
+      "second": {
+        "opens": 1,
+        "closes": 0,
+        "inputs": [],
+        "prefixes": {
+          "52": 4,
+          "53": 457
+        },
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          }
+        ],
+        "errors": []
+      }
+    }
+  },
+  {
+    "name": "7 hidden controller release and visible restore",
+    "passed": true,
+    "evidence": {
+      "opens": 2,
+      "closes": 1,
+      "inputs": [
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34367d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":46}"
+        },
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+        },
+        {
+          "prefix": 48,
+          "hex": "70",
+          "text": "p"
+        },
+        {
+          "prefix": 48,
+          "hex": "72",
+          "text": "r"
+        },
+        {
+          "prefix": 48,
+          "hex": "69",
+          "text": "i"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "74",
+          "text": "t"
+        },
+        {
+          "prefix": 48,
+          "hex": "66",
+          "text": "f"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "47",
+          "text": "G"
+        },
+        {
+          "prefix": 48,
+          "hex": "5f",
+          "text": "_"
+        },
+        {
+          "prefix": 48,
+          "hex": "25",
+          "text": "%"
+        },
+        {
+          "prefix": 48,
+          "hex": "73",
+          "text": "s"
+        },
+        {
+          "prefix": 48,
+          "hex": "5c",
+          "text": "\\"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "56",
+          "text": "V"
+        },
+        {
+          "prefix": 48,
+          "hex": "49",
+          "text": "I"
+        },
+        {
+          "prefix": 48,
+          "hex": "53",
+          "text": "S"
+        },
+        {
+          "prefix": 48,
+          "hex": "49",
+          "text": "I"
+        },
+        {
+          "prefix": 48,
+          "hex": "42",
+          "text": "B"
+        },
+        {
+          "prefix": 48,
+          "hex": "4c",
+          "text": "L"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "0d",
+          "text": "\r"
+        }
+      ],
+      "prefixes": {
+        "52": 3,
+        "53": 8
+      },
+      "controls": [
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow",
+            "rtt"
+          ],
+          "type": "hello"
+        },
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow",
+            "rtt"
+          ],
+          "type": "hello"
+        },
+        {
+          "id": 1,
+          "type": "pong"
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "11 Git Diff panel",
+    "passed": true,
+    "evidence": {
+      "text": "w3:p1\n│\nmaster\n▼\n│\n~/project/mobile-terminal\ng progress=59                                       \nagent step=00002060 checking module=25 status=workin\ng progress=60                                       \nagent step=00002061 checking module=26 status=workin\ng progress=61                                       \nagent step=00002062 checking module=27 status=workin\ng progress=62                                       \nagent step=00002063 checking module=28 status=workin\ng progress=63                                       \nagent step=00002064 checking module=29 status=workin\ng progress=64                                       \nagent step=00002065 checking module=30 status=workin\ng progress=65                                       \nagent step=00002066 checking module=31 status=workin\ng progress=66                                       \nagent step=00002067 checking module=32 status=workin\ng progress=67                                       \nagent step=00002068 checking module=33 status=workin\ng progress=68                                       \nagent step=00002069 checking module=34 status=workin\ng progress=69                                       \nagent step=00002070 checking module=35 status=workin\ng progress=70                                       \nagent step=00002071 checking module=36 status=workin\ng progress=71                                       \nagent step=00002072 checking module=00 status=workin\ng progress=72                                       \nagent step=00002073 checking module=01 status=workin\ng progress=73                                       \nagent step=00002074 checking module=02 status=workin\ng progress=74                                       \nagent step=00002075 checking module=03 status=workin\ng progress=75                                       \nagent step=00002076 checking module=04 status=workin\ng progress=76                                       \nagent step=00002077 checking module=05 status=workin\ng progress=77                                       \nagent step=00002078 checking module=06 status=workin\ng progress=78                                       \nspinner -                                           \nSTOPPED                                             \n➜  mobile-terminal git:(master) ✗ printf 'REG_%s\\n' \n'VISIBLE'                                           \nREG_VISIBLE                                         \n➜  mobile-terminal git:(master) ✗ cd '/tmp/mobile-te\nrminal-perf-20261107/weaknet/git-regression-M5g4b8' \n➜  git-regression-M5g4b8 git:(main) ✗               \n▼\nESC\n^C\n^L\n💬\n⌨️\n📎\nSel\nGit\n⚙️\nTab\n⇧Tab\nEnter\n⇧Enter\n↑\n组合键\n←\n↓\n→\nSOURCE CONTROL\n1\nReview All\nCommit All 1 file\n▾\nStaged Changes\nNo staged files\n▾\nChanges\n1\nregression.txt\nM\n@@ -1 +1 @@\nDiscard\nStage\n\n1\t\t-\tBEFORE_WEAKNET_DIFF\n\t1\t+\tAFTER_WEAKNET_DIFF\n▸\nCommits\n1"
+    }
+  },
+  {
+    "name": "12 image paste upload",
+    "passed": true,
+    "evidence": {
+      "filename": "mtbench-paste_1794063453129.png",
+      "path": "/tmp/ttyd_uploads/mtbench-paste_1794063453129.png"
+    }
+  }
+]

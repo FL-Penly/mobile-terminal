@@ -1,0 +1,7 @@
+{
+  "renderer": "webgl",
+  "errors": [],
+  "copyViewHasOutput": true,
+  "secureContext": false,
+  "overflow": false
+}

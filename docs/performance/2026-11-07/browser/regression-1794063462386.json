@@ -1,0 +1,10 @@
+[
+  {
+    "name": "5 switch pane using sidebar",
+    "passed": true,
+    "evidence": {
+      "url": "http://127.0.0.1:7712/?mux=herdr&pane=w6%3Ap1",
+      "opens": 2
+    }
+  }
+]

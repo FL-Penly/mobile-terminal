@@ -1,0 +1,1011 @@
+{
+  "started": "2026-11-07T14:58:11.974Z",
+  "config": {
+    "ports": [
+      7701,
+      7702
+    ],
+    "profiles": [
+      "P0",
+      "P2"
+    ],
+    "scenes": [
+      "S1",
+      "S3",
+      "S4-buffered"
+    ],
+    "recovery_probe_ms": 20,
+    "profile_rates": {},
+    "calibration_rate": 100,
+    "sample_ms": 10000,
+    "viewport": "390x844",
+    "serviceWorkers": "block"
+  },
+  "cases": [
+    {
+      "port": 7701,
+      "profile": "P0",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 241653,
+        "transfer_bytes": 241953,
+        "duration_ms": 173.5999994277954,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 241653,
+        "transfer_bytes": 300,
+        "duration_ms": 97,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 835,
+      "traffic": {
+        "bytes": 500,
+        "frames": 5,
+        "prefixes": {
+          "4": 2,
+          "5": 3
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063492663
+          },
+          {
+            "type": "handshake",
+            "at": 1794063492700,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1794063492870
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1794063492932
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1794063492937,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7701,
+      "profile": "P0",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 133
+        },
+        {
+          "ms": 100
+        },
+        {
+          "ms": 82
+        },
+        {
+          "ms": 99
+        },
+        {
+          "ms": 82
+        }
+      ],
+      "p50": 99,
+      "p95": 133,
+      "max": 133,
+      "timeouts": 0,
+      "elapsed_ms": 26760,
+      "traffic": {
+        "bytes": 274733,
+        "frames": 1542,
+        "prefixes": {
+          "4": 12,
+          "5": 1530
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 4,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 5,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 6,
+            "type": "pong"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063493380
+          },
+          {
+            "type": "handshake",
+            "at": 1794063493417,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7701,
+      "profile": "P0",
+      "scene": "S4-buffered",
+      "ms": 171,
+      "probes": 3,
+      "restore_started_at": 1794063535435,
+      "restored_at": 1794063535439,
+      "ws_down_bytes": 17183,
+      "elapsed_ms": 15923,
+      "traffic": {
+        "bytes": 71444,
+        "frames": 403,
+        "prefixes": {
+          "4": 7,
+          "5": 396
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063520144
+          },
+          {
+            "type": "handshake",
+            "at": 1794063520184,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7701,
+      "profile": "P2",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 241653,
+        "transfer_bytes": 241953,
+        "duration_ms": 8514.300000190735,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 241653,
+        "transfer_bytes": 300,
+        "duration_ms": 1045.1000003814697,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 11480,
+      "traffic": {
+        "bytes": 387,
+        "frames": 3,
+        "prefixes": {
+          "4": 2,
+          "5": 1
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null",
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063544420
+          },
+          {
+            "type": "handshake",
+            "at": 1794063545163,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1794063547031
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1794063547099
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1794063547102,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7701,
+      "profile": "P2",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 1017
+        },
+        {
+          "ms": 1032
+        },
+        {
+          "ms": 900
+        },
+        {
+          "ms": 900
+        },
+        {
+          "ms": 1016
+        }
+      ],
+      "p50": 1016,
+      "p95": 1032,
+      "max": 1032,
+      "timeouts": 0,
+      "elapsed_ms": 43145,
+      "traffic": {
+        "bytes": 313071,
+        "frames": 1753,
+        "prefixes": {
+          "4": 14,
+          "5": 1739
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 4,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 5,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 6,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 7,
+            "type": "pong"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063556006
+          },
+          {
+            "type": "handshake",
+            "at": 1794063556873,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7701,
+      "profile": "P2",
+      "scene": "S4-buffered",
+      "ms": 1140,
+      "probes": 29,
+      "restore_started_at": 1794063616480,
+      "restored_at": 1794063616484,
+      "ws_down_bytes": 12857,
+      "elapsed_ms": 27386,
+      "traffic": {
+        "bytes": 66175,
+        "frames": 374,
+        "prefixes": {
+          "4": 6,
+          "5": 368
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [
+          "WebGL2 not supported null\n\nError: WebGL2 not supported null"
+        ],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063598988
+          },
+          {
+            "type": "handshake",
+            "at": 1794063599731,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 234155,
+        "transfer_bytes": 234455,
+        "duration_ms": 192.69999980926514,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 234155,
+        "transfer_bytes": 300,
+        "duration_ms": 100.30000019073486,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 746,
+      "traffic": {
+        "bytes": 500,
+        "frames": 5,
+        "prefixes": {
+          "4": 2,
+          "5": 3
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          }
+        ],
+        "errors": [],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063618119
+          },
+          {
+            "type": "handshake",
+            "at": 1794063618158,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1794063618315
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1794063618379
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1794063618382,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 136
+        },
+        {
+          "ms": 100
+        },
+        {
+          "ms": 116
+        },
+        {
+          "ms": 99
+        },
+        {
+          "ms": 99
+        }
+      ],
+      "p50": 100,
+      "p95": 136,
+      "max": 136,
+      "timeouts": 0,
+      "elapsed_ms": 26798,
+      "traffic": {
+        "bytes": 275687,
+        "frames": 1541,
+        "prefixes": {
+          "4": 12,
+          "5": 1529
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 4,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 5,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 6,
+            "type": "pong"
+          }
+        ],
+        "errors": [],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063618820
+          },
+          {
+            "type": "handshake",
+            "at": 1794063618859,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P0",
+      "scene": "S4-buffered",
+      "ms": 175,
+      "probes": 3,
+      "restore_started_at": 1794063660994,
+      "restored_at": 1794063660999,
+      "ws_down_bytes": 17050,
+      "elapsed_ms": 16003,
+      "traffic": {
+        "bytes": 71079,
+        "frames": 390,
+        "prefixes": {
+          "4": 7,
+          "5": 383
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          }
+        ],
+        "errors": [],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063645710
+          },
+          {
+            "type": "handshake",
+            "at": 1794063645764,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S1",
+      "cold": {
+        "encoded_bytes": 234155,
+        "transfer_bytes": 234455,
+        "duration_ms": 8230.699999809265,
+        "status": 200
+      },
+      "warm": {
+        "encoded_bytes": 234155,
+        "transfer_bytes": 300,
+        "duration_ms": 949.3999996185303,
+        "status": 200
+      },
+      "http_statuses": [
+        304
+      ],
+      "elapsed_ms": 10963,
+      "traffic": {
+        "bytes": 387,
+        "frames": 3,
+        "prefixes": {
+          "4": 2,
+          "5": 1
+        },
+        "opens": 2,
+        "closes": 1,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          }
+        ],
+        "errors": [],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063669691
+          },
+          {
+            "type": "handshake",
+            "at": 1794063670273,
+            "status": 101
+          },
+          {
+            "attempt": 1,
+            "type": "closed",
+            "at": 1794063672079
+          },
+          {
+            "attempt": 2,
+            "type": "created",
+            "at": 1794063672145
+          },
+          {
+            "attempt": 2,
+            "type": "error",
+            "at": 1794063672148,
+            "error": "WebSocket is closed before the connection is established."
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S3",
+      "samples": [
+        {
+          "ms": 934
+        },
+        {
+          "ms": 1033
+        },
+        {
+          "ms": 967
+        },
+        {
+          "ms": 1116
+        },
+        {
+          "ms": 1082
+        }
+      ],
+      "p50": 1033,
+      "p95": 1116,
+      "max": 1116,
+      "timeouts": 0,
+      "elapsed_ms": 43143,
+      "traffic": {
+        "bytes": 322757,
+        "frames": 1823,
+        "prefixes": {
+          "4": 14,
+          "5": 1809
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 3,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 4,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 5,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 6,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 7,
+            "type": "pong"
+          }
+        ],
+        "errors": [],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063680557
+          },
+          {
+            "type": "handshake",
+            "at": 1794063681254,
+            "status": 101
+          }
+        ]
+      }
+    },
+    {
+      "port": 7702,
+      "profile": "P2",
+      "scene": "S4-buffered",
+      "ms": 1208,
+      "probes": 33,
+      "restore_started_at": 1794063741190,
+      "restored_at": 1794063741193,
+      "ws_down_bytes": 12626,
+      "elapsed_ms": 27132,
+      "traffic": {
+        "bytes": 66008,
+        "frames": 375,
+        "prefixes": {
+          "4": 6,
+          "5": 369
+        },
+        "opens": 1,
+        "closes": 0,
+        "controls": [
+          {
+            "features": [
+              "heartbeat",
+              "deflate",
+              "flow",
+              "rtt"
+            ],
+            "type": "hello"
+          },
+          {
+            "id": 1,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "id": 2,
+            "type": "pong"
+          },
+          {
+            "type": "heartbeat"
+          },
+          {
+            "type": "heartbeat"
+          }
+        ],
+        "errors": [],
+        "link_events": [
+          {
+            "attempt": 1,
+            "type": "created",
+            "at": 1794063723931
+          },
+          {
+            "type": "handshake",
+            "at": 1794063724649,
+            "status": 101
+          }
+        ]
+      }
+    }
+  ],
+  "finished": "2026-11-07T15:02:22.435Z"
+}

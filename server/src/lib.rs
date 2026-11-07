@@ -25,7 +25,7 @@ use std::{
     convert::Infallible,
     fs::OpenOptions,
     hash::{Hash, Hasher},
-    io::{Read, Write},
+    io::Write,
     net::SocketAddr,
     path::{Path, PathBuf},
     process::{Command as StdCommand, Stdio},
@@ -41,6 +41,8 @@ use tokio::sync::{broadcast, mpsc};
 use tower_http::{compression::CompressionLayer, cors::CorsLayer};
 
 mod herdr;
+mod pty_io;
+mod static_cache;
 mod tmux_discovery;
 pub mod transcript;
 mod ws_link;
@@ -137,7 +139,18 @@ pub async fn run() {
     start_herdr_events(state.clone());
 
     // Build router
-    let app = build_router(state);
+    let static_cache = static_cache::StaticCache::default();
+    // Compress the entry before listening so the first visitor also uses the cache.
+    let entry = state.static_dir.join("index.html");
+    if let Ok(metadata) = tokio::fs::metadata(&entry).await {
+        if let Err(error) = static_cache
+            .read(&entry, &static_cache::file_etag(&metadata), metadata.len(), true)
+            .await
+        {
+            tracing::warn!("Could not warm frontend cache: {}", error);
+        }
+    }
+    let app = build_router_with_cache(state, static_cache);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cli.port));
     tracing::info!("Listening on http://0.0.0.0:{}", cli.port);
@@ -186,6 +199,10 @@ fn print_access_urls(port: u16) {
 }
 
 pub fn build_router(state: AppState) -> Router {
+    build_router_with_cache(state, static_cache::StaticCache::default())
+}
+
+fn build_router_with_cache(state: AppState, static_cache: static_cache::StaticCache) -> Router {
     let static_dir = state.static_dir.clone();
 
     let cors = CorsLayer::new()
@@ -254,7 +271,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         // Static file serving — catch-all for frontend
         .fallback_service(
-            any(move |req: Request| serve_static(req, static_dir.clone()))
+            any(move |req: Request| serve_static(req, static_dir.clone(), static_cache.clone()))
                 .layer(CompressionLayer::new()),
         )
         .layer(cors)
@@ -505,7 +522,7 @@ fn get_herdr_snapshot(state: &AppState) -> serde_json::Value {
 // STATIC FILE SERVING
 // ═══════════════════════════════════════════════════════════════════════════
 
-async fn serve_static(req: Request, static_dir: PathBuf) -> Response {
+async fn serve_static(req: Request, static_dir: PathBuf, cache: static_cache::StaticCache) -> Response {
     let path = req.uri().path().trim_start_matches('/');
 
     let file_path = static_dir.join(if path.is_empty() { "index.html" } else { path });
@@ -515,12 +532,12 @@ async fn serve_static(req: Request, static_dir: PathBuf) -> Response {
         .ok()
         .filter(|m| m.is_file());
     if let Some(metadata) = metadata {
-        serve_file(&file_path, &metadata, req.headers()).await
+        serve_file(&file_path, &metadata, req.headers(), &cache).await
     } else {
         let index = static_dir.join("index.html");
         match tokio::fs::metadata(&index).await {
             Ok(metadata) if metadata.is_file() => {
-                serve_file(&index, &metadata, req.headers()).await
+                serve_file(&index, &metadata, req.headers(), &cache).await
             }
             _ => (
                 StatusCode::NOT_FOUND,
@@ -535,17 +552,13 @@ async fn serve_file(
     path: &Path,
     metadata: &std::fs::Metadata,
     headers: &axum::http::HeaderMap,
+    cache: &static_cache::StaticCache,
 ) -> Response {
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    let etag = format!("W/\"{:x}-{:x}\"", metadata.len(), modified);
+    let etag = static_cache::file_etag(metadata);
     let cache_headers = [
         (header::CACHE_CONTROL, "no-cache"),
         (header::ETAG, etag.as_str()),
+        (header::VARY, "accept-encoding"),
     ];
     let matches = headers
         .get_all(header::IF_NONE_MATCH)
@@ -559,8 +572,13 @@ async fn serve_file(
     if matches {
         return (StatusCode::NOT_MODIFIED, cache_headers).into_response();
     }
-    match tokio::fs::read(path).await {
-        Ok(contents) => {
+    let compressible = matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("html" | "js" | "css" | "json" | "svg")
+    );
+    let gzip = compressible && metadata.len() >= 256 && static_cache::prefers_gzip(headers);
+    match cache.read(path, &etag, metadata.len(), gzip).await {
+        Ok((contents, compressed)) => {
             let mime = match path.extension().and_then(|e| e.to_str()) {
                 Some("html") => "text/html; charset=utf-8",
                 Some("js") => "application/javascript; charset=utf-8",
@@ -574,7 +592,15 @@ async fn serve_file(
                 Some("ico") => "image/x-icon",
                 _ => "application/octet-stream",
             };
-            ([(header::CONTENT_TYPE, mime)], cache_headers, contents).into_response()
+            let mut response =
+                ([(header::CONTENT_TYPE, mime)], cache_headers, contents).into_response();
+            if compressed {
+                response.headers_mut().insert(
+                    header::CONTENT_ENCODING,
+                    axum::http::HeaderValue::from_static("gzip"),
+                );
+            }
+            response
         }
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
@@ -955,8 +981,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
 
     // Step 3: Spawn PTY (blocking OS calls → spawn_blocking)
     struct PtyHandles {
-        reader: Box<dyn Read + Send>,
-        writer: Box<dyn Write + Send>,
+        reader: std::fs::File,
+        writer: std::fs::File,
+        child: Box<dyn portable_pty::Child + Send + Sync>,
+        cancel: pty_io::Cancel,
+        waiter: pty_io::Waiter,
         master: Box<dyn portable_pty::MasterPty + Send>,
         wrapper_pid: Option<u32>,
     }
@@ -972,6 +1001,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
             })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
+        let (reader, writer) = pty_io::files(pair.master.as_ref())
+            .map_err(|error| format!("Failed to duplicate PTY descriptors: {}", error))?;
+        let (cancel, waiter) = pty_io::cancellation()
+            .map_err(|error| format!("Failed to create PTY cancellation: {}", error))?;
+
         let mut cmd = CommandBuilder::new(wrapper_path);
         cmd.env("TERM", "xterm-256color");
         cmd.env_remove("TMUX");
@@ -982,22 +1016,14 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn shell: {}", e))?;
         let wrapper_pid = child.process_id();
-        drop(child);
-
         drop(pair.slave);
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to take PTY writer: {}", e))?;
 
         Ok(PtyHandles {
             reader,
             writer,
+            child,
+            cancel,
+            waiter,
             master: pair.master,
             wrapper_pid,
         })
@@ -1019,7 +1045,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         }
     };
 
-    let mut pty_reader = pty.reader;
+    let pty_reader = pty.reader;
+    let mut child = pty.child;
+    let io_cancel = pty.cancel;
+    let reader_waiter = pty.waiter.clone();
+    let writer_waiter = pty.waiter;
     let pty_writer = pty.writer;
     let master = Arc::new(Mutex::new(pty.master));
     let wrapper_pid = pty.wrapper_pid;
@@ -1031,45 +1061,13 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
     let (control_tx, mut control_rx) = mpsc::channel::<bytes::Bytes>(16);
 
     let reader_handle = std::thread::spawn(move || {
-        let mut buf = [0u8; 65536];
-        loop {
-            {
-                let (lock, cvar) = &*paused_reader;
-                let mut is_paused = lock.lock().unwrap();
-                if *is_paused {
-                    let result = cvar
-                        .wait_timeout(is_paused, Duration::from_secs(2))
-                        .unwrap();
-                    is_paused = result.0;
-                    if *is_paused {
-                        tracing::warn!("Flow control: auto-resuming after 2s timeout");
-                        *is_paused = false;
-                    }
-                }
-            }
-            match pty_reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if output_tx
-                        .blocking_send(bytes::Bytes::copy_from_slice(&buf[..n]))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
+        pty_io::read_loop(pty_reader, output_tx, paused_reader, reader_waiter);
     });
 
-    let (pty_input_tx, pty_input_rx) = std::sync::mpsc::channel::<bytes::Bytes>();
-
+    // Bound queued input while preserving every byte under PTY backpressure.
+    let (pty_input_tx, pty_input_rx) = mpsc::channel::<bytes::Bytes>(64);
     let writer_handle = std::thread::spawn(move || {
-        let mut writer = pty_writer;
-        for data in pty_input_rx {
-            let _ = writer.write_all(&data);
-        }
-        std::mem::forget(writer);
+        pty_io::write_loop(pty_writer, pty_input_rx, writer_waiter);
     });
 
     // Client TTY tracking
@@ -1201,7 +1199,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
 
                     match cmd {
                         0x30 => {
-                            let _ = pty_input_tx.send(bytes::Bytes::copy_from_slice(payload));
+                            for chunk in payload.chunks(8192) {
+                                if pty_input_tx.send(bytes::Bytes::copy_from_slice(chunk)).await.is_err() {
+                                    return;
+                                }
+                            }
                         }
                         0x31 => {
                             if let Ok(text) = std::str::from_utf8(payload) {
@@ -1292,16 +1294,29 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         }
     }
 
-    drop(master);
-    let _ = reader_handle.join();
-    let _ = writer_handle.join();
-
+    // Clear ownership while these descriptors still reserve the tty name;
+    // a fast reconnect must not have its newly reused tty cleared by old cleanup.
     let cleanup_tty = connection_tty.lock().ok().and_then(|lock| lock.clone());
     if let Ok(mut lock) = state.client_tty.lock() {
         if *lock == cleanup_tty {
             *lock = None;
         }
     }
+
+    io_cancel.cancel();
+    drop(master);
+    // Never block a Tokio worker while waiting for OS threads or the child.
+    let _ = tokio::task::spawn_blocking(move || {
+        let _ = reader_handle.join();
+        let _ = writer_handle.join();
+        if !matches!(child.try_wait(), Ok(Some(_))) {
+            if let Err(error) = child.kill() {
+                tracing::warn!("Failed to stop disconnected PTY shell: {}", error);
+                return;
+            }
+            let _ = child.wait();
+        }
+    }).await;
 
     tracing::info!("Terminal session ended");
 }
@@ -2105,13 +2120,29 @@ fn get_files_diff(git_root: &str) -> DiffResult {
 
 // ─── GET /api/diff ─────────────────────────────────────────────────────────
 
+#[derive(Deserialize)]
+struct DiffQuery {
+    #[serde(flatten)]
+    target: TerminalTargetQuery,
+    #[serde(default)]
+    metadata_only: bool,
+}
+
 async fn api_diff(
     axum::extract::State(state): axum::extract::State<AppState>,
-    Query(target): Query<TerminalTargetQuery>,
+    Query(query): Query<DiffQuery>,
 ) -> Response {
     let outcome = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, ApiError> {
-        let (cwd, git_root) = resolve_git_worktree(&state, &target)?;
+        let (cwd, git_root) = resolve_git_worktree(&state, &query.target)?;
         let branch = get_branch(&git_root);
+        // Status refreshes need repository identity, not a scan of every changed file.
+        if query.metadata_only {
+            return Ok(serde_json::json!({
+                "cwd": cwd,
+                "git_root": git_root,
+                "branch": branch,
+            }));
+        }
         let diff_data = get_files_diff(&git_root);
         Ok(serde_json::json!({
             "cwd": cwd,

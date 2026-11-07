@@ -50,7 +50,7 @@ async function open(port=7702,id=pane){
     return {page,context,traffic,input:page.locator('.xterm-helper-textarea')};
   }catch(error){await context.close();throw error;}
 }
-async function check(name,fn){if(only&&!only.some(prefix=>name.startsWith(prefix)))return;try{const evidence=await fn();results.push({name,passed:true,evidence});}catch(error){results.push({name,passed:false,error:error.stack});}fs.writeFileSync(output,JSON.stringify(results,null,2));console.log(JSON.stringify(results.at(-1)));}
+async function check(name,fn){if(only&&!only.some(number=>name.split(' ',1)[0].split('/').includes(number)))return;try{const evidence=await fn();results.push({name,passed:true,evidence});}catch(error){results.push({name,passed:false,error:error.stack});}fs.writeFileSync(output,JSON.stringify(results,null,2));console.log(JSON.stringify(results.at(-1)));}
 async function shellEcho(run,tag){await run.input.pressSequentially(`printf 'REG_%s\\n' '${tag}'`);await run.input.press('Enter');await run.page.waitForFunction(tag=>document.querySelector('.xterm-rows')?.textContent?.includes('REG_'+tag),tag);return tag;}
 try{
   await profile(7702);await cleanPane();
@@ -95,7 +95,10 @@ try{
   await check('5 switch pane using sidebar',async()=>{
     const r=await open();try{
       await r.page.getByRole('button',{name:'Open sessions sidebar'}).click();
-      const target=manifest.panes['7705'];await r.page.getByRole('button').filter({has:r.page.getByText(target,{exact:true})}).click();
+      const target=manifest.panes['7705'];
+      // Terminal-only workspaces are collapsed by default in the current tree UI.
+      await r.page.locator('[data-terminals-only="true"] > button').click();
+      await r.page.getByRole('button',{name:'mtbench-7705',exact:true}).click();
       await r.page.waitForURL(url=>url.searchParams.get('pane')===target);const close=r.page.getByRole('button',{name:'Close sessions sidebar'});if(await close.isVisible())await close.click();
       await r.page.locator('[title="Connected"]').waitFor({timeout:20000});
       await shellEcho(r,'SWITCHED');return {url:r.page.url(),opens:r.traffic.opens};

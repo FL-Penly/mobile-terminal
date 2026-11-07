@@ -23,5 +23,8 @@ export default defineConfig({
   }, viteSingleFile()],
   build: {
     target: 'esnext',
+    // A few extra build seconds save bytes on every mobile/VPN cold load.
+    minify: 'terser',
+    terserOptions: { compress: { passes: 2 } },
   },
 })

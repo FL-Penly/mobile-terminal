@@ -1,0 +1,259 @@
+[
+  {
+    "name": "1 herdr input and 15 connected indicator",
+    "passed": true,
+    "evidence": {
+      "opens": 1,
+      "closes": 0,
+      "inputs": [
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34367d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":46}"
+        },
+        {
+          "prefix": 49,
+          "hex": "7b2241757468546f6b656e223a22222c22636f6c756d6e73223a35322c22726f7773223a34377d",
+          "text": "{\"AuthToken\":\"\",\"columns\":52,\"rows\":47}"
+        },
+        {
+          "prefix": 48,
+          "hex": "70",
+          "text": "p"
+        },
+        {
+          "prefix": 48,
+          "hex": "72",
+          "text": "r"
+        },
+        {
+          "prefix": 48,
+          "hex": "69",
+          "text": "i"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "74",
+          "text": "t"
+        },
+        {
+          "prefix": 48,
+          "hex": "66",
+          "text": "f"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "47",
+          "text": "G"
+        },
+        {
+          "prefix": 48,
+          "hex": "5f",
+          "text": "_"
+        },
+        {
+          "prefix": 48,
+          "hex": "25",
+          "text": "%"
+        },
+        {
+          "prefix": 48,
+          "hex": "73",
+          "text": "s"
+        },
+        {
+          "prefix": 48,
+          "hex": "5c",
+          "text": "\\"
+        },
+        {
+          "prefix": 48,
+          "hex": "6e",
+          "text": "n"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "20",
+          "text": " "
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "48",
+          "text": "H"
+        },
+        {
+          "prefix": 48,
+          "hex": "45",
+          "text": "E"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "44",
+          "text": "D"
+        },
+        {
+          "prefix": 48,
+          "hex": "52",
+          "text": "R"
+        },
+        {
+          "prefix": 48,
+          "hex": "27",
+          "text": "'"
+        },
+        {
+          "prefix": 48,
+          "hex": "0d",
+          "text": "\r"
+        }
+      ],
+      "prefixes": {
+        "52": 2,
+        "53": 7
+      },
+      "controls": [
+        {
+          "features": [
+            "heartbeat",
+            "deflate",
+            "flow",
+            "rtt"
+          ],
+          "type": "hello"
+        },
+        {
+          "id": 1,
+          "type": "pong"
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "2 multiline paste API through text input UI",
+    "passed": true,
+    "evidence": {
+      "response": {
+        "byteLength": 57,
+        "paneId": "w3:p1",
+        "result": {
+          "type": "ok"
+        },
+        "submitted": false,
+        "success": true
+      },
+      "text": "SIM READY                                           \n                                                    \nSTOPPED                                             \n➜  mobile-terminal git:(master) ✗ printf 'REG_%s\\n' \n'HERDR'                                             \nREG_HERDR                                           \n➜  mobile-terminal git:(master) ✗                   \n➜  mobile-terminal git:(master) ✗ printf 'PASTE_%s\\n\n' 'FIRST'                                           \nprintf 'PASTE_%s\\n' 'SECOND'                        \n                                                    \nPASTE_FIRST                                         \nPASTE_SECOND                                        \n➜  mobile-terminal git:(master) ✗                   \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    \n                                                    "
+    }
+  },
+  {
+    "name": "3 Ctrl Alt Shift arrow combinations",
+    "passed": true,
+    "evidence": [
+      {
+        "modifier": "Ctrl",
+        "key": "ArrowLeft",
+        "expected": "1b5b313b3544"
+      },
+      {
+        "modifier": "Alt",
+        "key": "ArrowRight",
+        "expected": "1b5b313b3343"
+      },
+      {
+        "modifier": "Shift",
+        "key": "ArrowUp",
+        "expected": "1b5b313b3241"
+      }
+    ]
+  },
+  {
+    "name": "4 pinch emits correct resized dimensions",
+    "passed": true,
+    "evidence": {
+      "resizes": [
+        {
+          "AuthToken": "",
+          "columns": 32,
+          "rows": 30
+        }
+      ],
+      "domRows": 30,
+      "fontSize": "19"
+    }
+  },
+  {
+    "name": "5 switch pane using sidebar",
+    "passed": false,
+    "error": "locator.click: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - waiting for getByRole('button').filter({ has: getByText('w6:p1', { exact: true }) })\u001b[22m\n\n    at /data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:98:128\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:95:3"
+  },
+  {
+    "name": "6 takeover under P0",
+    "passed": false,
+    "error": "browser.newContext: Target page, context or browser has been closed\n    at async open (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:42:17)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:105:60\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:104:33"
+  },
+  {
+    "name": "6 takeover under P2",
+    "passed": false,
+    "error": "browser.newContext: Target page, context or browser has been closed\n    at async open (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:42:17)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:105:60\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:104:33"
+  },
+  {
+    "name": "7 hidden controller release and visible restore",
+    "passed": false,
+    "error": "browser.newContext: Target page, context or browser has been closed\n    at async open (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:42:17)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:115:13\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:114:3"
+  },
+  {
+    "name": "11 Git Diff panel",
+    "passed": false,
+    "error": "browser.newContext: Target page, context or browser has been closed\n    at async open (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:42:17)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:142:70\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:131:3"
+  },
+  {
+    "name": "12 image paste upload",
+    "passed": false,
+    "error": "browser.newContext: Target page, context or browser has been closed\n    at async open (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:42:17)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:153:57\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:153:3"
+  },
+  {
+    "name": "13 goal and prompt boards load with gzip",
+    "passed": false,
+    "error": "browser.newContext: Target page, context or browser has been closed\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:162:19\n    at async check (/data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:53:110)\n    at async file:///data00/home/fengliang.975/project/mobile-terminal/scripts/weaknet/regression.mjs:161:3"
+  }
+]

@@ -7,7 +7,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 
 import '@xterm/xterm/css/xterm.css'
 import { useTerminal } from '../contexts/TerminalContext'
-import { useServerEvents } from '../contexts/ServerEventsContext'
+import { useTerminalModes } from '../contexts/ServerEventsContext'
 import { ZerolagInputAddon } from 'xterm-zerolag-input'
 import { CopyModeOverlay } from './CopyModeOverlay'
 import { AltScreenTranscript } from '../utils/alt-screen-transcript'
@@ -16,7 +16,6 @@ import { createTerminalPasteHandler, type PasteResultCapture } from '../utils/te
 import { createTerminalKeyHandler } from '../utils/terminal-key-input'
 import { observeTerminalResize } from '../utils/terminal-resize'
 import { attachCopyOnSelect } from '../utils/terminal-selection'
-import { isLensChatPane } from '../utils/herdr-sessions'
 import { sgrClick, WheelStepper } from '../utils/lens-chat-mouse'
 import { requestSignal } from '../utils/network-quality'
 
@@ -29,7 +28,7 @@ export const Terminal = () => {
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const { subscribeOutput, sendInput, registerPasteHandler, registerKeyHandler, sendControl, resize, setClientTty, mux, paneId } = useTerminal()
-  const { tuiActive, herdrScrollback, herdrPayload } = useServerEvents()
+  const { tuiActive, herdrScrollback, lensChat } = useTerminalModes()
   const setClientTtyRef = useRef(setClientTty)
   
   const [fontSize, setFontSize] = useState(() => {
@@ -78,8 +77,8 @@ export const Terminal = () => {
   }, [paneId])
   useEffect(() => { herdrScrollbackRef.current = herdrScrollback }, [herdrScrollback])
   useEffect(() => {
-    lensChatRef.current = mux === 'herdr' && isLensChatPane(herdrPayload, paneId)
-  }, [mux, herdrPayload, paneId])
+    lensChatRef.current = lensChat
+  }, [lensChat])
 
   const flushHerdrScroll = useCallback(async () => {
     const scroll = herdrScrollRef.current
@@ -344,24 +343,26 @@ export const Terminal = () => {
     const unicode11Addon = new Unicode11Addon()
     term.loadAddon(unicode11Addon)
     term.unicode.activeVersion = '11'
+    // Activate WebGL after open: otherwise xterm defers activation to an event,
+    // and an unsupported GPU throws outside this fallback's try/catch.
+    term.open(containerRef.current)
     let renderer: 'webgl' | 'dom' = 'dom'
+    let webglAddon: WebglAddon | undefined
     try {
-      const webglAddon = new WebglAddon()
+      webglAddon = new WebglAddon()
       webglAddon.onContextLoss(() => {
         console.warn('[Terminal] WebGL context lost, falling back to DOM')
-        webglAddon.dispose()
+        webglAddon?.dispose()
       })
       term.loadAddon(webglAddon)
       renderer = 'webgl'
     } catch {
+      webglAddon?.dispose()
       renderer = 'dom'
     }
 
     term.loadAddon(new ClipboardAddon())
     console.log(`[Terminal] Using ${renderer} renderer`)
-
-    // Open terminal in container
-    term.open(containerRef.current)
 
     // Mobile keyboard management: lock virtual keyboard by default on touch devices
     const xtermTextarea = containerRef.current.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null

@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { useTerminal } from '../contexts/TerminalContext'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { Toolbar } from './Toolbar'
 import { StatusBar } from './StatusBar'
 import { ConnectionOverlay } from './ConnectionOverlay'
-import { useTerminal } from '../contexts/TerminalContext'
 import { TmuxSidebar } from './TmuxSidebar'
 
 const SIDEBAR_COLLAPSED_KEY = 'tmux_sidebar_collapsed'
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { terminalRef } = useTerminal()
+  const isDesktop = useMediaQuery('(min-width: 768px)')
   const [viewportHeight, setViewportHeight] = useState<number | null>(null)
   const [desktopCollapsed, setDesktopCollapsed] = useState(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -37,7 +39,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const heightStyle = viewportHeight ? { height: `${viewportHeight}px` } : { height: '100dvh' }
 
   const openSessions = () => {
-    if (window.matchMedia('(min-width: 768px)').matches) {
+    if (isDesktop) {
       setDesktopCollapsed(false)
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'false')
     } else {
@@ -58,7 +60,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       <StatusBar onOpenSessions={openSessions} />
 
       <div className="relative flex min-h-0 flex-1">
-        {!desktopCollapsed && (
+        {isDesktop && !desktopCollapsed && (
           <div className="hidden h-full shrink-0 md:block">
             <TmuxSidebar mobile={false} onClose={() => undefined} onCollapseDesktop={collapseDesktop} />
           </div>
@@ -69,7 +71,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         >
           {children}
         </div>
-        {mobileOpen && (
+        {!isDesktop && mobileOpen && (
           <div className="fixed inset-0 z-50 md:hidden">
             <button className="absolute inset-0 bg-black/70" onClick={() => setMobileOpen(false)} aria-label="Close sessions drawer overlay" />
             <div className="absolute inset-y-0 left-0 shadow-2xl">

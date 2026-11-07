@@ -405,3 +405,42 @@ async fn api_and_sse_responses_are_not_compressed() {
         }
     }
 }
+
+#[tokio::test]
+async fn cached_static_variants_stay_fresh_and_respect_encoding() {
+    use http_body_util::BodyExt;
+    use std::io::Read;
+
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("index.html");
+    let app = common::test_app_with_static_dir(temp.path().into());
+    let mut previous_etag = String::new();
+    for text in ["first page 中文", "updated page with more content 中文"] {
+        let content = text.repeat(100);
+        std::fs::write(&path, &content).unwrap();
+        let mut etag = String::new();
+        for encoding in ["gzip", "identity", "gzip;q=0", "gzip"] {
+            let response = static_request(app.clone(), "/", &[("accept-encoding", encoding)]).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response.headers()["vary"].to_str().unwrap().contains("accept-encoding"));
+            etag = response.headers()["etag"].to_str().unwrap().to_owned();
+            assert_ne!(etag, previous_etag);
+            let compressed = response.headers().contains_key("content-encoding");
+            assert_eq!(compressed, encoding == "gzip");
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            if compressed {
+                let mut decoded = String::new();
+                flate2::read::GzDecoder::new(bytes.as_ref()).read_to_string(&mut decoded).unwrap();
+                assert_eq!(decoded, content);
+            } else {
+                assert_eq!(bytes, content);
+            }
+        }
+        let cached = static_request(app.clone(), "/", &[("accept-encoding", "gzip"), ("if-none-match", &etag)]).await;
+        assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+        assert!(cached.headers()["vary"].to_str().unwrap().contains("accept-encoding"));
+        previous_etag = etag;
+    }
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(send_get(app, "/").await.status(), StatusCode::NOT_FOUND);
+}

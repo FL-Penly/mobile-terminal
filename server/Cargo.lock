@@ -890,6 +890,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "http-body-util",
+ "nix",
  "portable-pty",
  "serde",
  "serde_json",

@@ -423,7 +423,7 @@ mod tests {
 
         fn tmux(&self, args: &[&str]) -> String {
             let output = Command::new("tmux")
-                .args(["-L", &self.socket])
+                .args(["-L", &self.socket, "-f", "/dev/null"])
                 .args(args)
                 .output()
                 .unwrap();
@@ -470,6 +470,7 @@ mod tests {
             "任意 session",
             "-c",
             subdir.to_string_lossy().as_ref(),
+            "/bin/sh",
         ]);
         isolated.tmux(&[
             "new-session",
@@ -478,6 +479,7 @@ mod tests {
             "second",
             "-c",
             repo_b.to_string_lossy().as_ref(),
+            "/bin/sh",
         ]);
 
         let mut cache = GitRootCache::default();

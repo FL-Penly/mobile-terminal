@@ -51,7 +51,7 @@ const terminal = {
   mux: 'herdr', paneId: 'p1',
 }
 vi.mock('../../contexts/TerminalContext', () => ({ useTerminal: () => terminal }))
-vi.mock('../../contexts/ServerEventsContext', () => ({ useServerEvents: () => ({ tuiActive: true, herdrScrollback: false }) }))
+vi.mock('../../contexts/ServerEventsContext', () => ({ useTerminalModes: () => ({ tuiActive: true, herdrScrollback: false, lensChat: false }) }))
 
 const tap = (container: HTMLElement) => {
   const touch = { clientX: 10, clientY: 10 }

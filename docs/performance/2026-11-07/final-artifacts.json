@@ -1,0 +1,8 @@
+{
+  "gzipBytes": 234183,
+  "etag": "W/\"cfa20-18e5ccbc7735d06f\"",
+  "sha256": {
+    "frontend/dist/index.html": "afc0b5fc306a11e29c3c4a5bfa1953ca90e02fce80dbb873fcf51d67fdb0673d",
+    "server/target/release/rust-terminal": "c416b50292cb9e32d7102d699184efa0f0449f1a3bb2419f5b5b269e0af23da6"
+  }
+}

@@ -123,6 +123,27 @@ async fn diff_endpoint_returns_branch_and_files_for_clean_repo() {
 
 #[tokio::test]
 #[serial]
+async fn diff_metadata_matches_full_response_without_transferring_file_contents() {
+    let repo = TestRepo::new();
+    repo.write("README.md", "# updated\n");
+    repo.write("large.txt", &"untracked content\n".repeat(10_000));
+
+    let metadata = send_get(test_app(), "/api/diff?metadata_only=true").await;
+    assert_status(&metadata, StatusCode::OK);
+    let metadata = body_json(metadata).await;
+    let full = body_json(send_get(test_app(), "/api/diff").await).await;
+    for key in ["cwd", "git_root", "branch"] {
+        assert_eq!(metadata[key], full[key]);
+    }
+    assert!(metadata.get("files").is_none());
+    assert!(metadata.get("summary").is_none());
+    assert_eq!(full["files"].as_array().unwrap().len(), 2);
+    assert!(metadata.to_string().len() < 1024);
+    assert!(full.to_string().len() > 170_000);
+}
+
+#[tokio::test]
+#[serial]
 async fn diff_endpoint_returns_unstaged_modification() {
     let repo = TestRepo::new();
     repo.write("README.md", "# updated\n");
@@ -347,9 +368,12 @@ async fn cwd_endpoint_returns_exact_tempdir_path() {
 #[serial]
 async fn diff_in_non_git_dir_returns_not_git_repo() {
     let _dir = NonGitDir::new();
-    let resp = send_get(test_app(), "/api/diff").await;
-    let body = body_json(resp).await;
-    assert_eq!(body["error"], "not_git_repo", "full body: {:?}", body);
+    for url in ["/api/diff", "/api/diff?metadata_only=true"] {
+        let resp = send_get(test_app(), url).await;
+        assert_status(&resp, StatusCode::BAD_REQUEST);
+        let body = body_json(resp).await;
+        assert_eq!(body["error"], "not_git_repo", "full body: {:?}", body);
+    }
 }
 
 #[tokio::test]
